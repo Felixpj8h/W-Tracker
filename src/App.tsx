@@ -80,7 +80,7 @@ type Dash = {
     }[];
 };
 type Page = 'dashboard' | 'routines' | 'workout' | 'history';
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
+const API = import.meta.env.VITE_API_URL ?? `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
 const today = () => new Date().toISOString().slice(0, 10);
 const fieldValue = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 async function api<T>(path: string, opts?: RequestInit): Promise<T> { const r = await fetch(API + path, { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok)
