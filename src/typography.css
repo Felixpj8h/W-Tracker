@@ -1,0 +1,42 @@
+:root {
+  font-synthesis: none;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: "Manrope", Arial, sans-serif;
+}
+
+h1,
+h2,
+h3,
+strong,
+button {
+  font-feature-settings: "ss01" 1, "cv02" 1;
+}
+
+.overline,
+.title,
+.exercise-note,
+.addexercise p,
+.picker-folder,
+.modal > label,
+.routine-intro > div span,
+.day-tag,
+.builder-basics label,
+.add-exercise-label,
+.builder-list-head,
+.setlabels {
+  font-family: "IBM Plex Mono", Consolas, monospace !important;
+  font-weight: 600;
+  letter-spacing: .09em;
+}
+
+.head h1,
+.session-name {
+  font-weight: 800;
+  letter-spacing: -.06em;
+}
