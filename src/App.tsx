@@ -1,122 +1,34 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+type Exercise = { id:number; name:string; equipment:string; primary_muscle?:string|null; muscle_group?:string|null }
+type Item = { exercise_id?:number; exercise?:Exercise; name:string; primary_muscle?:string|null; muscle_group?:string|null; planned_sets?:number; target_reps?:number; target_weight?:number; sets?:{weight:number;reps:number}[] }
+type Routine = { id:number; name:string; folder_id?:number; exercises:Item[] }
+type Folder = { id:number; name:string; routines:Routine[] }
+type Workout = { id?:number; name:string; performed_on:string; exercises:Item[] }
+type Dash = { latest_weight:{recorded_on:string;weight:number}|null; weight_series:{recorded_on:string;weight:number}[]; total_current_volume:number;total_previous_volume:number;volume_by_muscle_group:{name:string;current_week_volume:number;last_week_volume:number}[] }
+type Page='dashboard'|'routines'|'workout'|'history'
+const API=import.meta.env.VITE_API_URL??'http://localhost:8000/api/v1'; const today=()=>new Date().toISOString().slice(0,10)
+async function api<T>(path:string, opts?:RequestInit):Promise<T>{const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts});if(!r.ok)throw Error('Could not reach the tracker server');return r.json()}
+const vol=(n:number)=>n>=1000?`${(n/1000).toFixed(1)}k`:Math.round(n).toString()
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
-}
-
-export default App
+export default function App(){const [page,setPage]=useState<Page>('dashboard'),[dash,setDash]=useState<Dash|null>(null),[folders,setFolders]=useState<Folder[]>([]),[history,setHistory]=useState<Workout[]>([]),[workout,setWorkout]=useState<Workout|null>(null),[message,setMessage]=useState(''),[error,setError]=useState('');const load=async()=>{try{const [d,f,h]=await Promise.all([api<Dash>('/dashboard'),api<Folder[]>('/folders'),api<Workout[]>('/workouts')]);setDash(d);setFolders(f);setHistory(h);setError('')}catch(e){setError(e instanceof Error?e.message:'Load failed')}};useEffect(()=>{void load()},[]);const note=(x:string)=>{setMessage(x);setTimeout(()=>setMessage(''),2400)};const start=async(r:Routine)=>{try{setWorkout(await api<Workout>(`/routines/${r.id}/start`,{method:'POST'}))}catch{setWorkout({name:r.name,performed_on:today(),exercises:r.exercises.map(x=>({...x,sets:Array.from({length:x.planned_sets??3},()=>({weight:x.target_weight??0,reps:x.target_reps??0}))}))})}setPage('workout')};return <div className="app"><Side page={page} setPage={setPage}/><main>{error&&<div className="error">{error} — start the FastAPI server to save data.</div>}{message&&<div className="toast">{message}</div>}{page==='dashboard'&&<Dashboard dash={dash} log={()=>{setWorkout({name:'Free workout',performed_on:today(),exercises:[]});setPage('workout')}} saveWeight={async weight=>{await api('/bodyweight',{method:'POST',body:JSON.stringify({recorded_on:today(),weight})});await load();note('Bodyweight saved')}}/>}{page==='routines'&&<Routines folders={folders} refresh={load} start={start} note={note}/>} {page==='workout'&&<Logger workout={workout??{name:'Free workout',performed_on:today(),exercises:[]}} setWorkout={setWorkout} finish={async x=>{await api(x.id?`/workouts/${x.id}`:'/workouts',{method:x.id?'PUT':'POST',body:JSON.stringify(x)});await load();note('Workout finished');setPage('dashboard')}}/>}{page==='history'&&<History data={history}/>}</main><div className="mobile">{(['dashboard','routines','workout','history']as Page[]).map(x=><button key={x} onClick={()=>setPage(x)}>{x==='dashboard'?'⌂':x==='routines'?'▤':x==='workout'?'＋':'◷'}<small>{x}</small></button>)}</div></div>}
+function Side({page,setPage}:{page:Page;setPage:(p:Page)=>void}){return <aside><div className="brand"><b>W</b><span>workout<br/>tracker</span></div><div className="person"><i>F</i><div><b>My training</b><small>Personal workspace</small></div></div><nav>{([['dashboard','▦','Dashboard'],['routines','▤','Routines'],['workout','＋','Log workout'],['history','◷','History']]as const).map(([id,icon,name])=><button key={id} className={page===id?'active':''} onClick={()=>setPage(id)}><i>{icon}</i>{name}</button>)}</nav><footer>Built for the work.</footer></aside>}
+function Head({children,action}:{children:React.ReactNode;action?:React.ReactNode}){return <header className="head"><div>{children}</div>{action}</header>}
+function Dashboard({dash,log,saveWeight}:{dash:Dash|null;log:()=>void;saveWeight:(n:number)=>Promise<void>}){const [weight,setWeight]=useState('');const groups=dash?.volume_by_muscle_group??[];const max=Math.max(1,...groups.flatMap(x=>[x.current_week_volume,x.last_week_volume]));return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">YOUR TRAINING SPACE</p><h1>Progress, <em>made visible.</em></h1><p>Track the work, then learn from it.</p></Head><section className="stats"><Stat label="Current weight" value={dash?.latest_weight?`${dash.latest_weight.weight.toFixed(1)} kg`:'—'} sub={dash?.latest_weight?'Latest tracked entry':'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume??0)} kg`} sub={dash?.total_previous_volume?`${Math.round(((dash.total_current_volume-dash.total_previous_volume)/dash.total_previous_volume)*100)}% vs last week`:'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume??0)} kg`} sub="Completed load volume"/></section><section className="grid"><article className="card"><Title n="01" text="Bodyweight"/><div className="weight"><div><strong>{dash?.latest_weight?.weight.toFixed(1)??'—'} <small>kg</small></strong><p>Current tracked weight</p></div><form onSubmit={e=>{e.preventDefault();if(+weight)void saveWeight(+weight).then(()=>setWeight(''))}}><input value={weight} onChange={e=>setWeight(e.target.value)} placeholder="kg" inputMode="decimal"/><button>Save</button></form></div><Line values={dash?.weight_series??[]}/></article><article className="card"><Title n="02" text="Volume by muscle group"/><div className="legend"><span><i/>This week</span><span><i/>Last week</span></div>{groups.map(x=><div className="bar" key={x.name}><div><b>{x.name}</b><span>{vol(x.current_week_volume)} kg</span></div><div><i style={{width:`${x.current_week_volume/max*100}%`}}/><i style={{width:`${x.last_week_volume/max*100}%`}}/></div></div>)}</article></section><section className="prompt"><div><p className="overline">READY WHEN YOU ARE</p><h2>Make today count.</h2><span>Start a fresh workout or choose a saved routine.</span></div><button className="primary" onClick={log}>Start logging <b>→</b></button></section></>}
+function Stat({label,value,sub}:{label:string;value:string;sub:string}){return <article><span>{label}</span><strong>{value}</strong><small>{sub}</small></article>};function Title({n,text}:{n:string;text:string}){return <p className="title">{n} · {text}</p>};function Line({values}:{values:{weight:number}[]}){const pts=values.map((_,i)=>`${values.length<2?50:i/(values.length-1)*100},${90-i/(values.length-1||1)*45}`).join(' ');return <div className="chart">{values.length?<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={pts}/></svg>:<span>Bodyweight entries will appear here.</span>}</div>}
+function Routines({folders,refresh,start,note}:{folders:Folder[];refresh:()=>Promise<void>;start:(r:Routine)=>void;note:(s:string)=>void}){const [edit,setEdit]=useState<Routine|null>(null),[folder,setFolder]=useState('');const add=async(e:FormEvent)=>{e.preventDefault();if(!folder)return;await api('/folders',{method:'POST',body:JSON.stringify({name:folder})});setFolder('');await refresh()};return <><Head action={<button className="primary" onClick={()=>setEdit({id:0,name:'New routine',exercises:[]})}>New routine <b>＋</b></button>}><p className="overline">YOUR TRAINING LIBRARY</p><h1>Routines.</h1><p>Build repeatable sessions around the way you train.</p></Head><form className="folder" onSubmit={add}><input placeholder="New routine folder, e.g. Upper / Lower" value={folder} onChange={e=>setFolder(e.target.value)}/><button>Add folder</button></form>{folders.length===0&&<div className="empty">Create a folder, then add your first routine.</div>}{folders.map(f=><section className="routine-folder" key={f.id}><h2>⌄ &nbsp;{f.name} <small>({f.routines.length})</small></h2><div>{f.routines.map(r=><article className="routine" key={r.id}><div><h3>{r.name}</h3><p>{r.exercises.map(x=>x.exercise?.name).join(', ')||'No exercises yet'}</p></div><div><button onClick={()=>setEdit(r)}>Edit</button><button className="primary small" onClick={()=>start(r)}>Start →</button></div></article>)}<button className="add" onClick={()=>setEdit({id:0,name:'New routine',folder_id:f.id,exercises:[]})}>＋ Add a routine</button></div></section>)}{edit&&<Editor routine={edit} folders={folders} close={()=>setEdit(null)} done={async()=>{setEdit(null);await refresh();note('Routine saved')}}/>}</>}
+function Editor({routine,folders,close,done}:{routine:Routine;folders:Folder[];close:()=>void;done:()=>Promise<void>}){const [name,setName]=useState(routine.name),[folder,setFolder]=useState(String(routine.folder_id??folders[0]?.id??'')),[items,setItems]=useState(routine.exercises),[q,setQ]=useState(''),[results,setResults]=useState<Exercise[]>([]);useEffect(()=>{const t=setTimeout(()=>{if(q)void api<Exercise[]>(`/exercises?q=${encodeURIComponent(q)}`).then(setResults).catch(()=>setResults([]))},250);return()=>clearTimeout(t)},[q]);return <div className="back"><form className="modal" onSubmit={async e=>{e.preventDefault();await api(routine.id?`/routines/${routine.id}`:'/routines',{method:routine.id?'PUT':'POST',body:JSON.stringify({name,folder_id:+folder,exercises:items.map(x=>({exercise_id:x.exercise_id,planned_sets:x.planned_sets,target_reps:x.target_reps,target_weight:x.target_weight}))})});await done()}}><div className="modal-head"><h2>{routine.id?'Edit routine':'New routine'}</h2><button type="button" onClick={close}>×</button></div><label>ROUTINE NAME<input value={name} onChange={e=>setName(e.target.value)}/></label><label>FOLDER<select value={folder} onChange={e=>setFolder(e.target.value)}>{folders.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select></label><label>ADD EXERCISE<input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search Wger exercises"/></label><div className="search">{results.map(x=><button type="button" key={x.id} onClick={()=>{if(!items.some(i=>i.exercise_id===x.id))setItems([...items,{exercise_id:x.id,exercise:x,name:x.name,planned_sets:3,target_reps:8}]);setQ('');setResults([])}}><span><b>{x.name}</b><small>{x.primary_muscle??'Unmapped'} · {x.equipment}</small></span>＋</button>)}</div><div className="items">{items.map((x,i)=><div key={x.exercise_id}><b>{x.exercise?.name??x.name}</b><input type="number" min="1" value={x.planned_sets} onChange={e=>setItems(items.map((a,j)=>j===i?{...a,planned_sets:+e.target.value}:a))}/><input type="number" min="1" value={x.target_reps} onChange={e=>setItems(items.map((a,j)=>j===i?{...a,target_reps:+e.target.value}:a))}/><button type="button" onClick={()=>setItems(items.filter((_,j)=>j!==i))}>Remove</button></div>)}</div><button className="primary wide">Save routine →</button></form></div>}
+function Logger({workout,setWorkout,finish}:{workout:Workout;setWorkout:(x:Workout)=>void;finish:(x:Workout)=>Promise<void>}){
+  const [q,setQ]=useState(''),[results,setResults]=useState<Exercise[]>([])
+  useEffect(()=>{const t=setTimeout(()=>{if(q)void api<Exercise[]>(`/exercises?q=${encodeURIComponent(q)}`).then(setResults).catch(()=>setResults([]))},250);return()=>clearTimeout(t)},[q])
+  const update=(i:number,j:number,k:'weight'|'reps',v:number)=>setWorkout({...workout,exercises:workout.exercises.map((x,a)=>a===i?{...x,sets:x.sets?.map((s,b)=>b===j?{...s,[k]:v}:s)}:x)})
+  const add = (x: Exercise) => {
+    const item: Item = { exercise_id: x.id, name: x.name, primary_muscle: x.primary_muscle, muscle_group: x.muscle_group, sets: [{ weight: 0, reps: 0 }] }
+    setWorkout({ ...workout, exercises: [...workout.exercises, item] })
+    setQ('')
+    setResults([])
+  }
+  return <><Head action={<button className="primary" onClick={()=>void finish(workout)}>Finish workout ✓</button>}><p className="overline">ACTIVE SESSION · {workout.performed_on}</p><input className="session-name" value={workout.name} onChange={e=>setWorkout({...workout,name:e.target.value})}/></Head><section className="logger">{workout.exercises.map((x,i)=><article key={i}><div className="log-head"><div><h2>{x.name}</h2><p>{x.primary_muscle??'Unmapped muscle'}</p></div><button onClick={()=>setWorkout({...workout,exercises:workout.exercises.filter((_,j)=>j!==i)})}>Remove</button></div><div className="setlabels"><span>SET</span><span>KG</span><span>REPS</span></div>{x.sets?.map((s,j)=><div className="set" key={j}><span>{j+1}</span><input value={s.weight||''} inputMode="decimal" onChange={e=>update(i,j,'weight',+e.target.value)} placeholder="0"/><input value={s.reps||''} inputMode="numeric" onChange={e=>update(i,j,'reps',+e.target.value)} placeholder="0"/></div>)}<button className="addset" onClick={()=>setWorkout({...workout,exercises:workout.exercises.map((a,j)=>j===i?{...a,sets:[...(a.sets??[]),{weight:0,reps:0}]}:a)})}>＋ Add set</button></article>)}<div className="addexercise"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Add an exercise from Wger"/>{results.map(x=><button key={x.id} onClick={()=>add(x)}><span>{x.name}<small>{x.primary_muscle} · {x.equipment}</small></span>＋</button>)}</div></section></>}
+function History({data}:{data:Workout[]}){return <><Head><p className="overline">COMPLETED TRAINING</p><h1>Workout history.</h1><p>Your finished sessions, kept intact.</p></Head><section className="history">{data.length?data.map((x,i)=><article key={i}><span>{x.performed_on}</span><h2>{x.name}</h2><p>{x.exercises.length} exercises · {x.exercises.reduce((a,e)=>a+(e.sets??[]).reduce((b,s)=>b+s.weight*s.reps,0),0).toLocaleString()} kg volume</p></article>):<div className="empty">No completed workouts yet.</div>}</section></>}

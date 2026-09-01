@@ -1,32 +1,26 @@
-# React + TypeScript + Vite
+# Workout Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A local, Hevy-inspired workout tracker with routines, editable workout sessions, bodyweight logging, weekly muscle-group volume analytics, and Wger-powered exercise search.
 
-Currently, two official plugins are available:
+## Run the app
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Start the API from the `backend` folder after installing its requirements:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+fastapi dev app/main.py
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The server runs at `http://localhost:8000` and creates `backend/workout_tracker.db` automatically. Then, in a separate terminal at the project root, run:
+
+```text
+npm run dev
+```
+
+The Vite interface is available at `http://localhost:5173`.
+
+## Notes
+
+- SQLite stores one local user’s routines, workout history, and bodyweight entries.
+- Weekly volume is weight × reps, using Monday–Sunday weeks.
+- Volume is counted once against each exercise’s primary mapped muscle group: legs, back, core, chest, shoulders, or arms.
+- Exercise search is performed by FastAPI against Wger and cached locally. A small fallback catalogue is seeded for offline use.

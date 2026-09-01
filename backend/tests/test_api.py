@@ -1,0 +1,42 @@
+from fastapi.testclient import TestClient
+
+from app.main import Base, engine, app
+
+
+client = TestClient(app)
+
+
+def reset_db():
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    app.router.on_startup[0]()
+
+
+def test_routine_to_workout_updates_volume_and_all_groups_present():
+    reset_db()
+    exercises = client.get("/api/v1/exercises").json()
+    chest = next(item for item in exercises if item["muscle_group"] == "Chest")
+    folder = client.post("/api/v1/folders", json={"name": "Upper"}).json()
+    routine = client.post("/api/v1/routines", json={
+        "name": "Push", "folder_id": folder["id"],
+        "exercises": [{"exercise_id": chest["id"], "planned_sets": 3, "target_reps": 8, "target_weight": 60}],
+    }).json()
+    draft = client.post(f"/api/v1/routines/{routine['id']}/start").json()
+    response = client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "name": draft["name"], "performed_on": draft["performed_on"],
+        "exercises": [{"exercise_id": chest["id"], "sets": [{"weight": 60, "reps": 8}] * 3}],
+    })
+    assert response.status_code == 200
+    dashboard = client.get("/api/v1/dashboard").json()
+    groups = {item["name"]: item["current_week_volume"] for item in dashboard["volume_by_muscle_group"]}
+    assert set(groups) == {"Legs", "Back", "Core", "Chest", "Shoulders", "Arms"}
+    assert groups["Chest"] == 1440
+
+
+def test_bodyweight_entry_is_upserted_by_day():
+    reset_db()
+    payload = {"recorded_on": "2026-09-01", "weight": 82.5}
+    assert client.post("/api/v1/bodyweight", json=payload).status_code == 200
+    assert client.post("/api/v1/bodyweight", json={**payload, "weight": 82.2}).status_code == 200
+    entries = client.get("/api/v1/bodyweight").json()
+    assert entries == [{"recorded_on": "2026-09-01", "weight": 82.2}]
