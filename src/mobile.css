@@ -39,3 +39,54 @@
   .workspace,main.workspace{min-height:100dvh!important;padding-bottom:calc(88px + env(safe-area-inset-bottom))!important}
   .mobile{display:flex!important;position:fixed!important;right:0;bottom:0;left:0;width:100%;background:var(--surface);border-top:1px solid var(--border)}
 }
+
+@media(max-width:760px){
+  .dash-tabs,.dashboard-panels,.head:has(+.dash-tabs){will-change:transform,filter;transition:transform .34s cubic-bezier(.22,.8,.25,1),filter .28s ease,opacity .28s ease}
+  .dash-tabs.dashboard-raised{position:relative;z-index:3;transform:translateY(-82px);margin-bottom:-70px!important;background:color-mix(in srgb,var(--surface) 82%,transparent)!important;backdrop-filter:blur(14px);border-color:color-mix(in srgb,var(--accent) 28%,var(--border))!important;box-shadow:0 14px 34px var(--shadow)!important}
+  .dash-tabs.dashboard-raised+.dashboard-panels{position:relative;z-index:2;transform:translateY(-82px);padding:12px;border:1px solid color-mix(in srgb,var(--border) 75%,transparent);border-radius:16px;background:color-mix(in srgb,var(--surface) 72%,transparent);backdrop-filter:blur(14px);box-shadow:0 18px 42px var(--shadow)}
+  body:has(.dash-tabs.dashboard-raised) .head:has(+.dash-tabs){filter:blur(2px);opacity:.42;transform:scale(.98);pointer-events:none}
+}
+
+@media(max-width:760px){
+  .dash-tabs.dashboard-raised{transform:translateY(-112px);margin-bottom:12px!important}
+  .dash-tabs.dashboard-raised+.dashboard-panels{transform:translateY(-112px);margin-bottom:-112px}
+}
+
+@media(max-width:760px){
+  .logger .log-exercise.open{position:relative;z-index:4;transform:translateY(-96px);margin-bottom:-96px;background:color-mix(in srgb,var(--surface) 84%,transparent);backdrop-filter:blur(14px);border-color:color-mix(in srgb,var(--accent) 28%,var(--border));box-shadow:0 20px 44px var(--shadow);animation:exercise-sheet-in .34s cubic-bezier(.22,.8,.25,1) both}
+  .logger .log-exercise.open .exercise-body{max-height:calc(100dvh - 170px);overflow-y:auto;overscroll-behavior:contain}
+  body:has(.logger .log-exercise.open) .head:has(+.logger)>div{filter:blur(2px);opacity:.4;transform:scale(.98);transition:transform .28s ease,filter .28s ease,opacity .28s ease}
+  body:has(.logger .log-exercise.open) .head:has(+.logger)>.primary{position:relative;z-index:5}
+}
+
+@keyframes exercise-sheet-in{from{opacity:.7;transform:translateY(-58px) scale(.985)}to{opacity:1;transform:translateY(-96px) scale(1)}}
+
+@media(max-width:760px){
+  .logger .log-exercise.open{transform:none;margin-bottom:0;background:var(--surface);backdrop-filter:none;border-color:var(--border);box-shadow:0 12px 30px var(--shadow);animation:none}
+  .logger .log-exercise.open .exercise-body{max-height:none;overflow:visible}
+  body:has(.logger .log-exercise.open) .head:has(+.logger)>div{filter:none;opacity:1;transform:none}
+  body.workout-fill-mode{overflow:hidden}
+  body.workout-fill-mode::after{content:'';position:fixed;inset:0;z-index:1;background:color-mix(in srgb,#071009 36%,transparent);backdrop-filter:blur(5px)}
+  body.workout-fill-mode .head:has(+.logger){filter:blur(2px);opacity:.35;pointer-events:none}
+  body.workout-fill-mode .mobile{opacity:0;pointer-events:none}
+  body.workout-fill-mode .logger .log-exercise.open,body.workout-fill-mode .logger .log-exercise[data-fill-out="true"]{display:block!important;position:fixed!important;z-index:2!important;inset:12px 12px 12px;margin:0!important;overflow-y:auto;overscroll-behavior:contain;border-radius:18px;background:color-mix(in srgb,var(--surface) 96%,transparent);backdrop-filter:blur(16px);border-color:color-mix(in srgb,var(--accent) 30%,var(--border));box-shadow:0 24px 60px rgba(0,0,0,.28);animation:fill-out-open .3s cubic-bezier(.22,.8,.25,1) both}
+  body.workout-fill-mode .logger .log-exercise.open .exercise-body,body.workout-fill-mode .logger .log-exercise[data-fill-out="true"] .exercise-body{max-height:none;overflow:visible;padding-bottom:28px}
+  #workout-fill-close{display:none}
+  body.workout-fill-mode #workout-fill-close{display:block;position:fixed;z-index:3;top:24px;right:25px;min-height:38px;padding:0 13px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);font-size:13px;font-weight:800;box-shadow:0 8px 22px var(--shadow)}
+}
+
+@keyframes fill-out-open{from{opacity:.55;transform:translateY(34px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+#workout-fill-close{display:none}
+
+@media(max-width:760px){
+  body:has(.log-exercise.fill-out){overflow:hidden}
+  body:has(.log-exercise.fill-out) .mobile{opacity:0;pointer-events:none}
+  body:has(.log-exercise.fill-out) .head:has(+.logger){filter:blur(2px);opacity:.35;pointer-events:none}
+  body:has(.log-exercise.fill-out) .workspace>.logger{position:relative;z-index:91;transform:none!important;animation:none!important}
+  .fill-out-back{position:fixed;z-index:90;inset:0;background:color-mix(in srgb,#071009 36%,transparent);backdrop-filter:blur(5px)}
+  .logger .log-exercise.fill-out{display:block!important;position:fixed!important;z-index:91!important;inset:0!important;width:100dvw;height:100dvh;max-width:none;margin:0!important;overflow-y:auto;overscroll-behavior:contain;border-radius:0;background:color-mix(in srgb,var(--surface) 96%,transparent);backdrop-filter:blur(16px);border-color:color-mix(in srgb,var(--accent) 30%,var(--border));box-shadow:none;animation:fill-out-open .3s cubic-bezier(.22,.8,.25,1) both}
+  .logger .log-exercise.fill-out .exercise-body{max-height:none;overflow:visible;padding-bottom:28px}
+  .logger .log-exercise.fill-out .exercise-tab{padding-right:112px}
+  .fill-out-close{position:fixed;z-index:92;top:16px;right:16px;min-height:38px;padding:0 13px;border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);font-size:13px;font-weight:800;box-shadow:0 8px 22px var(--shadow)}
+}

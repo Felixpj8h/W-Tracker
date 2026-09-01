@@ -12,5 +12,38 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      (() => {
+        let startY = null;
+        let tracksDashboard = false;
+        const isMobile = () => window.matchMedia('(max-width: 760px)').matches;
+        const getTabs = () => document.querySelector('.dash-tabs');
+
+        document.addEventListener('touchstart', (event) => {
+          const target = event.target instanceof Element ? event.target : null;
+          const tabs = getTabs();
+          if (!isMobile() || !tabs || !target || target.closest('button, input, textarea, select')) return;
+          tracksDashboard = Boolean(target.closest('.head, .dash-tabs, .dashboard-panels'));
+          startY = tracksDashboard ? event.touches[0]?.clientY ?? null : null;
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (event) => {
+          if (!tracksDashboard || startY === null) return;
+          const delta = (event.touches[0]?.clientY ?? startY) - startY;
+          if (Math.abs(delta) > 8 && event.cancelable) event.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('touchend', (event) => {
+          const tabs = getTabs();
+          if (!tracksDashboard || startY === null || !tabs) { tracksDashboard = false; startY = null; return; }
+          const delta = (event.changedTouches[0]?.clientY ?? startY) - startY;
+          if (delta < -36) tabs.classList.add('dashboard-raised');
+          if (delta > 36) tabs.classList.remove('dashboard-raised');
+          tracksDashboard = false;
+          startY = null;
+        }, { passive: true });
+
+      })();
+    </script>
   </body>
 </html>
