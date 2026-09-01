@@ -29,6 +29,8 @@ class Exercise(Base):
     equipment: Mapped[str] = mapped_column(String(100), default="Bodyweight")
     primary_muscle: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     muscle_group: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    secondary_muscles: Mapped[str] = mapped_column(String(300), default="")
+    muscle_data_synced: Mapped[bool] = mapped_column(Boolean, default=False)
     search_aliases: Mapped[str] = mapped_column(String(1000), default="")
 
 
@@ -70,6 +72,8 @@ class Workout(Base):
     performed_on: Mapped[date] = mapped_column(Date, default=date.today)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     exercises: Mapped[list["WorkoutExercise"]] = relationship(cascade="all, delete-orphan", order_by="WorkoutExercise.position")
 
 
@@ -81,7 +85,9 @@ class WorkoutExercise(Base):
     name: Mapped[str] = mapped_column(String(180))
     primary_muscle: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     muscle_group: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    secondary_muscles: Mapped[str] = mapped_column(String(300), default="")
     position: Mapped[int] = mapped_column(Integer)
+    note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     sets: Mapped[list["WorkoutSet"]] = relationship(cascade="all, delete-orphan", order_by="WorkoutSet.position")
 
 
@@ -92,6 +98,7 @@ class WorkoutSet(Base):
     position: Mapped[int] = mapped_column(Integer)
     weight: Mapped[float] = mapped_column(Float, default=0)
     reps: Mapped[int] = mapped_column(Integer, default=0)
+    exertion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
 class BodyweightEntry(Base):
@@ -106,7 +113,7 @@ class Model(BaseModel):
 
 
 class ExerciseOut(Model):
-    id: int; name: str; equipment: str; primary_muscle: Optional[str] = None; muscle_group: Optional[str] = None
+    id: int; name: str; equipment: str; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None
 
 
 class ExerciseChoice(BaseModel):
@@ -128,11 +135,11 @@ class FolderIn(BaseModel):
 
 
 class LoggedSetIn(BaseModel):
-    weight: float = Field(ge=0); reps: int = Field(ge=0)
+    weight: float = Field(ge=0); reps: int = Field(ge=0); exertion: Optional[float] = Field(None, ge=0, le=10)
 
 
 class WorkoutExerciseIn(BaseModel):
-    exercise_id: Optional[int] = None; name: Optional[str] = None; primary_muscle: Optional[str] = None; muscle_group: Optional[str] = None; sets: list[LoggedSetIn] = []
+    exercise_id: Optional[int] = None; name: Optional[str] = None; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None; note: Optional[str] = Field(None, max_length=1000); sets: list[LoggedSetIn] = []
 
 
 class WorkoutIn(BaseModel):
@@ -170,21 +177,24 @@ def group_for(muscle: Optional[str]) -> Optional[str]:
 
 
 def exercise_out(exercise: Exercise) -> dict:
-    return {"id": exercise.id, "name": exercise.name, "equipment": exercise.equipment, "primary_muscle": exercise.primary_muscle, "muscle_group": exercise.muscle_group}
+    secondary = [x for x in exercise.secondary_muscles.split("|") if x]
+    display = f"Primary: {exercise.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
+    return {"id": exercise.id, "name": exercise.name, "equipment": exercise.equipment, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": exercise.muscle_group}
 
 
 def routine_out(routine: Routine) -> dict:
     return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
 
 
-def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
+def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, secondary_muscles: list[str] = [], wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
     corrected_muscle, corrected_group = EXERCISE_OVERRIDES.get(name.strip().lower(), (muscle, group_for(muscle)))
     existing = db.scalar(select(Exercise).where(Exercise.wger_id == wger_id)) if wger_id else db.scalar(select(Exercise).where(Exercise.name.ilike(name)))
     if existing:
         if aliases: existing.search_aliases = aliases
         existing.primary_muscle, existing.muscle_group = corrected_muscle, corrected_group
+        existing.secondary_muscles, existing.muscle_data_synced = "|".join(secondary_muscles), True
         return existing
-    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=corrected_muscle, muscle_group=corrected_group, search_aliases=aliases)
+    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=corrected_muscle, muscle_group=corrected_group, secondary_muscles="|".join(secondary_muscles), muscle_data_synced=True, search_aliases=aliases)
     db.add(exercise); db.flush(); return exercise
 
 
@@ -205,6 +215,24 @@ def startup():
         exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(exercises)")}
         if "search_aliases" not in exercise_columns:
             connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN search_aliases VARCHAR(1000) DEFAULT ''")
+        if "secondary_muscles" not in exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN secondary_muscles VARCHAR(300) DEFAULT ''")
+        if "muscle_data_synced" not in exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN muscle_data_synced BOOLEAN DEFAULT 0")
+        workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
+        if "note" not in workout_exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN note VARCHAR(1000)")
+        workout_set_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_sets)")}
+        if "exertion" not in workout_set_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
+        workout_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
+        if "started_at" not in workout_columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN started_at DATETIME")
+        if "completed_at" not in workout_columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN completed_at DATETIME")
+        workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
+        if "secondary_muscles" not in workout_exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN secondary_muscles VARCHAR(300) DEFAULT ''")
     with SessionLocal() as db:
         for exercise in db.scalars(select(Exercise)).all():
             correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
@@ -215,7 +243,8 @@ def startup():
 
 def sync_wger_catalogue(db: Session):
     cached_count = len(list(db.scalars(select(Exercise.id).where(Exercise.wger_id.is_not(None)))))
-    if cached_count >= 800:
+    needs_muscle_refresh = db.scalar(select(Exercise.id).where(Exercise.wger_id.is_not(None), Exercise.muscle_data_synced == False).limit(1)) is not None
+    if cached_count >= 800 and not needs_muscle_refresh:
         return
     with httpx.Client(timeout=12) as client:
         offset = 0
@@ -230,8 +259,9 @@ def sync_wger_catalogue(db: Session):
                 aliases = " ".join([x.get("alias", "") for x in chosen.get("aliases", [])] + [x.get("name", "") for x in translations])
                 muscles = item.get("muscles") or []
                 primary = (muscles[0].get("name_en") or muscles[0].get("name")) if muscles else None
+                secondary = [(x.get("name_en") or x.get("name")) for x in item.get("muscles_secondary") or []]
                 equipment = (item.get("equipment") or [{}])[0]
-                store_exercise(db, chosen["name"], equipment.get("name", "Other") if isinstance(equipment, dict) else str(equipment), primary, str(item.get("uuid") or item["id"]), aliases)
+                store_exercise(db, chosen["name"], equipment.get("name", "Other") if isinstance(equipment, dict) else str(equipment), primary, secondary, str(item.get("uuid") or item["id"]), aliases)
             db.commit()
             if not payload.get("next"): break
             offset += 100
@@ -305,6 +335,12 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/folders")
 def list_folders(db: Session = Depends(get_db)):
+    # Existing local catalogues predate secondary-muscle support. Refresh them
+    # before returning routines so the builder immediately shows both fields.
+    try:
+        sync_wger_catalogue(db)
+    except (httpx.HTTPError, ValueError, KeyError, SQLAlchemyError):
+        db.rollback()
     folders = db.scalars(select(RoutineFolder)).all()
     return [{"id": f.id, "name": f.name, "routines": [routine_out(r) for r in f.routines]} for f in folders]
 
@@ -343,16 +379,21 @@ def delete_routine(routine_id: int, db: Session = Depends(get_db)):
 def start_routine(routine_id: int, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
-    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=date.today())
+    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=date.today(), started_at=datetime.utcnow())
     for pos, item in enumerate(routine.exercises):
-        workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, muscle_group=item.exercise.muscle_group, position=pos)
+        workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos)
         workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
         workout.exercises.append(workout_exercise)
     db.add(workout); db.commit(); return workout_out(workout)
 
 
 def workout_out(workout: Workout) -> dict:
-    return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "exercises": [{"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": e.primary_muscle, "muscle_group": e.muscle_group, "position": e.position, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "position": s.position} for s in e.sets]} for e in workout.exercises]}
+    duration_seconds = int((workout.completed_at - workout.started_at).total_seconds()) if workout.started_at and workout.completed_at else None
+    def exercise_payload(e: WorkoutExercise):
+        secondary = [x for x in e.secondary_muscles.split("|") if x]
+        display = f"Primary: {e.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
+        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
+    return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": workout.started_at, "completed_at": workout.completed_at, "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
 def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
@@ -360,21 +401,22 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
     for pos, item in enumerate(payload.exercises):
         cached = db.get(Exercise, item.exercise_id) if item.exercise_id else None
         if item.exercise_id and not cached: raise HTTPException(404, "Exercise not found")
-        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=cached.primary_muscle if cached else item.primary_muscle, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(item.primary_muscle)), position=pos)
-        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps) for i, s in enumerate(item.sets)]
+        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=cached.primary_muscle if cached else item.primary_muscle, secondary_muscles=cached.secondary_muscles if cached else "|".join(item.secondary_muscles), muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(item.primary_muscle)), position=pos, note=item.note)
+        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 
 
 @app.post("/api/v1/workouts")
 def create_workout(payload: WorkoutIn, db: Session = Depends(get_db)):
-    workout = Workout(completed=True); populate_workout(workout, payload, db); db.add(workout); db.commit(); return workout_out(workout)
+    now = datetime.utcnow()
+    workout = Workout(completed=True, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return workout_out(workout)
 
 
 @app.put("/api/v1/workouts/{workout_id}")
 def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
     workout = db.get(Workout, workout_id)
     if not workout: raise HTTPException(404, "Workout not found")
-    populate_workout(workout, payload, db); workout.completed = True; db.commit(); return workout_out(workout)
+    populate_workout(workout, payload, db); workout.completed = True; workout.completed_at = datetime.utcnow(); db.commit(); return workout_out(workout)
 
 
 @app.get("/api/v1/workouts")
@@ -406,3 +448,41 @@ def dashboard(db: Session = Depends(get_db)):
             if exercise.muscle_group in bucket: bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
     weights = list_weights(db)
     return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group]} for group in GROUPS]}
+
+
+@app.post("/api/v1/demo-data")
+def create_demo_data(db: Session = Depends(get_db)):
+    """Add repeatable sample history without touching a user's real entries."""
+    for workout in db.scalars(select(Workout).where(Workout.name.like("Demo · %"))).all():
+        db.delete(workout)
+
+    today = date.today()
+    weight_start = 78.4
+    # One entry for every calendar day in the two-week demo window.
+    for days_ago in range(13, -1, -1):
+        logged_on = today - timedelta(days=days_ago)
+        if not db.scalar(select(BodyweightEntry).where(BodyweightEntry.recorded_on == logged_on)):
+            # A small, plausible daily fluctuation around a gradual trend.
+            fluctuation = [0.0, .2, .1, .3, .15, .25, .1][days_ago % 7]
+            db.add(BodyweightEntry(recorded_on=logged_on, weight=weight_start - (14 - days_ago) * .035 + fluctuation))
+
+    sessions = [
+        (13, "Demo · Upper", [("Bench press", "Chest", 70, 9, 4), ("Seated Cable Row", "Back", 55, 10, 4), ("Lateral raise", "Shoulders", 10, 14, 3), ("Cable curl", "Arms", 18, 12, 3)]),
+        (11, "Demo · Lower", [("Back squat", "Legs", 85, 8, 4), ("Romanian deadlift", "Legs", 75, 9, 3), ("Cable crunch", "Core", 30, 14, 3)]),
+        (8, "Demo · Upper", [("Incline dumbbell press", "Chest", 26, 10, 4), ("Lat pulldown", "Back", 55, 10, 4), ("Shoulder press", "Shoulders", 32, 9, 3), ("Tricep pressdown", "Arms", 25, 12, 3)]),
+        (6, "Demo · Lower", [("Leg press", "Legs", 150, 11, 4), ("Leg curl", "Legs", 45, 12, 3), ("Plank", "Core", 0, 1, 3)]),
+        (3, "Demo · Pull", [("Seated Cable Row", "Back", 60, 10, 4), ("Lat pulldown", "Back", 60, 9, 3), ("Rear delt fly", "Shoulders", 18, 14, 3), ("Hammer curl", "Arms", 16, 11, 3)]),
+        (2, "Demo · Lower", [("Back squat", "Legs", 90, 7, 4), ("Romanian deadlift", "Legs", 80, 8, 3), ("Cable crunch", "Core", 32, 14, 3)]),
+        (1, "Demo · Push", [("Bench press", "Chest", 72.5, 8, 4), ("Shoulder press", "Shoulders", 35, 8, 3), ("Cable fly", "Chest", 20, 13, 3), ("Tricep pressdown", "Arms", 27.5, 11, 3)]),
+    ]
+    for days_ago, name, exercises in sessions:
+        performed = today - timedelta(days=days_ago)
+        started = datetime.combine(performed, datetime.min.time()).replace(hour=17, minute=30)
+        workout = Workout(name=name, performed_on=performed, completed=True, started_at=started, completed_at=started + timedelta(minutes=58))
+        for position, (exercise_name, group, weight, reps, set_count) in enumerate(exercises):
+            exercise = WorkoutExercise(name=exercise_name, primary_muscle=group, muscle_group=group, position=position)
+            exercise.sets = [WorkoutSet(position=set_index, weight=weight, reps=reps + (1 if set_index == 0 else 0), exertion=7.5 + (set_index * .5)) for set_index in range(set_count)]
+            workout.exercises.append(exercise)
+        db.add(workout)
+    db.commit()
+    return {"created": len(sessions), "message": "Two weeks of demo training added"}
