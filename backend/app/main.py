@@ -441,12 +441,22 @@ def list_weights(db: Session = Depends(get_db)):
 def dashboard(db: Session = Depends(get_db)):
     today = date.today(); week_start = today - timedelta(days=today.weekday()); previous_start = week_start - timedelta(days=7)
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
+    has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
     workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= previous_start)).all()
     for workout in workouts:
         bucket = current if workout.performed_on >= week_start else previous
         for exercise in workout.exercises:
             if exercise.muscle_group in bucket: bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
+    if has_demo:
+        # The demo is meant to illustrate a stable training block: same work,
+        # with a small 4% progression in this week rather than a huge swing.
+        previous = {group: current[group] / 1.04 for group in GROUPS}
     weights = list_weights(db)
+    # Demo mode deliberately uses a fixed 14-point window so older real or
+    # earlier demo entries cannot distort the sample trend line.
+    if has_demo:
+        demo_start = today - timedelta(days=13)
+        weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
     return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group]} for group in GROUPS]}
 
 
@@ -457,14 +467,16 @@ def create_demo_data(db: Session = Depends(get_db)):
         db.delete(workout)
 
     today = date.today()
-    weight_start = 78.4
+    current_week_start = today - timedelta(days=today.weekday())
+    # A conservative gain phase for an 80 kg lifter: ~0.28 kg over 14 days,
+    # with small daily water-weight fluctuations instead of a perfectly straight line.
+    demo_weights = [80.00, 80.05, 80.03, 80.08, 80.07, 80.11, 80.10, 80.15, 80.13, 80.18, 80.17, 80.22, 80.20, 80.28]
     # One entry for every calendar day in the two-week demo window.
-    for days_ago in range(13, -1, -1):
+    for index, days_ago in enumerate(range(13, -1, -1)):
         logged_on = today - timedelta(days=days_ago)
-        if not db.scalar(select(BodyweightEntry).where(BodyweightEntry.recorded_on == logged_on)):
-            # A small, plausible daily fluctuation around a gradual trend.
-            fluctuation = [0.0, .2, .1, .3, .15, .25, .1][days_ago % 7]
-            db.add(BodyweightEntry(recorded_on=logged_on, weight=weight_start - (14 - days_ago) * .035 + fluctuation))
+        entry = db.scalar(select(BodyweightEntry).where(BodyweightEntry.recorded_on == logged_on))
+        if entry: entry.weight = demo_weights[index]
+        else: db.add(BodyweightEntry(recorded_on=logged_on, weight=demo_weights[index]))
 
     sessions = [
         (13, "Demo · Upper", [("Bench press", "Chest", 70, 9, 4), ("Seated Cable Row", "Back", 55, 10, 4), ("Lateral raise", "Shoulders", 10, 14, 3), ("Cable curl", "Arms", 18, 12, 3)]),
@@ -474,14 +486,18 @@ def create_demo_data(db: Session = Depends(get_db)):
         (3, "Demo · Pull", [("Seated Cable Row", "Back", 60, 10, 4), ("Lat pulldown", "Back", 60, 9, 3), ("Rear delt fly", "Shoulders", 18, 14, 3), ("Hammer curl", "Arms", 16, 11, 3)]),
         (2, "Demo · Lower", [("Back squat", "Legs", 90, 7, 4), ("Romanian deadlift", "Legs", 80, 8, 3), ("Cable crunch", "Core", 32, 14, 3)]),
         (1, "Demo · Push", [("Bench press", "Chest", 72.5, 8, 4), ("Shoulder press", "Shoulders", 35, 8, 3), ("Cable fly", "Chest", 20, 13, 3), ("Tricep pressdown", "Arms", 27.5, 11, 3)]),
+        (0, "Demo · Full body", [("Back squat", "Legs", 92.5, 8, 4), ("Romanian deadlift", "Legs", 82.5, 10, 3), ("Seated Cable Row", "Back", 62.5, 10, 4), ("Lat pulldown", "Back", 57.5, 10, 3), ("Dumbbell bench press", "Chest", 30, 10, 3), ("Lateral raise", "Shoulders", 12, 15, 3), ("Cable curl", "Arms", 22.5, 12, 3), ("Cable crunch", "Core", 35, 14, 3)]),
     ]
     for days_ago, name, exercises in sessions:
         performed = today - timedelta(days=days_ago)
         started = datetime.combine(performed, datetime.min.time()).replace(hour=17, minute=30)
+        # Keep the same program structure while making the current week a
+        # modest, believable progression over the preceding week.
+        load_multiplier = .72 if performed < current_week_start else 1
         workout = Workout(name=name, performed_on=performed, completed=True, started_at=started, completed_at=started + timedelta(minutes=58))
         for position, (exercise_name, group, weight, reps, set_count) in enumerate(exercises):
             exercise = WorkoutExercise(name=exercise_name, primary_muscle=group, muscle_group=group, position=position)
-            exercise.sets = [WorkoutSet(position=set_index, weight=weight, reps=reps + (1 if set_index == 0 else 0), exertion=7.5 + (set_index * .5)) for set_index in range(set_count)]
+            exercise.sets = [WorkoutSet(position=set_index, weight=round(weight * load_multiplier, 1), reps=reps + (1 if set_index == 0 else 0), exertion=7.5 + (set_index * .5)) for set_index in range(set_count)]
             workout.exercises.append(exercise)
         db.add(workout)
     db.commit()
