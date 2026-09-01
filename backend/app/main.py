@@ -8,7 +8,8 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, create_engine, select
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, create_engine, select, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 DB_PATH = Path(__file__).resolve().parent.parent / "workout_tracker.db"
@@ -23,11 +24,12 @@ class Base(DeclarativeBase):
 class Exercise(Base):
     __tablename__ = "exercises"
     id: Mapped[int] = mapped_column(primary_key=True)
-    wger_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, nullable=True)
+    wger_id: Mapped[Optional[str]] = mapped_column(String(80), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(180))
     equipment: Mapped[str] = mapped_column(String(100), default="Bodyweight")
     primary_muscle: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     muscle_group: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    search_aliases: Mapped[str] = mapped_column(String(1000), default="")
 
 
 class RoutineFolder(Base):
@@ -54,6 +56,8 @@ class RoutineExercise(Base):
     position: Mapped[int] = mapped_column(Integer)
     planned_sets: Mapped[int] = mapped_column(Integer, default=3)
     target_reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_reps_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_reps_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     target_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     exercise: Mapped[Exercise] = relationship()
 
@@ -106,7 +110,13 @@ class ExerciseOut(Model):
 
 
 class ExerciseChoice(BaseModel):
-    exercise_id: int; planned_sets: int = Field(ge=1, le=20); target_reps: Optional[int] = Field(None, ge=1, le=100); target_weight: Optional[float] = Field(None, ge=0)
+    exercise_id: int; planned_sets: int = Field(ge=1, le=20); target_reps: Optional[int] = Field(None, ge=1, le=100); target_reps_min: Optional[int] = Field(None, ge=1, le=100); target_reps_max: Optional[int] = Field(None, ge=1, le=100); target_weight: Optional[float] = Field(None, ge=0)
+
+
+class CustomExerciseIn(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    equipment: str = Field(default="Other", max_length=100)
+    primary_muscle: Optional[str] = Field(default=None, max_length=80)
 
 
 class RoutineIn(BaseModel):
@@ -139,13 +149,16 @@ MUSCLE_MAP = {
     "shoulders": "Shoulders", "biceps": "Arms", "triceps": "Arms", "forearms": "Arms",
 }
 GROUPS = ["Legs", "Back", "Core", "Chest", "Shoulders", "Arms"]
-FALLBACK = [
-    ("Barbell back squat", "Barbell", "Quadriceps"), ("Barbell bench press", "Barbell", "Chest"),
-    ("Lat pulldown", "Cable", "Lats"), ("Romanian deadlift", "Barbell", "Hamstrings"),
-    ("Dumbbell shoulder press", "Dumbbells", "Shoulders"), ("Cable biceps curl", "Cable", "Biceps"),
-]
-
-
+EXERCISE_OVERRIDES = {
+    # Wger entries whose listed primary muscle is misleading for six-group volume analytics.
+    "deadlifts": ("Hamstrings", "Legs"),
+    "front squats": ("Quadriceps", "Legs"),
+    "bench press narrow grip": ("Chest", "Chest"),
+    "dumbbell underhand dead row": ("Lats", "Back"),
+    "incline dumbbell row": ("Lats", "Back"),
+    "deficit deadlift": ("Hamstrings", "Legs"),
+    "low row": ("Lats", "Back"),
+}
 def get_db():
     db = SessionLocal()
     try: yield db
@@ -161,13 +174,17 @@ def exercise_out(exercise: Exercise) -> dict:
 
 
 def routine_out(routine: Routine) -> dict:
-    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_weight": item.target_weight, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
+    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
 
 
-def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, wger_id: Optional[int] = None) -> Exercise:
-    existing = db.scalar(select(Exercise).where(Exercise.wger_id == wger_id)) if wger_id else None
-    if existing: return existing
-    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=muscle, muscle_group=group_for(muscle))
+def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
+    corrected_muscle, corrected_group = EXERCISE_OVERRIDES.get(name.strip().lower(), (muscle, group_for(muscle)))
+    existing = db.scalar(select(Exercise).where(Exercise.wger_id == wger_id)) if wger_id else db.scalar(select(Exercise).where(Exercise.name.ilike(name)))
+    if existing:
+        if aliases: existing.search_aliases = aliases
+        existing.primary_muscle, existing.muscle_group = corrected_muscle, corrected_group
+        return existing
+    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=corrected_muscle, muscle_group=corrected_group, search_aliases=aliases)
     db.add(exercise); db.flush(); return exercise
 
 
@@ -178,10 +195,46 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allo
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(engine)
+    # Lightweight backwards-compatible migration for existing local SQLite files.
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(routine_exercises)")}
+        if "target_reps_min" not in columns:
+            connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_min INTEGER")
+        if "target_reps_max" not in columns:
+            connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_max INTEGER")
+        exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(exercises)")}
+        if "search_aliases" not in exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN search_aliases VARCHAR(1000) DEFAULT ''")
     with SessionLocal() as db:
-        if not db.scalar(select(Exercise.id).limit(1)):
-            for name, equipment, muscle in FALLBACK: store_exercise(db, name, equipment, muscle)
+        for exercise in db.scalars(select(Exercise)).all():
+            correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
+            if correction:
+                exercise.primary_muscle, exercise.muscle_group = correction
+        db.commit()
+
+
+def sync_wger_catalogue(db: Session):
+    cached_count = len(list(db.scalars(select(Exercise.id).where(Exercise.wger_id.is_not(None)))))
+    if cached_count >= 800:
+        return
+    with httpx.Client(timeout=12) as client:
+        offset = 0
+        while True:
+            response = client.get("https://wger.de/api/v2/exerciseinfo/", params={"limit": 100, "offset": offset})
+            response.raise_for_status(); payload = response.json()
+            for item in payload.get("results", []):
+                translations = item.get("translations") or []
+                english = next((x for x in translations if x.get("language") == 2 and x.get("name")), None)
+                chosen = english or next((x for x in translations if x.get("name")), None)
+                if not chosen: continue
+                aliases = " ".join([x.get("alias", "") for x in chosen.get("aliases", [])] + [x.get("name", "") for x in translations])
+                muscles = item.get("muscles") or []
+                primary = (muscles[0].get("name_en") or muscles[0].get("name")) if muscles else None
+                equipment = (item.get("equipment") or [{}])[0]
+                store_exercise(db, chosen["name"], equipment.get("name", "Other") if isinstance(equipment, dict) else str(equipment), primary, str(item.get("uuid") or item["id"]), aliases)
             db.commit()
+            if not payload.get("next"): break
+            offset += 100
 
 
 @app.get("/api/v1/health")
@@ -190,25 +243,64 @@ def health(): return {"status": "ok"}
 
 @app.get("/api/v1/exercises", response_model=list[ExerciseOut])
 async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
-    local = list(db.scalars(select(Exercise).where(Exercise.name.ilike(f"%{q}%")).limit(20)))
-    if q.strip():
-        try:
-            async with httpx.AsyncClient(timeout=4) as client:
-                response = await client.get("https://wger.de/api/v2/exerciseinfo/", params={"language": 2, "name": q, "limit": 10})
-                response.raise_for_status()
-                for item in response.json().get("results", []):
-                    muscles = item.get("muscles") or []
-                    primary = muscles[0].get("name") if muscles else None
-                    cached = store_exercise(db, item.get("name", q).strip(), (item.get("equipment") or [{}])[0].get("name", "Bodyweight"), primary, item.get("id"))
-                    if cached not in local: local.append(cached)
-                db.commit()
-        except (httpx.HTTPError, ValueError, KeyError): pass
-    return [exercise_out(x) for x in local[:20]]
+    query = q.strip()
+    if len(query) >= 2:
+        try: sync_wger_catalogue(db)
+        except (httpx.HTTPError, ValueError, KeyError, SQLAlchemyError): db.rollback()
+    words = [word for word in query.split() if word]
+    statement = select(Exercise)
+    for word in words:
+        statement = statement.where(or_(Exercise.name.ilike(f"%{word}%"), Exercise.search_aliases.ilike(f"%{word}%")))
+    normalized = " ".join(words).lower()
+    def relevance(exercise: Exercise):
+        name = exercise.name.lower()
+        aliases = exercise.search_aliases.lower()
+        if name == normalized: return (0, len(name))
+        if name.startswith(normalized): return (1, len(name))
+        if normalized in name: return (2, len(name))
+        if any(alias.strip().lower() == normalized for alias in aliases.split(" ")): return (3, len(name))
+        return (4, len(name))
+    matches = list(db.scalars(statement))
+    return [exercise_out(x) for x in sorted(matches, key=relevance)[:12]]
+
+
+@app.post("/api/v1/exercises/custom", response_model=ExerciseOut)
+def create_custom_exercise(payload: CustomExerciseIn, db: Session = Depends(get_db)):
+    existing = db.scalar(select(Exercise).where(Exercise.name.ilike(payload.name.strip())))
+    exercise = existing or store_exercise(db, payload.name.strip(), payload.equipment, payload.primary_muscle)
+    if payload.primary_muscle in GROUPS:
+        exercise.primary_muscle = payload.primary_muscle
+        exercise.muscle_group = payload.primary_muscle
+    db.commit(); db.refresh(exercise)
+    return exercise_out(exercise)
+
+
+@app.delete("/api/v1/exercises/custom/{exercise_id}")
+def delete_custom_exercise(exercise_id: int, db: Session = Depends(get_db)):
+    exercise = db.get(Exercise, exercise_id)
+    if not exercise or exercise.wger_id is not None:
+        raise HTTPException(404, "Custom exercise not found")
+    db.delete(exercise); db.commit()
+    return {"deleted": True}
 
 
 @app.post("/api/v1/folders")
 def create_folder(payload: FolderIn, db: Session = Depends(get_db)):
     folder = RoutineFolder(name=payload.name); db.add(folder); db.commit(); db.refresh(folder); return {"id": folder.id, "name": folder.name, "routines": []}
+
+
+@app.put("/api/v1/folders/{folder_id}")
+def rename_folder(folder_id: int, payload: FolderIn, db: Session = Depends(get_db)):
+    folder = db.get(RoutineFolder, folder_id)
+    if not folder: raise HTTPException(404, "Folder not found")
+    folder.name = payload.name; db.commit(); return {"id": folder.id, "name": folder.name}
+
+
+@app.delete("/api/v1/folders/{folder_id}")
+def delete_folder(folder_id: int, db: Session = Depends(get_db)):
+    folder = db.get(RoutineFolder, folder_id)
+    if not folder: raise HTTPException(404, "Folder not found")
+    db.delete(folder); db.commit(); return {"deleted": True}
 
 
 @app.get("/api/v1/folders")
@@ -222,7 +314,9 @@ def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
     routine.exercises.clear()
     for pos, choice in enumerate(payload.exercises):
         if not db.get(Exercise, choice.exercise_id): raise HTTPException(404, "Exercise not found")
-        routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps, target_weight=choice.target_weight))
+        if choice.target_reps_min and choice.target_reps_max and choice.target_reps_min > choice.target_reps_max:
+            raise HTTPException(422, "Minimum reps cannot be greater than maximum reps")
+        routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps_min or choice.target_reps, target_reps_min=choice.target_reps_min or choice.target_reps, target_reps_max=choice.target_reps_max or choice.target_reps, target_weight=choice.target_weight))
 
 
 @app.post("/api/v1/routines")
@@ -238,6 +332,13 @@ def update_routine(routine_id: int, payload: RoutineIn, db: Session = Depends(ge
     populate_routine(routine, payload, db); db.commit(); db.refresh(routine); return routine_out(routine)
 
 
+@app.delete("/api/v1/routines/{routine_id}")
+def delete_routine(routine_id: int, db: Session = Depends(get_db)):
+    routine = db.get(Routine, routine_id)
+    if not routine: raise HTTPException(404, "Routine not found")
+    db.delete(routine); db.commit(); return {"deleted": True}
+
+
 @app.post("/api/v1/routines/{routine_id}/start")
 def start_routine(routine_id: int, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
@@ -245,7 +346,7 @@ def start_routine(routine_id: int, db: Session = Depends(get_db)):
     workout = Workout(routine_id=routine.id, name=routine.name, performed_on=date.today())
     for pos, item in enumerate(routine.exercises):
         workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, muscle_group=item.exercise.muscle_group, position=pos)
-        workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps or 0) for i in range(item.planned_sets)]
+        workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
         workout.exercises.append(workout_exercise)
     db.add(workout); db.commit(); return workout_out(workout)
 
