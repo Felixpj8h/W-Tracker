@@ -299,6 +299,7 @@ export function LegacyLogger({ workout, folders, start, setWorkout, finish }: {
 type CalendarDay = { date: string; routine_id: number | null; routine_name: string | null; status: 'completed' | 'upcoming' | 'missed' | 'empty'; workout_name: string | null };
 type WeeklyPlan = { name: string; starts_on: string; days: { weekday: number; routine_id: number; routine_name: string }[] };
 function Calendar({ folders, start }: { folders: Folder[]; start: (routine: Routine) => Promise<void> }) {
+    const [editWorkout, setEditWorkout] = useState<Workout | null>(null);
     useEffect(() => {
         const markToday = () => {
             const title = document.querySelector('.workspace h1')?.textContent ?? '';
@@ -311,9 +312,11 @@ function Calendar({ folders, start }: { folders: Folder[]; start: (routine: Rout
         markToday();
         const observer = new MutationObserver(markToday);
         observer.observe(document.body, { childList: true, subtree: true });
-        return () => observer.disconnect();
+        const openCompleted = (event: MouseEvent) => { const card = (event.target as HTMLElement).closest<HTMLElement>('.calendar-day.completed'); if (!card) return; const title = document.querySelector('.workspace h1')?.textContent ?? ''; const day = card.querySelector('span')?.textContent; const date = new Date(`${title} ${day ?? ''}`); if (Number.isNaN(date.getTime())) return; const recordedOn = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; void api<Workout[]>('/workouts').then(workouts => { const workout = workouts.find(item => item.completed && item.performed_on === recordedOn); if (workout) setEditWorkout(workout); }); };
+        document.addEventListener('click', openCompleted);
+        return () => { observer.disconnect(); document.removeEventListener('click', openCompleted); };
     }, []);
-    return <LegacyCalendar folders={folders} start={start}/>;
+    return <><LegacyCalendar folders={folders} start={start}/>{editWorkout && <div className="back calendar-editor"><div className="calendar-editor-panel"><Logger workout={editWorkout} folders={folders} active={[]} start={start} startAdHoc={async () => undefined} setWorkout={setEditWorkout} editing finish={async () => undefined} saveEdit={async workout => { await api(`/workouts/${workout.id}`, { method: 'PATCH', body: JSON.stringify(workout) }); setEditWorkout(null); }}/><button className="calendar-editor-close" onClick={() => setEditWorkout(null)}>×</button></div></div>}</>;
 }
 function LegacyCalendar({ folders, start }: { folders: Folder[]; start: (routine: Routine) => Promise<void> }) {
     const routines = folders.flatMap(folder => folder.routines), [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1)), [plan, setPlan] = useState<WeeklyPlan | null>(null), [days, setDays] = useState<CalendarDay[]>([]), [editing, setEditing] = useState(false), [name, setName] = useState('My training week'), [assignments, setAssignments] = useState<Record<number, string>>({});
