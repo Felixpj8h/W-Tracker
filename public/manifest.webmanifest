@@ -1,0 +1,17 @@
+{
+  "name": "W-Tracker",
+  "short_name": "W-Tracker",
+  "description": "Your personal workout tracker.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f2ea",
+  "theme_color": "#f5f2ea",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
