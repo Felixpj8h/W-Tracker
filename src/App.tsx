@@ -138,15 +138,22 @@ function Head({ children, action }: {
 }) { return <header className="head"><div>{children}</div>{action}</header>; }
 function DashboardGreeting({ dash }: { dash: Dash | null }) {
     const greeting = 'Hello Felix.';
+    const [completedWorkouts, setCompletedWorkouts] = useState<Workout[]>([]);
+    useEffect(() => { void api<Workout[]>('/workouts').then(entries => setCompletedWorkouts(entries.filter(entry => entry.completed))).catch(() => setCompletedWorkouts([])); }, []);
     const current = dash?.total_current_volume ?? 0;
     const previous = dash?.total_previous_volume ?? 0;
     const groups = dash?.volume_by_muscle_group ?? [];
     const leadGroup = [...groups].sort((a, b) => b.current_week_volume - a.current_week_volume)[0];
+    const loggedExercises = completedWorkouts.flatMap(workout => workout.exercises.map(exercise => ({ ...exercise, workoutName: workout.name })));
+    const featuredExercise = loggedExercises.length ? loggedExercises[(new Date().getDate() + loggedExercises.length) % loggedExercises.length] : null;
+    const featuredReps = featuredExercise?.sets?.reduce((sum, set) => sum + set.reps, 0) ?? 0;
     const facts = [
         `${current.toLocaleString()} kg of training volume logged this week.`,
         previous > 0 ? `Your training volume is ${Math.abs(Math.round((current - previous) / previous * 100))}% ${current >= previous ? 'higher' : 'lower'} than last week.` : 'Your next completed session will unlock a weekly comparison.',
         dash?.latest_weight ? `Your current tracked weight is ${dash.latest_weight.weight.toFixed(1)} kg.` : 'Add a weigh-in to begin tracking your bodyweight trend.',
-        leadGroup ? `${leadGroup.name} is your highest-volume muscle group this week.` : 'Log your first workout to see your muscle-group focus.'
+        leadGroup ? `${leadGroup.name} is your highest-volume muscle group this week.` : 'Log your first workout to see your muscle-group focus.',
+        completedWorkouts.length ? `You have completed ${completedWorkouts.length} workout${completedWorkouts.length === 1 ? '' : 's'} so far.` : 'Finish your first workout to start your completed-session count.',
+        featuredExercise ? `${featuredReps} reps logged for ${featuredExercise.name}.` : 'A completed workout will unlock an exercise snapshot here.'
     ];
     const factKey = facts.join('|');
     const [text, setText] = useState('');
