@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import './App.css';
 import './routine.css';
@@ -138,13 +138,13 @@ function Head({ children, action }: {
 }) { return <header className="head"><div>{children}</div>{action}</header>; }
 function DashboardGreeting({ dash }: { dash: Dash | null }) {
     const greeting = 'Hello Felix.';
-    const [completedWorkouts, setCompletedWorkouts] = useState<Workout[]>([]);
+    const [completedWorkouts, setCompletedWorkouts] = useState<Workout[] | null>(null);
     useEffect(() => { void api<Workout[]>('/workouts').then(entries => setCompletedWorkouts(entries.filter(entry => entry.completed))).catch(() => setCompletedWorkouts([])); }, []);
     const current = dash?.total_current_volume ?? 0;
     const previous = dash?.total_previous_volume ?? 0;
     const groups = dash?.volume_by_muscle_group ?? [];
     const leadGroup = [...groups].sort((a, b) => b.current_week_volume - a.current_week_volume)[0];
-    const loggedExercises = completedWorkouts.flatMap(workout => workout.exercises.map(exercise => ({ ...exercise, workoutName: workout.name })));
+    const loggedExercises = (completedWorkouts ?? []).flatMap(workout => workout.exercises.map(exercise => ({ ...exercise, workoutName: workout.name })));
     const featuredExercise = loggedExercises.length ? loggedExercises[(new Date().getDate() + loggedExercises.length) % loggedExercises.length] : null;
     const featuredReps = featuredExercise?.sets?.reduce((sum, set) => sum + set.reps, 0) ?? 0;
     const facts = [
@@ -152,12 +152,13 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         previous > 0 ? `Your training volume is ${Math.abs(Math.round((current - previous) / previous * 100))}% ${current >= previous ? 'higher' : 'lower'} than last week.` : 'Your next completed session will unlock a weekly comparison.',
         dash?.latest_weight ? `Your current tracked weight is ${dash.latest_weight.weight.toFixed(1)} kg.` : 'Add a weigh-in to begin tracking your bodyweight trend.',
         leadGroup ? `${leadGroup.name} is your highest-volume muscle group this week.` : 'Log your first workout to see your muscle-group focus.',
-        completedWorkouts.length ? `You have completed ${completedWorkouts.length} workout${completedWorkouts.length === 1 ? '' : 's'} so far.` : 'Finish your first workout to start your completed-session count.',
+        completedWorkouts?.length ? `You have completed ${completedWorkouts.length} workout${completedWorkouts.length === 1 ? '' : 's'} so far.` : 'Finish your first workout to start your completed-session count.',
         featuredExercise ? `${featuredReps} reps logged for ${featuredExercise.name}.` : 'A completed workout will unlock an exercise snapshot here.'
     ];
     const factKey = facts.join('|');
     const [text, setText] = useState('');
     useEffect(() => {
+        if (completedWorkouts === null) return;
         let timer: ReturnType<typeof setTimeout>;
         let character = 0;
         let message = 0;
@@ -186,7 +187,7 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         setText('');
         timer = setTimeout(() => type(greeting), 280);
         return () => clearTimeout(timer);
-    }, [factKey]);
+    }, [factKey, completedWorkouts]);
     return <p className="dashboard-greeting" aria-live="polite"><span>{text}</span><i aria-hidden="true" /></p>;
 }
 function Dashboard({ dash, log, saveWeight }: {
@@ -199,7 +200,17 @@ function Stat({ label, value, sub }: {
     label: string;
     value: string;
     sub: string;
-}) { return <article><span>{label}</span><strong>{value}</strong><small>{sub}</small></article>; }
+}) { return <article><span>{label}</span><strong><AnimatedValue value={value}/></strong><small>{sub}</small></article>; }
+function AnimatedValue({ value }: { value: string }) {
+    const match = value.match(/^([\d,.]+)(.*)$/), target = match ? Number(match[1].replaceAll(',', '')) : null, suffix = match?.[2] ?? '';
+    const decimals = match?.[1].includes('.') ? (match[1].split('.')[1]?.length ?? 0) : 0;
+    const ref = useRef<HTMLSpanElement>(null);
+    const [run, setRun] = useState(0);
+    const [shown, setShown] = useState(0);
+    useEffect(() => { const node = ref.current; if (!node || !('IntersectionObserver' in window)) { setRun(1); return; } const observer = new IntersectionObserver(entries => { if (entries[0]?.isIntersecting) setRun(current => current + 1); }, { threshold: .8 }); observer.observe(node); return () => observer.disconnect(); }, []);
+    useEffect(() => { if (target === null || run === 0) return; setShown(0); let frame = 0; const started = performance.now(); const animate = (time: number) => { const progress = Math.min(1, (time - started) / 850); setShown(target * (1 - Math.pow(1 - progress, 3))); if (progress < 1) frame = requestAnimationFrame(animate); }; frame = requestAnimationFrame(animate); return () => cancelAnimationFrame(frame); }, [target, run]);
+    return target === null ? <span ref={ref}>{value}</span> : <span ref={ref}>{shown.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}</span>;
+}
 ;
 function Title({ n, text }: {
     text: string;
