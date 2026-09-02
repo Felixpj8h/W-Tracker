@@ -40,3 +40,18 @@ def test_bodyweight_entry_is_upserted_by_day():
     assert client.post("/api/v1/bodyweight", json={**payload, "weight": 82.2}).status_code == 200
     entries = client.get("/api/v1/bodyweight").json()
     assert entries == [{"recorded_on": "2026-09-01", "weight": 82.2}]
+
+
+def test_drafts_can_be_resumed_and_progress_is_available():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    draft = client.post("/api/v1/workouts/draft", json={"name": "Quick session", "performed_on": "2026-09-02"}).json()
+    assert client.get("/api/v1/workouts/active").json()[0]["id"] == draft["id"]
+    finished = client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "name": "Quick session", "performed_on": "2026-09-02",
+        "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 50, "reps": 10}]}],
+    })
+    assert finished.status_code == 200
+    progress = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
+    assert progress["sessions"][0]["best_weight"] == 50
+    assert client.delete(f"/api/v1/workouts/{draft['id']}").json() == {"deleted": True}

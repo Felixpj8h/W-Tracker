@@ -61,6 +61,7 @@ class RoutineExercise(Base):
     target_reps_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     target_reps_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     target_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    rest_seconds: Mapped[int] = mapped_column(Integer, default=90)
     exercise: Mapped[Exercise] = relationship()
 
 
@@ -88,6 +89,7 @@ class WorkoutExercise(Base):
     secondary_muscles: Mapped[str] = mapped_column(String(300), default="")
     position: Mapped[int] = mapped_column(Integer)
     note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    rest_seconds: Mapped[int] = mapped_column(Integer, default=90)
     sets: Mapped[list["WorkoutSet"]] = relationship(cascade="all, delete-orphan", order_by="WorkoutSet.position")
 
 
@@ -108,6 +110,23 @@ class BodyweightEntry(Base):
     weight: Mapped[float] = mapped_column(Float)
 
 
+class WeeklyPlan(Base):
+    __tablename__ = "weekly_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), default="My training week")
+    starts_on: Mapped[date] = mapped_column(Date)
+    days: Mapped[list["WeeklyPlanDay"]] = relationship(cascade="all, delete-orphan", order_by="WeeklyPlanDay.weekday")
+
+
+class WeeklyPlanDay(Base):
+    __tablename__ = "weekly_plan_days"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("weekly_plans.id"))
+    weekday: Mapped[int] = mapped_column(Integer)
+    routine_id: Mapped[int] = mapped_column(ForeignKey("routines.id"))
+    routine: Mapped[Routine] = relationship()
+
+
 class Model(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -117,7 +136,7 @@ class ExerciseOut(Model):
 
 
 class ExerciseChoice(BaseModel):
-    exercise_id: int; planned_sets: int = Field(ge=1, le=20); target_reps: Optional[int] = Field(None, ge=1, le=100); target_reps_min: Optional[int] = Field(None, ge=1, le=100); target_reps_max: Optional[int] = Field(None, ge=1, le=100); target_weight: Optional[float] = Field(None, ge=0)
+    exercise_id: int; planned_sets: int = Field(ge=1, le=20); target_reps: Optional[int] = Field(None, ge=1, le=100); target_reps_min: Optional[int] = Field(None, ge=1, le=100); target_reps_max: Optional[int] = Field(None, ge=1, le=100); target_weight: Optional[float] = Field(None, ge=0); rest_seconds: int = Field(default=90, ge=0, le=1800)
 
 
 class CustomExerciseIn(BaseModel):
@@ -139,15 +158,31 @@ class LoggedSetIn(BaseModel):
 
 
 class WorkoutExerciseIn(BaseModel):
-    exercise_id: Optional[int] = None; name: Optional[str] = None; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None; note: Optional[str] = Field(None, max_length=1000); sets: list[LoggedSetIn] = []
+    exercise_id: Optional[int] = None; name: Optional[str] = None; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None; note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); sets: list[LoggedSetIn] = []
 
 
 class WorkoutIn(BaseModel):
     name: str = Field(min_length=1, max_length=120); performed_on: date; exercises: list[WorkoutExerciseIn]
 
 
+class WorkoutDraftIn(BaseModel):
+    name: str = Field(default="Workout", min_length=1, max_length=120)
+    performed_on: date = Field(default_factory=date.today)
+
+
 class WeightIn(BaseModel):
     recorded_on: date; weight: float = Field(gt=0, le=500)
+
+
+class WeeklyPlanDayIn(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    routine_id: int
+
+
+class WeeklyPlanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    starts_on: date
+    days: list[WeeklyPlanDayIn] = []
 
 
 MUSCLE_MAP = {
@@ -183,7 +218,7 @@ def exercise_out(exercise: Exercise) -> dict:
 
 
 def routine_out(routine: Routine) -> dict:
-    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
+    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "rest_seconds": item.rest_seconds, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
 
 
 def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, secondary_muscles: list[str] = [], wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
@@ -219,6 +254,8 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_min INTEGER")
         if "target_reps_max" not in columns:
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_max INTEGER")
+        if "rest_seconds" not in columns:
+            connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
         exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(exercises)")}
         if "search_aliases" not in exercise_columns:
             connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN search_aliases VARCHAR(1000) DEFAULT ''")
@@ -229,6 +266,8 @@ def startup():
         workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
         if "note" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN note VARCHAR(1000)")
+        if "rest_seconds" not in workout_exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
         workout_set_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_sets)")}
         if "exertion" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
@@ -359,7 +398,7 @@ def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
         if not db.get(Exercise, choice.exercise_id): raise HTTPException(404, "Exercise not found")
         if choice.target_reps_min and choice.target_reps_max and choice.target_reps_min > choice.target_reps_max:
             raise HTTPException(422, "Minimum reps cannot be greater than maximum reps")
-        routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps_min or choice.target_reps, target_reps_min=choice.target_reps_min or choice.target_reps, target_reps_max=choice.target_reps_max or choice.target_reps, target_weight=choice.target_weight))
+        routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps_min or choice.target_reps, target_reps_min=choice.target_reps_min or choice.target_reps, target_reps_max=choice.target_reps_max or choice.target_reps, target_weight=choice.target_weight, rest_seconds=choice.rest_seconds))
 
 
 @app.post("/api/v1/routines")
@@ -388,7 +427,7 @@ def start_routine(routine_id: int, db: Session = Depends(get_db)):
     if not routine: raise HTTPException(404, "Routine not found")
     workout = Workout(routine_id=routine.id, name=routine.name, performed_on=date.today(), started_at=datetime.utcnow())
     for pos, item in enumerate(routine.exercises):
-        workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos)
+        workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos, rest_seconds=item.rest_seconds)
         workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
         workout.exercises.append(workout_exercise)
     db.add(workout); db.commit(); return workout_out(workout)
@@ -399,7 +438,7 @@ def workout_out(workout: Workout) -> dict:
     def exercise_payload(e: WorkoutExercise):
         secondary = [x for x in e.secondary_muscles.split("|") if x]
         display = f"Primary: {e.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
+        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
     return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": workout.started_at, "completed_at": workout.completed_at, "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
@@ -408,7 +447,7 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
     for pos, item in enumerate(payload.exercises):
         cached = db.get(Exercise, item.exercise_id) if item.exercise_id else None
         if item.exercise_id and not cached: raise HTTPException(404, "Exercise not found")
-        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=cached.primary_muscle if cached else item.primary_muscle, secondary_muscles=cached.secondary_muscles if cached else "|".join(item.secondary_muscles), muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(item.primary_muscle)), position=pos, note=item.note)
+        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=cached.primary_muscle if cached else item.primary_muscle, secondary_muscles=cached.secondary_muscles if cached else "|".join(item.secondary_muscles), muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(item.primary_muscle)), position=pos, note=item.note, rest_seconds=item.rest_seconds)
         wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 
@@ -419,6 +458,13 @@ def create_workout(payload: WorkoutIn, db: Session = Depends(get_db)):
     workout = Workout(completed=True, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return workout_out(workout)
 
 
+@app.post("/api/v1/workouts/draft")
+def create_workout_draft(payload: WorkoutDraftIn, db: Session = Depends(get_db)):
+    workout = Workout(name=payload.name, performed_on=payload.performed_on, completed=False, started_at=datetime.utcnow())
+    db.add(workout); db.commit(); db.refresh(workout)
+    return workout_out(workout)
+
+
 @app.put("/api/v1/workouts/{workout_id}")
 def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
     workout = db.get(Workout, workout_id)
@@ -426,9 +472,92 @@ def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(ge
     populate_workout(workout, payload, db); workout.completed = True; workout.completed_at = datetime.utcnow(); db.commit(); return workout_out(workout)
 
 
+@app.patch("/api/v1/workouts/{workout_id}")
+def update_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
+    workout = db.get(Workout, workout_id)
+    if not workout: raise HTTPException(404, "Workout not found")
+    populate_workout(workout, payload, db)
+    db.commit(); db.refresh(workout)
+    return workout_out(workout)
+
+
+@app.delete("/api/v1/workouts/{workout_id}")
+def delete_workout(workout_id: int, db: Session = Depends(get_db)):
+    workout = db.get(Workout, workout_id)
+    if not workout: raise HTTPException(404, "Workout not found")
+    db.delete(workout); db.commit()
+    return {"deleted": True}
+
+
 @app.get("/api/v1/workouts")
 def list_workouts(db: Session = Depends(get_db)):
-    return [workout_out(w) for w in db.scalars(select(Workout).where(Workout.completed == True).order_by(Workout.performed_on.desc())).all()]
+    return [workout_out(w) for w in db.scalars(select(Workout).order_by(Workout.completed.asc(), Workout.performed_on.desc(), Workout.created_at.desc())).all()]
+
+
+@app.get("/api/v1/workouts/active")
+def list_active_workouts(db: Session = Depends(get_db)):
+    return [workout_out(w) for w in db.scalars(select(Workout).where(Workout.completed == False).order_by(Workout.created_at.desc())).all()]
+
+
+def weekly_plan_out(plan: WeeklyPlan) -> dict:
+    return {"id": plan.id, "name": plan.name, "starts_on": plan.starts_on, "days": [{"weekday": item.weekday, "routine_id": item.routine_id, "routine_name": item.routine.name} for item in plan.days]}
+
+
+@app.get("/api/v1/calendar/plan")
+def get_weekly_plan(db: Session = Depends(get_db)):
+    plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+    return weekly_plan_out(plan) if plan else None
+
+
+@app.post("/api/v1/calendar/plan")
+def save_weekly_plan(payload: WeeklyPlanIn, db: Session = Depends(get_db)):
+    if len({item.weekday for item in payload.days}) != len(payload.days):
+        raise HTTPException(422, "Each weekday can only have one workout")
+    for item in payload.days:
+        if not db.get(Routine, item.routine_id): raise HTTPException(404, "Routine not found")
+    plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+    if not plan:
+        plan = WeeklyPlan(name=payload.name, starts_on=payload.starts_on); db.add(plan)
+    plan.name, plan.starts_on = payload.name, payload.starts_on
+    plan.days.clear()
+    for item in payload.days:
+        plan.days.append(WeeklyPlanDay(weekday=item.weekday, routine_id=item.routine_id))
+    db.commit(); db.refresh(plan)
+    return weekly_plan_out(plan)
+
+
+@app.get("/api/v1/calendar")
+def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(get_db)):
+    from calendar import monthrange
+    plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+    first = date(year, month, 1); last = date(year, month, monthrange(year, month)[1])
+    completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
+    planned = {item.weekday: item for item in plan.days} if plan else {}
+    result = []
+    for offset in range((last - first).days + 1):
+        day = first + timedelta(days=offset)
+        scheduled = planned.get(day.weekday()) if plan and day >= plan.starts_on else None
+        workout = completed.get(day)
+        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": scheduled.routine.name if scheduled else None, "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
+    return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
+
+
+@app.get("/api/v1/exercises/{exercise_id}/progress")
+def exercise_progress(exercise_id: int, exclude_workout_id: Optional[int] = None, db: Session = Depends(get_db)):
+    exercise = db.get(Exercise, exercise_id)
+    if not exercise: raise HTTPException(404, "Exercise not found")
+    rows = []
+    workouts = db.scalars(select(Workout).where(Workout.completed == True).order_by(Workout.performed_on.desc())).all()
+    for workout in workouts:
+        if exclude_workout_id == workout.id: continue
+        for item in workout.exercises:
+            if item.cached_exercise_id != exercise_id: continue
+            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets]
+            volume = sum(s["weight"] * s["reps"] for s in sets)
+            best_weight = max((s["weight"] for s in sets), default=0)
+            estimated_1rm = max((s["weight"] * (1 + s["reps"] / 30) for s in sets if s["reps"] > 0), default=0)
+            rows.append({"workout_id": workout.id, "performed_on": workout.performed_on, "workout_name": workout.name, "sets": sets, "volume": volume, "best_weight": best_weight, "estimated_1rm": estimated_1rm})
+    return {"exercise": exercise_out(exercise), "sessions": rows, "personal_best_weight": max((x["best_weight"] for x in rows), default=0), "personal_best_1rm": max((x["estimated_1rm"] for x in rows), default=0)}
 
 
 @app.post("/api/v1/bodyweight")
