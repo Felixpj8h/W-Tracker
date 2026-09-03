@@ -137,9 +137,23 @@ function Head({ children, action }: {
     action?: React.ReactNode;
 }) { return <header className="head"><div>{children}</div>{action}</header>; }
 function DashboardGreeting({ dash }: { dash: Dash | null }) {
-    const greeting = 'Hello Felix.';
     const [completedWorkouts, setCompletedWorkouts] = useState<Workout[] | null>(null);
+    const [todayPlan, setTodayPlan] = useState<CalendarDay | null | undefined>(undefined);
+    const greeting = 'Hello Felix.';
     useEffect(() => { void api<Workout[]>('/workouts').then(entries => setCompletedWorkouts(entries.filter(entry => entry.completed))).catch(() => setCompletedWorkouts([])); }, []);
+    useEffect(() => {
+        const now = new Date();
+        const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        void api<{ days: CalendarDay[] }>(`/calendar?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
+            .then(result => setTodayPlan(result.days.find(day => day.date === date) ?? null))
+            .catch(() => setTodayPlan(null));
+    }, []);
+    const calendarMessage = (() => {
+        if (todayPlan === undefined) return 'Hello Felix.';
+        if (todayPlan === null) return 'Enjoy the rest day.';
+        if (todayPlan.status === 'completed') return `Today’s ${todayPlan.workout_name ?? todayPlan.routine_name ?? 'workout'} is complete. Great work!`;
+        return todayPlan.routine_name ? `Ready for today’s ${todayPlan.routine_name} workout?` : 'Enjoy the rest day.';
+    })();
     const current = dash?.total_current_volume ?? 0;
     const previous = dash?.total_previous_volume ?? 0;
     const groups = dash?.volume_by_muscle_group ?? [];
@@ -155,10 +169,11 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         completedWorkouts?.length ? `You have completed ${completedWorkouts.length} workout${completedWorkouts.length === 1 ? '' : 's'} so far.` : 'Finish your first workout to start your completed-session count.',
         featuredExercise ? `${featuredReps} reps logged for ${featuredExercise.name}.` : 'A completed workout will unlock an exercise snapshot here.'
     ];
-    const factKey = facts.join('|');
+    const messages = [calendarMessage, ...facts];
+    const factKey = messages.join('|');
     const [text, setText] = useState('');
     useEffect(() => {
-        if (completedWorkouts === null) return;
+        if (completedWorkouts === null || todayPlan === undefined) return;
         let timer: ReturnType<typeof setTimeout>;
         let character = 0;
         let message = 0;
@@ -175,11 +190,11 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         const erase = () => {
             const tick = () => {
                 character -= 1;
-                setText((message === 0 ? greeting : facts[message - 1]).slice(0, character));
+                setText((message === 0 ? greeting : messages[message - 1]).slice(0, character));
                 if (character > 0) timer = setTimeout(tick, 18);
                 else {
-                    message = message === facts.length ? 1 : message + 1;
-                    timer = setTimeout(() => type(message === 0 ? greeting : facts[message - 1]), 260);
+                    message = message === messages.length ? 1 : message + 1;
+                    timer = setTimeout(() => type(message === 0 ? greeting : messages[message - 1]), 260);
                 }
             };
             tick();
@@ -187,20 +202,56 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         setText('');
         timer = setTimeout(() => type(greeting), 280);
         return () => clearTimeout(timer);
-    }, [factKey, completedWorkouts]);
+    }, [factKey, completedWorkouts, greeting, todayPlan]);
     return <p className="dashboard-greeting" aria-live="polite"><span>{text}</span><i aria-hidden="true" /></p>;
 }
 function LegacyDashboard({ dash, log, saveWeight }: {
     dash: Dash | null;
     log: () => void;
     saveWeight: (n: number) => Promise<void>;
-}) { const [weight, setWeight] = useState(''), [panel, setPanel] = useState<'overview' | 'weight' | 'volume'>('overview'); const groups = dash?.volume_by_muscle_group ?? []; const max = Math.max(1, ...groups.flatMap(x => [x.current_week_volume, x.last_week_volume])); return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">DASHBOARD</p><h1>Training overview</h1></Head><DashboardGreeting dash={dash}/><div className="dash-tabs" role="tablist"><button className={panel === 'overview' ? 'active' : ''} onClick={() => setPanel('overview')}>Overview</button><button className={panel === 'weight' ? 'active' : ''} onClick={() => setPanel('weight')}>Weight</button><button className={panel === 'volume' ? 'active' : ''} onClick={() => setPanel('volume')}>Volume</button></div><div className={`dashboard-panels panel-${panel}`}><section className="stats dashboard-overview"><Stat label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={dash?.latest_weight ? 'Latest tracked entry' : 'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume ?? 0)} kg`} sub={dash?.total_previous_volume ? `${Math.round(((dash.total_current_volume - dash.total_previous_volume) / dash.total_previous_volume) * 100)}% vs last week` : 'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume ?? 0)} kg`} sub="Completed load volume"/></section><section className="grid"><article className="card dashboard-weight"><Title n="01" text="Bodyweight"/><div className="weight"><div><strong>{dash?.latest_weight?.weight.toFixed(1) ?? '—'} <small>kg</small></strong><p>Current tracked weight</p></div><form onSubmit={e => { e.preventDefault(); if (+weight)
-    void saveWeight(+weight).then(() => setWeight('')); }}><input value={weight} onChange={e => setWeight(e.target.value)} placeholder="kg" inputMode="decimal"/><button>Save</button></form></div><Line values={dash?.weight_series ?? []}/></article><article className="card dashboard-volume"><Title n="02" text="Volume by muscle group"/><div className="legend"><span><i />This week</span><span><i />Last week</span></div>{groups.map(x => <div className="bar" key={x.name}><div><b>{x.name}</b><span>{vol(x.current_week_volume)} kg</span></div><div><i style={{ width: `${x.current_week_volume / max * 100}%` }}/><i style={{ width: `${x.last_week_volume / max * 100}%` }}/></div></div>)}</article></section></div><section className="prompt"><div><p className="overline">READY WHEN YOU ARE</p><h2>Start a session</h2><span>Log a workout now, or begin from one of your routines.</span></div><button className="primary" onClick={log}>Start logging <b>→</b></button></section></>; }
+}) { const [panel, setPanel] = useState<'overview' | 'weight' | 'volume'>('overview'); const groups = dash?.volume_by_muscle_group ?? []; const max = Math.max(1, ...groups.flatMap(x => [x.current_week_volume, x.last_week_volume])); return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">DASHBOARD</p><h1>Training overview</h1></Head><DashboardGreeting dash={dash}/><div className="dash-tabs" role="tablist"><button className={panel === 'overview' ? 'active' : ''} onClick={() => setPanel('overview')}>Overview</button><button className={panel === 'weight' ? 'active' : ''} onClick={() => setPanel('weight')}>Weight</button><button className={panel === 'volume' ? 'active' : ''} onClick={() => setPanel('volume')}>Volume</button></div><div className={`dashboard-panels panel-${panel}`}><section className="stats dashboard-overview"><Stat label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={dash?.latest_weight ? 'Latest tracked entry' : 'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume ?? 0)} kg`} sub={dash?.total_previous_volume ? `${Math.round(((dash.total_current_volume - dash.total_previous_volume) / dash.total_previous_volume) * 100)}% vs last week` : 'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume ?? 0)} kg`} sub="Completed load volume"/></section><section className="grid"><BodyweightCard dash={dash} saveWeight={saveWeight}/><article className="card dashboard-volume"><Title n="02" text="Volume by muscle group"/><div className="legend"><span><i />This week</span><span><i />Last week</span></div>{groups.map(x => <div className="bar" key={x.name}><div><b>{x.name}</b><span>{vol(x.current_week_volume)} kg</span></div><div><i style={{ width: `${x.current_week_volume / max * 100}%` }}/><i style={{ width: `${x.last_week_volume / max * 100}%` }}/></div></div>)}</article></section></div><section className="prompt"><div><p className="overline">READY WHEN YOU ARE</p><h2>Start a session</h2><span>Log a workout now, or begin from one of your routines.</span></div><button className="primary" onClick={log}>Start logging <b>→</b></button></section></>; }
 function Dashboard({ dash, log, saveWeight }: { dash: Dash | null; log: () => void; saveWeight: (n: number) => Promise<void> }) {
     const [sessionOpen, setSessionOpen] = useState(false), dashboardRef = useRef<HTMLDivElement>(null), touchStart = useRef(0);
     useEffect(() => { const workspace = dashboardRef.current?.closest('main'); workspace?.classList.add('dashboard-workspace'); window.scrollTo(0, 0); return () => workspace?.classList.remove('dashboard-workspace'); }, []);
     const revealFromWheel = (event: React.WheelEvent<HTMLDivElement>) => { if (window.innerWidth <= 760 || Math.abs(event.deltaY) < 4) return; event.preventDefault(); setSessionOpen(event.deltaY > 0); };
     return <div className={`dashboard-shell ${sessionOpen ? 'session-open' : ''}`} ref={dashboardRef} onWheel={revealFromWheel} onTouchStart={event => { touchStart.current = event.touches[0]?.clientY ?? 0; }} onTouchEnd={event => { if (window.innerWidth > 760) setSessionOpen(touchStart.current - (event.changedTouches[0]?.clientY ?? touchStart.current) > 24); }}><LegacyDashboard dash={dash} log={log} saveWeight={saveWeight}/><section className="dashboard-sheet"><div><p className="overline">READY WHEN YOU ARE</p><h2>Start a session</h2><span>Log a workout now, or begin from one of your routines.</span></div><button className="primary" onClick={log}>Start logging <b>→</b></button></section></div>;
+}
+type BodyMapMuscle = { id: number; name: string; volume: number; intensity: number; is_front: boolean; image_url: string; role?: 'primary' | 'secondary' | 'tertiary' };
+const WGER_BODY_BASE = {
+    front: 'https://raw.githubusercontent.com/wger-project/flutter/master/assets/images/muscles/front.svg',
+    back: 'https://raw.githubusercontent.com/wger-project/flutter/master/assets/images/muscles/back.svg'
+};
+function BodyweightCard({ dash, saveWeight }: { dash: Dash | null; saveWeight: (n: number) => Promise<void> }) {
+    const [weight, setWeight] = useState('');
+    const [showMap, setShowMap] = useState(false);
+    return <article className="card dashboard-weight"><Title n="01" text="Bodyweight"/><button className="card-switch" onClick={() => setShowMap(current => !current)} aria-label={showMap ? 'Show bodyweight' : 'Show weekly muscle map'}>{showMap ? 'Bodyweight' : 'Muscle map'} <b>{showMap ? '←' : '→'}</b></button><div className={`weight-card-viewport ${showMap ? 'show-map' : ''}`}><div className="weight-card-panel weight-panel"><div className="weight"><div><strong>{dash?.latest_weight?.weight.toFixed(1) ?? '—'} <small>kg</small></strong><p>Current tracked weight</p></div><form onSubmit={event => { event.preventDefault(); if (+weight) void saveWeight(+weight).then(() => setWeight('')); }}><input value={weight} onChange={event => setWeight(event.target.value)} placeholder="kg" inputMode="decimal"/><button>Save</button></form></div><Line values={dash?.weight_series ?? []}/></div><div className="weight-card-panel map-panel"><BodyMap/></div></div></article>;
+}
+export function AnatomyFallback({ intensity, view, showRegions }: { intensity: (group: string) => number; view: 'front' | 'back'; showRegions: boolean }) {
+    const base = <><circle className="body-map-base" cx="90" cy="25" r="17"/><path className="body-map-base" d="M83 42H97L101 54 118 61 132 93 127 151 114 149 108 107 111 168Q108 188 104 200L116 298 103 315 92 310 90 222 88 310 77 315 64 298 76 200Q72 188 69 168L72 107 66 149 53 151 48 93 62 61 79 54Z"/></>;
+    return view === 'front' ? <svg className={`body-map-fallback ${showRegions ? '' : 'base-only'}`} viewBox="0 0 180 330" aria-label="Front muscle view">{base}<path className="body-region" style={{ opacity: intensity('shoulders') }} d="M62 62Q71 54 80 57L75 84 57 93 52 88ZM118 62Q109 54 100 57L105 84 123 93 128 88Z"/><path className="body-region" style={{ opacity: intensity('chest') }} d="M77 83Q84 77 89 84V111Q80 109 73 117L70 96ZM103 83Q96 77 91 84V111Q100 109 107 117L110 96Z"/><path className="body-region" style={{ opacity: intensity('arms') }} d="M57 95 51 104 54 143 65 141 70 108ZM123 95 129 104 126 143 115 141 110 108Z"/><path className="body-region" style={{ opacity: intensity('core') }} d="M75 119Q90 113 105 119L108 166Q90 177 72 166Z"/><path className="body-region" style={{ opacity: intensity('legs') }} d="M77 181Q83 185 88 184L86 303 77 307 68 296ZM103 181Q97 185 92 184L94 303 103 307 112 296Z"/></svg> : <svg className={`body-map-fallback ${showRegions ? '' : 'base-only'}`} viewBox="0 0 180 330" aria-label="Back muscle view">{base}<path className="body-region body-back" style={{ opacity: intensity('back') }} d="M79 55H101L112 83 105 129 99 154 81 154 75 129 68 83Z"/><path className="body-region" style={{ opacity: intensity('shoulders') }} d="M62 62Q71 54 80 57L75 84 57 93 52 88ZM118 62Q109 54 100 57L105 84 123 93 128 88Z"/><path className="body-region" style={{ opacity: intensity('arms') }} d="M57 95 51 104 54 143 65 141 70 108ZM123 95 129 104 126 143 115 141 110 108Z"/><path className="body-region" style={{ opacity: intensity('core') }} d="M74 154Q90 163 106 154L108 178Q90 190 72 178Z"/><path className="body-region" style={{ opacity: intensity('legs') }} d="M77 186Q83 190 88 189L86 303 77 307 68 296ZM103 186Q97 190 92 189L94 303 103 307 112 296Z"/></svg>;
+}
+function BodyMap() {
+    const [muscles, setMuscles] = useState<BodyMapMuscle[] | null>(null);
+    const [mapUnavailable, setMapUnavailable] = useState(false);
+    const [view, setView] = useState<'front' | 'back'>('front');
+    const [testMode, setTestMode] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const loadMap = async () => {
+        try {
+            const result = await api<{ muscles: BodyMapMuscle[]; test_mode: boolean }>('/dashboard/body-map');
+            setMuscles(result.muscles); setTestMode(result.test_mode); setMapUnavailable(false);
+        } catch { setMapUnavailable(true); setMuscles([]); }
+    };
+    useEffect(() => { void loadMap(); }, []);
+    const toggleTestMode = async () => {
+        setTesting(true);
+        try { await api('/dashboard/body-map/test-data', { method: testMode ? 'DELETE' : 'POST' }); await loadMap(); }
+        finally { setTesting(false); }
+    };
+    const trainedMuscles = [...(muscles ?? [])].filter(muscle => muscle.volume > 0).sort((a, b) => b.volume - a.volume);
+    const strongest = trainedMuscles.slice(0, 3);
+    const visibleMuscles = (muscles ?? []).filter(muscle => muscle.is_front === (view === 'front'));
+    return <div className="body-map"><div className="body-map-copy"><span>THIS WEEK</span><b>Muscles trained</b><small>{mapUnavailable ? 'Restart the API to load your muscle overlays.' : muscles === null ? 'Loading your training map…' : trainedMuscles.length ? `${trainedMuscles.length} muscle region${trainedMuscles.length === 1 ? '' : 's'} hit` : 'Complete a workout to light up your map.'}</small><div className="body-map-view-toggle"><button className={view === 'front' ? 'active' : ''} onClick={() => setView('front')}>Front</button><button className={view === 'back' ? 'active' : ''} onClick={() => setView('back')}>Back</button></div><button className={`body-map-test ${testMode ? 'active' : ''}`} onClick={() => void toggleTestMode()} disabled={testing}>{testing ? 'Updating test…' : testMode ? 'Clear map test' : 'Test full map'}</button></div><div className="body-map-figure" aria-label={`${view} muscles trained this week`}><img className="wger-body-base" src={WGER_BODY_BASE[view]} alt=""/>{visibleMuscles.map(muscle => <img className="wger-muscle-layer" key={muscle.id} src={muscle.image_url} alt="" style={{ opacity: .24 + muscle.intensity * .76 }} />)}</div>{strongest.length > 0 && <div className="body-map-list">{strongest.map(muscle => <span key={muscle.id}>{muscle.name}<b>{Math.round(muscle.volume).toLocaleString()} kg</b></span>)}</div>}</div>;
 }
 function Stat({ label, value, sub }: {
     label: string;

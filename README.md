@@ -10,6 +10,13 @@ Start the API from the `backend` folder after installing its requirements:
 fastapi dev app/main.py
 ```
 
+If you use Uvicorn directly, first change into `backend`. Running the command from another folder (such as `C:\\Windows\\System32`) causes `ModuleNotFoundError: No module named 'app'`:
+
+```powershell
+cd C:\Users\felix\Desktop\Projects\W-Tracker\backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
 The server runs at `http://localhost:8000` and creates `backend/workout_tracker.db` automatically. Then, in a separate terminal at the project root, run:
 
 ```text

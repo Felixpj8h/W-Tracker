@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 DB_PATH = Path(__file__).resolve().parent.parent / "workout_tracker.db"
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
+WGER_MUSCLES: list[dict] | None = None
 
 
 class Base(DeclarativeBase):
@@ -187,10 +189,39 @@ class WeeklyPlanIn(BaseModel):
 
 MUSCLE_MAP = {
     "quadriceps": "Legs", "hamstrings": "Legs", "calves": "Legs", "glutes": "Legs", "abductors": "Legs", "adductors": "Legs",
-    "lats": "Back", "lower back": "Back", "traps": "Back", "abdominals": "Core", "chest": "Chest",
-    "shoulders": "Shoulders", "biceps": "Arms", "triceps": "Arms", "forearms": "Arms",
+    "quads": "Legs", "soleus": "Legs", "lats": "Back", "lower back": "Back", "traps": "Back", "trapezius": "Back", "abdominals": "Core", "abs": "Core", "rectus abdominis": "Core", "obliquus externus abdominis": "Core", "serratus anterior": "Core", "chest": "Chest",
+    "shoulders": "Shoulders", "biceps": "Arms", "triceps": "Arms", "brachialis": "Arms", "forearms": "Arms",
 }
 GROUPS = ["Legs", "Back", "Core", "Chest", "Shoulders", "Arms"]
+WGER_GROUP_REGIONS = {
+    "Legs": ("Quads", "Hamstrings", "Calves", "Soleus", "Glutes"),
+    "Back": ("Lats", "Trapezius"),
+    "Core": ("Abs", "Rectus abdominis", "Obliquus externus abdominis", "Serratus anterior"),
+    "Chest": ("Chest",),
+    "Shoulders": ("Shoulders",),
+    "Arms": ("Biceps", "Triceps", "Brachialis"),
+}
+TERTIARY_MUSCLES = {
+    "Chest": ("Shoulders", "Triceps"),
+    "Shoulders": ("Triceps", "Trapezius"),
+    "Lats": ("Biceps", "Trapezius"),
+    "Trapezius": ("Shoulders",),
+    "Quads": ("Glutes", "Hamstrings", "Calves"),
+    "Hamstrings": ("Glutes", "Calves"),
+    "Glutes": ("Hamstrings", "Quads"),
+    "Abs": ("Obliquus externus abdominis", "Serratus anterior"),
+    "Biceps": ("Brachialis",),
+    "Triceps": ("Shoulders",),
+}
+MUSCLE_ALIASES = {
+    "anterior deltoid": "Shoulders", "deltoids": "Shoulders",
+    "pectoralis major": "Chest", "pectoralis minor": "Chest",
+    "quadriceps": "Quads", "quadriceps femoris": "Quads",
+    "biceps brachii": "Biceps", "triceps brachii": "Triceps",
+    "latissimus dorsi": "Lats", "gastrocnemius": "Calves",
+    "rectus abdominis": "Abs", "abdominals": "Abs",
+    "lower back": "Lats", "traps": "Trapezius",
+}
 EXERCISE_OVERRIDES = {
     # Wger entries whose listed primary muscle is misleading for six-group volume analytics.
     "deadlifts": ("Hamstrings", "Legs"),
@@ -209,6 +240,20 @@ def get_db():
 
 def group_for(muscle: Optional[str]) -> Optional[str]:
     return MUSCLE_MAP.get((muscle or "").strip().lower())
+
+
+def canonical_muscle(muscle: Optional[str]) -> str:
+    """Turn Wger and legacy stored labels into one predictable muscle key."""
+    value = (muscle or "").strip()
+    # Old workout rows sometimes contain the display label returned to the UI.
+    while value.casefold().startswith("primary:"):
+        value = value.split(":", 1)[1].strip()
+    value = value.split(" · ", 1)[0].strip()
+    return MUSCLE_ALIASES.get(value.casefold(), value)
+
+
+def stored_secondary_muscles(value: Optional[str]) -> list[str]:
+    return [canonical_muscle(name) for name in (value or "").split("|") if canonical_muscle(name)]
 
 
 def exercise_out(exercise: Exercise) -> dict:
@@ -594,6 +639,124 @@ def dashboard(db: Session = Depends(get_db)):
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
     return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group]} for group in GROUPS]}
+
+
+@app.get("/api/v1/dashboard/body-map")
+def dashboard_body_map(db: Session = Depends(get_db)):
+    """Return this week's Wger overlays from every completed exercise involvement."""
+    global WGER_MUSCLES
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    involvement: dict[str, defaultdict[str, float]] = {
+        "primary": defaultdict(float),
+        "secondary": defaultdict(float),
+        "tertiary": defaultdict(float),
+    }
+    # Some older/demo rows only know a broad group (for example "Legs"). Keep
+    # that data useful by spreading it across the Wger regions for that group.
+    broad_group_volume: defaultdict[str, float] = defaultdict(float)
+    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= week_start)).all()
+    for workout in workouts:
+        for exercise in workout.exercises:
+            volume = sum(entry.weight * entry.reps for entry in exercise.sets)
+            # A completed bodyweight/zero-load set still trains a muscle. Its
+            # reps become the visual score when there is no load volume.
+            activation = volume or max(1, sum(entry.reps for entry in exercise.sets))
+            cached = db.get(Exercise, exercise.cached_exercise_id) if exercise.cached_exercise_id else None
+            source_primary = cached.primary_muscle if cached else exercise.primary_muscle
+            source_secondary = cached.secondary_muscles if cached else exercise.secondary_muscles
+            source_group = cached.muscle_group if cached else exercise.muscle_group
+            primary = canonical_muscle(source_primary)
+            secondary = stored_secondary_muscles(source_secondary)
+            group = (source_group or group_for(primary) or "").strip().title()
+
+            if primary and primary.casefold() != group.casefold():
+                involvement["primary"][primary.casefold()] += activation
+            elif group in WGER_GROUP_REGIONS:
+                broad_group_volume[group] += activation
+
+            # Wger supplies primary and secondary muscles. Tertiary involvement
+            # is a conservative, transparent inference used only to light the map.
+            for muscle in secondary:
+                involvement["secondary"][muscle.casefold()] += activation * 0.45
+            tertiary_sources = [primary, *secondary]
+            for source in tertiary_sources:
+                targets = TERTIARY_MUSCLES.get(source, ())
+                for muscle in targets:
+                    if muscle != primary and muscle not in secondary:
+                        involvement["tertiary"][muscle.casefold()] += activation * 0.20 / len(targets)
+    if WGER_MUSCLES is None:
+        try:
+            with httpx.Client(timeout=10) as client:
+                response = client.get("https://wger.de/api/v2/muscle/", params={"limit": 100})
+                response.raise_for_status()
+                payload = response.json()
+                WGER_MUSCLES = payload.get("results", payload) if isinstance(payload, dict) else payload
+        except httpx.HTTPError:
+            WGER_MUSCLES = []
+    muscles = []
+    for muscle in WGER_MUSCLES:
+        name = muscle.get("name_en") or muscle.get("name")
+        canonical_name = canonical_muscle(name)
+        key = canonical_name.casefold()
+        primary = involvement["primary"].get(key, 0)
+        secondary = involvement["secondary"].get(key, 0)
+        tertiary = involvement["tertiary"].get(key, 0)
+        group = group_for(canonical_name)
+        regions = WGER_GROUP_REGIONS.get(group or "", ())
+        broad_primary = broad_group_volume[group] / len(regions) if group and canonical_name in regions and regions else 0
+        primary += broad_primary
+        volume = primary + secondary + tertiary
+        role = "primary" if primary else "secondary" if secondary else "tertiary"
+        # Wger provides distinct primary and secondary layer artwork. Inferred
+        # tertiary areas deliberately use the subtler secondary artwork.
+        image = muscle.get("image_url_main") if role == "primary" else muscle.get("image_url_secondary")
+        if image and image.startswith("/"):
+            image = f"https://wger.de{image}"
+        if volume and image:
+            muscles.append({"id": muscle.get("id"), "name": name, "volume": volume, "is_front": muscle.get("is_front", True), "image_url": image, "role": role, "is_primary": role == "primary"})
+    peak = max((muscle["volume"] for muscle in muscles), default=0)
+    test_mode = db.scalar(select(Workout.id).where(Workout.name == "Map test · Full body").limit(1)) is not None
+    return {"muscles": [{**muscle, "intensity": round(muscle["volume"] / peak, 3) if peak else 0} for muscle in muscles], "test_mode": test_mode}
+
+
+@app.post("/api/v1/dashboard/body-map/test-data")
+def create_body_map_test_data(db: Session = Depends(get_db)):
+    """Create one clearly labelled, completed session that lights every Wger region."""
+    for workout in db.scalars(select(Workout).where(Workout.name == "Map test · Full body")).all():
+        db.delete(workout)
+    workout = Workout(
+        name="Map test · Full body",
+        performed_on=date.today(),
+        completed=True,
+        started_at=datetime.now(),
+        completed_at=datetime.now(),
+    )
+    # These are the exact Wger layer names supported by the front/back assets.
+    muscles = [
+        ("Chest", "Chest"), ("Shoulders", "Shoulders"),
+        ("Biceps", "Arms"), ("Triceps", "Arms"), ("Brachialis", "Arms"),
+        ("Lats", "Back"), ("Trapezius", "Back"),
+        ("Abs", "Core"), ("Rectus abdominis", "Core"),
+        ("Obliquus externus abdominis", "Core"), ("Serratus anterior", "Core"),
+        ("Quads", "Legs"), ("Hamstrings", "Legs"), ("Glutes", "Legs"),
+        ("Calves", "Legs"), ("Soleus", "Legs"),
+    ]
+    for position, (muscle, group) in enumerate(muscles):
+        item = WorkoutExercise(name=f"Map test · {muscle}", primary_muscle=muscle, muscle_group=group, position=position)
+        item.sets = [WorkoutSet(position=0, weight=20, reps=10, exertion=7)]
+        workout.exercises.append(item)
+    db.add(workout)
+    db.commit()
+    return {"created": len(muscles)}
+
+
+@app.delete("/api/v1/dashboard/body-map/test-data")
+def delete_body_map_test_data(db: Session = Depends(get_db)):
+    for workout in db.scalars(select(Workout).where(Workout.name == "Map test · Full body")).all():
+        db.delete(workout)
+    db.commit()
+    return {"deleted": True}
 
 
 @app.post("/api/v1/demo-data")
