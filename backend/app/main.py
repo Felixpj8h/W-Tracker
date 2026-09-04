@@ -716,22 +716,15 @@ def dashboard_body_map(db: Session = Depends(get_db)):
         if volume and image:
             muscles.append({"id": muscle.get("id"), "name": name, "volume": volume, "is_front": muscle.get("is_front", True), "image_url": image, "role": role, "is_primary": role == "primary"})
     peak = max((muscle["volume"] for muscle in muscles), default=0)
-    test_mode = db.scalar(select(Workout.id).where(Workout.name == "Map test · Full body").limit(1)) is not None
+    test_mode = db.scalar(select(Workout.id).where(Workout.name.like("Map test · Full body%")).limit(1)) is not None
     return {"muscles": [{**muscle, "intensity": round(muscle["volume"] / peak, 3) if peak else 0} for muscle in muscles], "test_mode": test_mode}
 
 
 @app.post("/api/v1/dashboard/body-map/test-data")
 def create_body_map_test_data(db: Session = Depends(get_db)):
     """Create one clearly labelled, completed session that lights every Wger region."""
-    for workout in db.scalars(select(Workout).where(Workout.name == "Map test · Full body")).all():
+    for workout in db.scalars(select(Workout).where(Workout.name.like("Map test · Full body%"))).all():
         db.delete(workout)
-    workout = Workout(
-        name="Map test · Full body",
-        performed_on=date.today(),
-        completed=True,
-        started_at=datetime.now(),
-        completed_at=datetime.now(),
-    )
     # These are the exact Wger layer names supported by the front/back assets.
     muscles = [
         ("Chest", "Chest"), ("Shoulders", "Shoulders"),
@@ -742,18 +735,27 @@ def create_body_map_test_data(db: Session = Depends(get_db)):
         ("Quads", "Legs"), ("Hamstrings", "Legs"), ("Glutes", "Legs"),
         ("Calves", "Legs"), ("Soleus", "Legs"),
     ]
-    for position, (muscle, group) in enumerate(muscles):
-        item = WorkoutExercise(name=f"Map test · {muscle}", primary_muscle=muscle, muscle_group=group, position=position)
-        item.sets = [WorkoutSet(position=0, weight=20, reps=10, exertion=7)]
-        workout.exercises.append(item)
-    db.add(workout)
+    # Ten full-body sessions across 30 days make the analysis graph useful too.
+    for session_index, days_ago in enumerate(range(27, -1, -3)):
+        workout = Workout(
+            name=f"Map test · Full body · {session_index + 1}",
+            performed_on=date.today() - timedelta(days=days_ago),
+            completed=True,
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+        )
+        for position, (muscle, group) in enumerate(muscles):
+            item = WorkoutExercise(name=f"Map test · {muscle}", primary_muscle=muscle, muscle_group=group, position=position)
+            item.sets = [WorkoutSet(position=0, weight=20 + session_index * 2, reps=8 + (position % 4), exertion=7)]
+            workout.exercises.append(item)
+        db.add(workout)
     db.commit()
-    return {"created": len(muscles)}
+    return {"created": len(muscles) * 10}
 
 
 @app.delete("/api/v1/dashboard/body-map/test-data")
 def delete_body_map_test_data(db: Session = Depends(get_db)):
-    for workout in db.scalars(select(Workout).where(Workout.name == "Map test · Full body")).all():
+    for workout in db.scalars(select(Workout).where(Workout.name.like("Map test · Full body%"))).all():
         db.delete(workout)
     db.commit()
     return {"deleted": True}
