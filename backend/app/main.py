@@ -281,8 +281,8 @@ def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle
 app = FastAPI(title="Workout Tracker API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    # Local development: accept the Vite app from this computer or another device on the same private network.
-    allow_origin_regex=r"https?://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d+)?$",
+    # Local development, private-network phones, and temporary Cloudflare preview URLs.
+    allow_origin_regex=r"https?://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|[a-z0-9-]+\.trycloudflare\.com)(?::\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
