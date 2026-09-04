@@ -172,8 +172,9 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
     const messages = [calendarMessage, ...facts];
     const factKey = messages.join('|');
     const [text, setText] = useState('');
+    const backendReady = dash !== null && completedWorkouts !== null && todayPlan !== undefined;
     useEffect(() => {
-        if (completedWorkouts === null || todayPlan === undefined) return;
+        if (!backendReady) return;
         let timer: ReturnType<typeof setTimeout>;
         let character = 0;
         let message = 0;
@@ -202,8 +203,8 @@ function DashboardGreeting({ dash }: { dash: Dash | null }) {
         setText('');
         timer = setTimeout(() => type(greeting), 280);
         return () => clearTimeout(timer);
-    }, [factKey, completedWorkouts, greeting, todayPlan]);
-    return <p className="dashboard-greeting" aria-live="polite"><span>{text}</span><i aria-hidden="true" /></p>;
+    }, [backendReady, factKey, greeting]);
+    return <p className="dashboard-greeting" aria-live="polite">{backendReady && <><span>{text}</span><i aria-hidden="true" /></>}</p>;
 }
 function LegacyDashboard({ dash, log, saveWeight }: {
     dash: Dash | null;
