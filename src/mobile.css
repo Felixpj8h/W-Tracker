@@ -86,3 +86,112 @@
   .logger .exercise-note{margin-top:10px}
   .logger .exercise-note textarea{min-height:46px;padding:8px}
 }
+
+/* Let workout history use the page scroll on phones instead of squeezing the
+   session list into the small space left below the filters. */
+@media(max-width:760px){
+  main.workspace:has(.history-layout){
+    display:block;
+    height:auto;
+    min-height:100dvh;
+    padding:18px 16px calc(96px + env(safe-area-inset-bottom))!important;
+    overflow:visible;
+  }
+  .workspace:has(.history-layout)>.head{margin-bottom:16px}
+  .workspace:has(.history-layout)>.head h1{font-size:clamp(38px,11vw,44px)}
+  .workspace:has(.history-layout)>.head>div>p:last-child{margin-top:9px;font-size:15px;line-height:1.4}
+  .workspace:has(.history-layout)>.history-tabs{width:100%;margin-bottom:12px}
+  .workspace:has(.history-layout)>.history-tabs button{flex:1}
+  .workspace:has(.history-layout)>.history-overview{margin-bottom:12px}
+  .workspace:has(.history-layout) .history-overview article{min-width:0;padding:12px}
+  .workspace:has(.history-layout) .history-overview b{font-size:20px;overflow-wrap:anywhere}
+  .workspace:has(.history-layout)>.history-toolbar{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+    padding:2px 0 14px;
+  }
+  .workspace:has(.history-layout) .history-toolbar label,
+  .workspace:has(.history-layout) .history-toolbar input,
+  .workspace:has(.history-layout) .history-toolbar select{width:100%;min-width:0}
+  .workspace:has(.history-layout) .history-toolbar input,
+  .workspace:has(.history-layout) .history-toolbar select{min-height:46px;font-size:16px}
+  .workspace:has(.history-layout) .history-toolbar p{grid-column:auto;margin:0}
+  .workspace:has(.history-layout)>.history-layout{display:block;min-height:0;overflow:visible}
+  .workspace:has(.history-layout) .history-list{
+    position:static;
+    width:100%;
+    height:auto!important;
+    max-height:none;
+    overflow:visible;
+  }
+  .workspace:has(.history-layout) .history-group button{grid-template-columns:45px minmax(0,1fr) 14px}
+  .workspace:has(.history-layout) .history-group small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+
+/* Fit the monthly calendar between the page header and fixed mobile nav. */
+@media(max-width:760px){
+  main.workspace:has(.month-grid):not(:has(.week-planner)){
+    display:flex;
+    flex-direction:column;
+    height:calc(100dvh - 76px - env(safe-area-inset-bottom));
+    min-height:0!important;
+    padding:16px 12px 10px!important;
+    overflow:hidden;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner))>.head{
+    flex:none;
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner))>.head h1{font-size:clamp(32px,9vw,40px)}
+  .workspace:has(.month-grid):not(:has(.week-planner))>.head .overline{margin-bottom:6px}
+  .workspace:has(.month-grid):not(:has(.week-planner))>.head>div>p:last-child{display:none}
+  .workspace:has(.month-grid):not(:has(.week-planner))>.head .primary{min-height:38px;padding:8px 10px;font-size:12px}
+  .workspace:has(.month-grid):not(:has(.week-planner))>.calendar-controls{
+    flex:none;
+    min-height:38px;
+    margin-bottom:7px;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner))>.month-grid{
+    display:flex;
+    flex:1;
+    min-height:0;
+    flex-direction:column;
+    padding:5px;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-weekdays{flex:0 0 24px}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-days{
+    flex:1;
+    min-height:0;
+    grid-auto-rows:minmax(0,1fr);
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-days>i,
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day{min-height:0}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day{
+    padding:4px;
+    overflow:hidden;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day>span{font-size:10px}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day.today>span{min-width:20px;height:20px}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day>div{gap:2px;margin-top:3px}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day b{
+    display:block;
+    overflow:hidden;
+    font-size:10px;
+    line-height:1.15;
+    white-space:nowrap;
+    text-overflow:ellipsis;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day small{display:none}
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day button{
+    display:grid;
+    place-items:center;
+    width:22px;
+    height:22px;
+    padding:0;
+    border-radius:50%;
+    font-size:0;
+  }
+  .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day button::after{content:'\2192';font-size:13px}
+}
