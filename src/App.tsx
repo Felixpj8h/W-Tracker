@@ -389,8 +389,13 @@ function LegacyCalendar({ folders, start }: { folders: Folder[]; start: (routine
 }
 function History({ data, edit, refresh, note }: { data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void }) {
     const [selectedId, setSelectedId] = useState<number | null>(null), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [analysisExercises, setAnalysisExercises] = useState<string[]>(['', '', '']), [analysisOpen, setAnalysisOpen] = useState<number | null>(null), [timeRange, setTimeRange] = useState<'30' | '90' | '365' | 'all'>('30'), [graphFullscreen, setGraphFullscreen] = useState(false), [analysisSelectionsOpen, setAnalysisSelectionsOpen] = useState(false);
+    useEffect(() => { const closeOnBackdrop = (event: PointerEvent) => { if (!selectedId) return; const session = (event.target as HTMLElement).closest<HTMLElement>('.history-session'); if (!session) { setSelectedId(null); return; } const bounds = session.getBoundingClientRect(); if (event.clientX > bounds.right - 54 && event.clientY < bounds.top + 54) setSelectedId(null); }; document.addEventListener('pointerdown', closeOnBackdrop); return () => document.removeEventListener('pointerdown', closeOnBackdrop); }, [selectedId]);
+    useEffect(() => { document.body.classList.toggle('history-session-open', selectedId !== null); return () => document.body.classList.remove('history-session-open'); }, [selectedId]);
     const completed = data.filter(workout => workout.completed);
-    const selected = completed.find(workout => workout.id === selectedId) ?? completed[0] ?? null;
+    const lastLoadedSelection = useRef<Workout | null>(null);
+    const resolvedSelection = completed.find(workout => workout.id === selectedId) ?? completed[0] ?? null;
+    if (resolvedSelection) lastLoadedSelection.current = resolvedSelection;
+    const selected = resolvedSelection ?? lastLoadedSelection.current;
     const months = [...new Set(completed.map(workout => workout.performed_on.slice(0, 7)))];
     const filtered = completed.filter(workout => (month === 'all' || workout.performed_on.startsWith(month)) && `${workout.name} ${workout.exercises.map(item => item.name).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
     const groups = filtered.reduce<Record<string, Workout[]>>((all, workout) => { const key = workout.performed_on.slice(0, 7); (all[key] ??= []).push(workout); return all; }, {});

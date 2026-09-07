@@ -33,6 +33,15 @@ function Get-TunnelUrl([string[]]$logFiles, [string]$label) {
     throw "Timed out waiting for the $label tunnel URL. Check the logs in $logRoot."
 }
 
+function Show-QrCode([string]$url) {
+    Write-Host 'Scan this QR code to open the phone preview:' -ForegroundColor Cyan
+    $renderer = "require('qrcode-terminal').generate(process.argv[1], { small: true })"
+    & node -e $renderer $url
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Could not render the QR code. Open this URL instead: $url"
+    }
+}
+
 function Wait-ForBackend {
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
@@ -63,6 +72,7 @@ function Clear-PreviewPort([int]$port) {
 }
 
 Require-Command 'python'
+Require-Command 'node'
 Require-Command 'npx.cmd'
 Require-Command 'npm.cmd'
 Clear-PreviewPort 8000
@@ -98,5 +108,7 @@ $frontendUrl = Get-TunnelUrl @($frontendTunnelOut, $frontendTunnelErr) 'frontend
 Write-Host ''
 Write-Host 'Phone preview is ready:' -ForegroundColor Green
 Write-Host $frontendUrl -ForegroundColor Green
+Write-Host ''
+Show-QrCode $frontendUrl
 Write-Host ''
 Write-Host 'Keep this PowerShell window open while testing. Logs are in .phone-preview.' -ForegroundColor Yellow

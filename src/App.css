@@ -84,3 +84,49 @@ main.workspace .graph-fullscreen-card .history-analysis{height:100%;min-height:0
   .history-analysis:not(.analysis-expanded) .analysis-chart{height:clamp(205px,30vh,250px)}
   .history-analysis:not(.analysis-expanded) .analysis-dates{margin-top:8px}
 }
+
+/* The mobile session browser is a fixed workspace: only its list scrolls. */
+@media(max-width:760px){
+  /* Reserve the full fixed navigation height so the session scroller ends above it. */
+  main.workspace:has(.history-layout){height:calc(100dvh - 76px - env(safe-area-inset-bottom));min-height:0;padding:25px 17px 24px!important;overflow:hidden;display:flex;flex-direction:column}
+  .workspace:has(.history-layout)>.head,.workspace:has(.history-layout)>.history-tabs,.workspace:has(.history-layout)>.history-overview,.workspace:has(.history-layout)>.history-toolbar{flex:none}
+  .workspace:has(.history-layout)>.head{margin-bottom:18px}
+  .workspace:has(.history-layout)>.history-tabs{margin:0 0 14px}
+  .workspace:has(.history-layout)>.history-overview{margin:0 0 14px}
+  .workspace:has(.history-layout)>.history-toolbar{padding:4px 0 12px}
+  .workspace:has(.history-layout)>.history-layout{position:relative;display:block;flex:1;min-height:0;max-width:none;overflow:hidden}
+  .workspace:has(.history-layout) .history-list{position:absolute;inset:0 0 18px 0;width:100%;height:auto!important;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain}
+  .workspace:has(.history-layout) .history-session{display:none}
+  body.history-session-open .app::after{content:'';position:fixed;inset:0 0 64px;z-index:25;background:rgba(6,12,8,.52);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:history-detail-backdrop .25s ease both}
+  body.history-session-open .history-session{position:fixed;z-index:26;top:18px;right:17px;bottom:88px;left:17px;display:block;width:auto!important;max-height:none;overflow:auto;padding:20px 16px!important;background:var(--surface);box-shadow:0 24px 65px rgba(0,0,0,.42);animation:history-detail-enter .36s cubic-bezier(.22,.8,.25,1) both}
+  body.history-session-open .history-session-head{position:relative;padding-right:44px}
+  body.history-session-open .history-session-head::after{content:'×';position:absolute;top:-6px;right:-4px;display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:var(--soft);color:var(--accent-dark);font-size:24px;font-weight:500;line-height:1}
+  .mobile{z-index:27}
+}
+@keyframes history-detail-backdrop{from{opacity:0}to{opacity:1}}
+@keyframes history-detail-enter{from{opacity:0;transform:translateY(24px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* Match the dashboard's visual breathing room above the viewport edge. */
+@media(min-width:761px){
+  .workspace:has(.history-layout) .history-layout{height:calc(100dvh - clamp(420px,48vh,620px))}
+}
+@media(max-width:760px){
+  .workspace:has(.history-layout) .history-list{inset:0 0 24px 0}
+}
+
+/* Keep session identity and actions in place while its exercise rows scroll. */
+@media(min-width:761px){
+  .workspace:has(.history-layout) .history-session{display:flex;flex-direction:column;overflow:hidden}
+  .workspace:has(.history-layout) .history-session-head{flex:none}
+  .workspace:has(.history-layout) .history-exercises{flex:1;min-height:0;overflow-y:auto;padding-right:10px;scrollbar-width:thin;scrollbar-color:var(--accent) transparent}
+  .workspace:has(.history-layout) .history-exercises::-webkit-scrollbar{width:8px}
+  .workspace:has(.history-layout) .history-exercises::-webkit-scrollbar-thumb{background:var(--accent);border:2px solid var(--surface);border-radius:999px}
+}
+@media(max-width:760px){
+  body.history-session-open .history-session{display:flex;flex-direction:column;overflow:hidden}
+  body.history-session-open .history-session-head{flex:none}
+  body.history-session-open .history-exercises{flex:1;min-height:0;overflow-y:auto;padding-right:5px}
+}
+
+/* Fill the padded overlay, rather than overflowing it, for an even inset. */
+.graph-fullscreen-card{height:100%!important}
