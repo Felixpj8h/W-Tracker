@@ -130,3 +130,5 @@ main.workspace .graph-fullscreen-card .history-analysis{height:100%;min-height:0
 
 /* Fill the padded overlay, rather than overflowing it, for an even inset. */
 .graph-fullscreen-card{height:100%!important}
+/* Destructive workout actions stay visible without competing with the primary action. */
+.workout-head-actions{display:flex;align-items:center;gap:9px}.cancel-workout{min-height:42px;padding:9px 12px;border:1px solid #d9a5ab;border-radius:9px;background:transparent;color:#a14552;font-weight:800}.history-row{position:relative}.history-row>button:first-child{padding-right:45px}.history-row-delete{position:absolute;top:50%;right:7px;z-index:1;width:34px;height:34px;transform:translateY(-50%);border-radius:8px;background:transparent;color:var(--muted);font-size:19px}.history-row-delete:hover{background:#f8e9e9;color:#a14552}

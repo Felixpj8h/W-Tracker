@@ -195,3 +195,11 @@
   }
   .workspace:has(.month-grid):not(:has(.week-planner)) .calendar-day button::after{content:'\2192';font-size:13px}
 }
+@media(max-width:760px){
+  .workout-head-actions{display:flex;flex:0 0 auto;gap:6px;white-space:nowrap}
+  .head:has(+.logger) .workout-head-actions>.cancel-workout{width:64px;min-width:64px;min-height:38px;padding:0 6px;font-size:0}
+  .head:has(+.logger) .workout-head-actions>.cancel-workout::after{content:'Cancel';font-size:12px;font-weight:800}
+  .head:has(+.logger) .workout-head-actions>.primary{width:68px;min-width:68px;height:38px;min-height:38px;padding:0 8px;font-size:0}
+  .head:has(+.logger) .workout-head-actions>.primary::after{content:'Finish';font-size:13px;font-weight:900}
+  .workspace:has(.history-layout) .history-row-delete{display:grid;grid-template-columns:1fr;place-items:center;width:40px;min-height:40px;background:#f8e9e9;color:#a14552}
+}
