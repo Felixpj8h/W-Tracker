@@ -189,8 +189,12 @@ class WeeklyPlanIn(BaseModel):
 
 MUSCLE_MAP = {
     "quadriceps": "Legs", "hamstrings": "Legs", "calves": "Legs", "glutes": "Legs", "abductors": "Legs", "adductors": "Legs",
-    "quads": "Legs", "soleus": "Legs", "lats": "Back", "lower back": "Back", "traps": "Back", "trapezius": "Back", "abdominals": "Core", "abs": "Core", "rectus abdominis": "Core", "obliquus externus abdominis": "Core", "serratus anterior": "Core", "chest": "Chest",
-    "shoulders": "Shoulders", "biceps": "Arms", "triceps": "Arms", "brachialis": "Arms", "forearms": "Arms",
+    "quads": "Legs", "quadriceps femoris": "Legs", "biceps femoris": "Legs", "gluteus maximus": "Legs", "soleus": "Legs", "gastrocnemius": "Legs",
+    "lats": "Back", "latissimus dorsi": "Back", "lower back": "Back", "traps": "Back", "trapezius": "Back",
+    "abdominals": "Core", "abs": "Core", "rectus abdominis": "Core", "obliquus externus abdominis": "Core", "serratus anterior": "Core",
+    "chest": "Chest", "pectoralis major": "Chest", "pectoralis minor": "Chest",
+    "shoulders": "Shoulders", "anterior deltoid": "Shoulders", "lateral deltoid": "Shoulders", "posterior deltoid": "Shoulders", "deltoid": "Shoulders", "deltoids": "Shoulders",
+    "biceps": "Arms", "biceps brachii": "Arms", "triceps": "Arms", "triceps brachii": "Arms", "brachialis": "Arms", "forearms": "Arms", "forearm": "Arms", "forearm curls": "Arms",
 }
 GROUPS = ["Legs", "Back", "Core", "Chest", "Shoulders", "Arms"]
 WGER_GROUP_REGIONS = {
@@ -329,6 +333,14 @@ def startup():
             correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
             if correction:
                 exercise.primary_muscle, exercise.muscle_group = correction
+            else:
+                exercise.muscle_group = group_for(exercise.primary_muscle) or exercise.muscle_group
+        for exercise in db.scalars(select(WorkoutExercise)).all():
+            correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
+            if correction:
+                exercise.primary_muscle, exercise.muscle_group = correction
+            else:
+                exercise.muscle_group = group_for(canonical_muscle(exercise.primary_muscle)) or exercise.muscle_group
         db.commit()
 
 

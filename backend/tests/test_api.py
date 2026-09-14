@@ -1,9 +1,21 @@
 from fastapi.testclient import TestClient
 
-from app.main import Base, engine, app
+from app.main import Base, engine, app, group_for
 
 
 client = TestClient(app)
+
+
+def test_all_wger_muscles_map_to_dashboard_groups():
+    expected = {
+        "Anterior deltoid": "Shoulders", "Pectoralis major": "Chest",
+        "Biceps femoris": "Legs", "Gluteus maximus": "Legs",
+        "Quadriceps femoris": "Legs", "Gastrocnemius": "Legs",
+        "Latissimus dorsi": "Back", "Trapezius": "Back",
+        "Rectus abdominis": "Core", "Obliquus externus abdominis": "Core",
+        "Biceps brachii": "Arms", "Triceps brachii": "Arms", "Brachialis": "Arms",
+    }
+    assert {muscle: group_for(muscle) for muscle in expected} == expected
 
 
 def reset_db():
