@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -479,12 +479,21 @@ def start_routine(routine_id: int, db: Session = Depends(get_db)):
 
 
 def workout_out(workout: Workout) -> dict:
+    # SQLite stores these legacy timestamps without timezone metadata. They are
+    # created in UTC, so mark them explicitly before sending them to browsers;
+    # otherwise JavaScript interprets a bare ISO datetime as local time.
+    def timestamp_out(value: Optional[datetime]) -> Optional[str]:
+        if value is None:
+            return None
+        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return aware.isoformat()
+
     duration_seconds = int((workout.completed_at - workout.started_at).total_seconds()) if workout.started_at and workout.completed_at else None
     def exercise_payload(e: WorkoutExercise):
         secondary = [x for x in e.secondary_muscles.split("|") if x]
         display = f"Primary: {e.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
         return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
-    return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": workout.started_at, "completed_at": workout.completed_at, "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
+    return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
 def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
