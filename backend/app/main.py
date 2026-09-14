@@ -631,12 +631,16 @@ def list_weights(db: Session = Depends(get_db)):
 def dashboard(db: Session = Depends(get_db)):
     today = date.today(); week_start = today - timedelta(days=today.weekday()); previous_start = week_start - timedelta(days=7)
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
+    current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
     has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
     workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= previous_start)).all()
     for workout in workouts:
         bucket = current if workout.performed_on >= week_start else previous
+        set_bucket = current_sets if workout.performed_on >= week_start else previous_sets
         for exercise in workout.exercises:
-            if exercise.muscle_group in bucket: bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
+            if exercise.muscle_group in bucket:
+                bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
+                set_bucket[exercise.muscle_group] += len(exercise.sets)
     if has_demo:
         # The demo is meant to illustrate a stable training block: same work,
         # with a small 4% progression in this week rather than a huge swing.
@@ -647,7 +651,7 @@ def dashboard(db: Session = Depends(get_db)):
     if has_demo:
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
-    return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group]} for group in GROUPS]}
+    return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS]}
 
 
 @app.get("/api/v1/dashboard/body-map")

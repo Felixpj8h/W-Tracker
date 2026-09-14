@@ -203,3 +203,4 @@
   .head:has(+.logger) .workout-head-actions>.primary::after{content:'Finish';font-size:13px;font-weight:900}
   .workspace:has(.history-layout) .history-row-delete{display:grid;grid-template-columns:1fr;place-items:center;width:40px;min-height:40px;background:#f8e9e9;color:#a14552}
 }
+@media(max-width:760px){.dashboard-volume .muscle-card-head{align-items:center}.dashboard-volume .metric-toggle button{min-height:34px;padding-inline:9px}}
