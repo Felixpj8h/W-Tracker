@@ -100,8 +100,37 @@ const storedWorkout = (): Workout | null => {
         return null;
     }
 };
-async function api<T>(path: string, opts?: RequestInit): Promise<T> { const r = await fetch(API + path, { headers: { 'Content-Type': 'application/json' }, ...opts }); if (!r.ok)
-    throw Error('Could not reach the tracker server'); return r.json(); }
+let pendingBackendWrites = 0;
+const announceBackendWrites = () => window.dispatchEvent(new CustomEvent('backend-write-state', { detail: pendingBackendWrites }));
+async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+    const isWrite = Boolean(opts?.method && opts.method.toUpperCase() !== 'GET');
+    if (isWrite) { pendingBackendWrites += 1; announceBackendWrites(); }
+    try {
+        const response = await fetch(API + path, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...opts });
+        if (!response.ok) throw Error('Could not reach the tracker server');
+        const payload = await response.json();
+        // A successful HTTP response is sufficient for older API versions that
+        // predate the optional `saved` acknowledgement. Only roll optimistic UI
+        // back when the server explicitly reports that persistence failed.
+        if (isWrite && payload?.saved === false) throw Error('The tracker server did not confirm that the change was saved');
+        return payload as T;
+    } finally {
+        if (isWrite) { pendingBackendWrites = Math.max(0, pendingBackendWrites - 1); announceBackendWrites(); }
+    }
+}
+type SavedWeight = { recorded_on: string; weight: number; saved: true };
+type WeightEntry = Pick<SavedWeight, 'recorded_on' | 'weight'>;
+const withSavedWeight = (current: Dash | null, entry: WeightEntry): Dash | null => {
+    if (!current) return current;
+    const weightSeries = [...current.weight_series.filter(item => item.recorded_on !== entry.recorded_on), { recorded_on: entry.recorded_on, weight: entry.weight }]
+        .sort((a, b) => a.recorded_on.localeCompare(b.recorded_on));
+    return { ...current, weight_series: weightSeries, latest_weight: weightSeries.at(-1) ?? null };
+};
+const withOptimisticWeights = (dashboard: Dash, weights: Map<string, number>): Dash => {
+    let result: Dash | null = dashboard;
+    weights.forEach((weight, recorded_on) => { result = withSavedWeight(result, { recorded_on, weight }); });
+    return result ?? dashboard;
+};
 const vol = (n: number) => Math.round(n).toLocaleString();
 const duration = (seconds?: number | null) => seconds === null || seconds === undefined ? '—' : `${Math.floor(seconds / 3600) ? `${Math.floor(seconds / 3600)}h ` : ''}${Math.floor(seconds % 3600 / 60)} min`;
 export function LegacyApp() { const [page, setPage] = useState<Page>('dashboard'), [dash, setDash] = useState<Dash | null>(null), [folders, setFolders] = useState<Folder[]>([]), [history, setHistory] = useState<Workout[]>([]), [active, setActive] = useState<Workout[]>([]), [workout, setWorkout] = useState<Workout | null>(null), [editingHistory, setEditingHistory] = useState(false), [message, setMessage] = useState(''), [error, setError] = useState(''), [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light'); const load = async () => { try {
@@ -119,19 +148,38 @@ catch (e) {
 }
 catch {
     setWorkout(withPlan({ name: r.name, performed_on: today(), started_at: new Date().toISOString(), exercises: r.exercises.map(x => ({ ...x, name: x.exercise?.name ?? x.name, primary_muscle: x.exercise?.primary_muscle ?? x.primary_muscle, secondary_muscles: x.exercise?.secondary_muscles ?? x.secondary_muscles, muscle_group: x.exercise?.muscle_group ?? x.muscle_group, exercise_id: x.exercise_id ?? x.exercise?.id, sets: Array.from({ length: x.planned_sets ?? 3 }, () => ({ weight: x.target_weight ?? 0, reps: x.target_reps ?? 0 })) })) }));
-} setPage('workout'); }; const chooseWorkout = () => { setEditingHistory(false); setWorkout(null); setPage('workout'); }; const startAdHoc = async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setEditingHistory(false); setWorkout(draft); setPage('workout'); }; const editHistory = (x: Workout) => { setEditingHistory(Boolean(x.completed)); setWorkout(x); setPage('workout'); }; return <div className={`app ${dark ? 'dark' : ''}`}><Side page={page} setPage={p => { if (p === 'workout')
+} setPage('workout'); }; const chooseWorkout = () => { setEditingHistory(false); setWorkout(null); setPage('workout'); }; const startAdHoc = async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setEditingHistory(false); setWorkout(draft); setPage('workout'); }; const editHistory = (x: Workout) => { setEditingHistory(Boolean(x.completed)); setWorkout(x); setPage('workout'); }; return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={p => { if (p === 'workout')
     setWorkout(null); setEditingHistory(false); setPage(p); }} dark={dark} setDark={setDark}/><main className="workspace">{error && <div className="error">{error} — start the FastAPI server to save data.</div>}{message && <div className="toast">{message}</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} log={chooseWorkout} saveWeight={async (weight, recordedOn) => { await api('/bodyweight', { method: 'POST', body: JSON.stringify({ recorded_on: recordedOn ?? today(), weight }) }); await load(); note('Bodyweight saved'); }}/>}{page === 'routines' && <Routines folders={folders} refresh={load} start={start} note={note}/>} {page === 'workout' && <Logger workout={workout} folders={folders} active={active} start={start} startAdHoc={startAdHoc} setWorkout={setWorkout} editing={editingHistory} finish={async (x) => { const completed = await api<Workout>(`/workouts/${x.id}`, { method: 'PUT', body: JSON.stringify(x) }); await load(); note(`Workout finished · ${duration(completed.duration_seconds)}`); setWorkout(null); setEditingHistory(false); setPage('dashboard'); }} saveEdit={async (x) => { await api(`/workouts/${x.id}`, { method: 'PATCH', body: JSON.stringify(x) }); await load(); note('Workout updated'); setWorkout(null); setEditingHistory(false); setPage('history'); }}/>}{page === 'history' && <History data={history} edit={editHistory} refresh={load} note={note}/>}</main><div className="mobile">{(['dashboard', 'routines', 'workout', 'history'] as Page[]).map(x => <button key={x} onClick={() => { if (x === 'workout')
     setWorkout(null); setPage(x); }}>{x === 'dashboard' ? '⌂' : x === 'routines' ? '▤' : x === 'workout' ? '＋' : '◷'}<small>{x}</small></button>)}</div></div>; }
 export default function App() {
     const [initialWorkout] = useState<Workout | null>(storedWorkout);
     const [page, setPage] = useState<Page>(() => initialWorkout ? 'workout' : 'dashboard'), [dash, setDash] = useState<Dash | null>(null), [folders, setFolders] = useState<Folder[]>([]), [history, setHistory] = useState<Workout[]>([]), [active, setActive] = useState<Workout[]>([]), [workout, setWorkout] = useState<Workout | null>(initialWorkout), [editing, setEditing] = useState(false), [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light');
-    const load = async () => { const [d, f, h, a] = await Promise.all([api<Dash>('/dashboard'), api<Folder[]>('/folders'), api<Workout[]>('/workouts'), api<Workout[]>('/workouts/active')]); setDash(d); setFolders(f); setHistory(h); setActive(a); };
+    const optimisticWeights = useRef(new Map<string, number>());
+    const load = async () => { const [d, f, h, a] = await Promise.all([api<Dash>('/dashboard'), api<Folder[]>('/folders'), api<Workout[]>('/workouts'), api<Workout[]>('/workouts/active')]); setDash(withOptimisticWeights(d, optimisticWeights.current)); setFolders(f); setHistory(h); setActive(a); };
     useEffect(() => { void load(); }, []); useEffect(() => localStorage.setItem('workout-theme', dark ? 'dark' : 'light'), [dark]);
     useEffect(() => { if (workout?.id && !workout.completed && !editing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(workout)); }, [workout, editing]);
     const start = async (routine: Routine) => { const draft = await api<Workout>(`/routines/${routine.id}/start`, { method: 'POST' }); setWorkout({ ...draft, exercises: draft.exercises.map(item => ({ ...item, exercise_id: item.cached_exercise_id, rest_seconds: item.rest_seconds ?? 90 })) }); setEditing(false); setPage('workout'); };
     const finish = async (entry: Workout) => { await api(`/workouts/${entry.id}`, { method: editing ? 'PATCH' : 'PUT', body: JSON.stringify(entry) }); if (!editing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await load(); setWorkout(null); setEditing(false); setPage(editing ? 'history' : 'dashboard'); };
     const cancelWorkout = async (entry: Workout) => { if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return; if (entry.id) await api(`/workouts/${entry.id}`, { method: 'DELETE' }); localStorage.removeItem(ACTIVE_WORKOUT_KEY); setWorkout(null); setEditing(false); await load(); setPage('dashboard'); };
-    return <div className={`app ${dark ? 'dark' : ''}`}><Side page={page} setPage={setPage} dark={dark} setDark={setDark}/><main className="workspace">{page === 'dashboard' && <Dashboard dash={dash} history={history} log={() => setPage('workout')} saveWeight={async (weight, recordedOn) => { await api('/bodyweight', { method: 'POST', body: JSON.stringify({ recorded_on: recordedOn ?? today(), weight }) }); await load(); }}/>} {page === 'routines' && <Routines folders={folders} refresh={load} start={start} note={() => undefined}/>} {page === 'calendar' && <Calendar folders={folders} start={start}/>} {page === 'workout' && <Logger workout={workout} folders={folders} active={active} start={start} startAdHoc={async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setWorkout(draft); setEditing(false); }} setWorkout={setWorkout} editing={editing} finish={finish} saveEdit={finish} cancel={cancelWorkout}/>} {page === 'history' && <History data={history} edit={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} refresh={load} note={() => undefined}/>}</main><div className="mobile">{(['dashboard', 'routines', 'workout', 'calendar', 'history'] as Page[]).map(item => <button key={item} onClick={() => { if (item !== 'workout') { setWorkout(null); setEditing(false); } setPage(item); }}>{item === 'dashboard' ? '⌂' : item === 'routines' ? '▤' : item === 'workout' ? '＋' : item === 'calendar' ? '□' : '◷'}<small>{item}</small></button>)}</div></div>;
+    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={setPage} dark={dark} setDark={setDark}/><main className="workspace">{page === 'dashboard' && <Dashboard dash={dash} history={history} log={() => setPage('workout')} saveWeight={async (weight, recordedOn) => {
+        const date = recordedOn ?? today();
+        const previousWeight = dash?.weight_series.find(entry => entry.recorded_on === date)?.weight;
+        optimisticWeights.current.set(date, weight);
+        setDash(current => withSavedWeight(current, { recorded_on: date, weight }));
+        try {
+            const saved = await api<SavedWeight>('/bodyweight', { method: 'POST', body: JSON.stringify({ recorded_on: date, weight }) });
+            optimisticWeights.current.set(saved.recorded_on, saved.weight);
+            setDash(current => withSavedWeight(current, saved));
+        } catch (error) {
+            if (optimisticWeights.current.get(date) === weight) {
+                optimisticWeights.current.delete(date);
+                setDash(current => previousWeight === undefined
+                    ? current && { ...current, weight_series: current.weight_series.filter(entry => entry.recorded_on !== date), latest_weight: current.weight_series.filter(entry => entry.recorded_on !== date).at(-1) ?? null }
+                    : withSavedWeight(current, { recorded_on: date, weight: previousWeight }));
+            }
+            throw error;
+        }
+    }}/>} {page === 'routines' && <Routines folders={folders} refresh={load} start={start} note={() => undefined}/>} {page === 'calendar' && <Calendar folders={folders} start={start}/>} {page === 'workout' && <Logger workout={workout} folders={folders} active={active} start={start} startAdHoc={async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setWorkout(draft); setEditing(false); }} setWorkout={setWorkout} editing={editing} finish={finish} saveEdit={finish} cancel={cancelWorkout}/>} {page === 'history' && <History data={history} edit={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} refresh={load} note={() => undefined}/>}</main><div className="mobile">{(['dashboard', 'routines', 'workout', 'calendar', 'history'] as Page[]).map(item => <button key={item} onClick={() => { if (item !== 'workout') { setWorkout(null); setEditing(false); } setPage(item); }}>{item === 'dashboard' ? '⌂' : item === 'routines' ? '▤' : item === 'workout' ? '＋' : item === 'calendar' ? '□' : '◷'}<small>{item}</small></button>)}</div></div>;
 }
 function Side({ page, setPage, dark, setDark }: { page: Page; setPage: (page: Page) => void; dark: boolean; setDark: (value: boolean) => void }) {
     const links: [Page, string, string][] = [['dashboard', '▦', 'Dashboard'], ['routines', '▤', 'Routines'], ['workout', '＋', 'Log workout'], ['calendar', '□', 'Calendar'], ['history', '◷', 'History']];
@@ -149,6 +197,11 @@ export function LegacySide({ page, setPage, dark, setDark }: {
 finally {
     setLoading(false);
 } }; return <aside className="sidebar"><div className="brand"><b>W</b><span>workout<br />tracker</span></div><div className="person"><i>F</i><div><b>My training</b><small>Personal workspace</small></div></div><nav className="side-nav">{([['dashboard', '▦', 'Dashboard'], ['routines', '▤', 'Routines'], ['workout', '＋', 'Log workout'], ['history', '◷', 'History']] as const).map(([id, icon, name]) => <button key={id} className={`side-link ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}><i>{icon}</i><span>{name}</span></button>)}</nav><footer><button className="demo-button" onClick={() => void addDemo()} disabled={loading}>{loading ? 'Adding demo data…' : '✦ Load demo data'}</button><label className="switch"><input type="checkbox" checked={dark} onChange={e => setDark(e.target.checked)}/><span />Dark mode</label><small>Built for the work.</small></footer></aside>; }
+function SavingIndicator() {
+    const [saving, setSaving] = useState(pendingBackendWrites > 0);
+    useEffect(() => { const update = (event: Event) => setSaving((event as CustomEvent<number>).detail > 0); window.addEventListener('backend-write-state', update); return () => window.removeEventListener('backend-write-state', update); }, []);
+    return <div className={`backend-saving ${saving ? 'visible' : ''}`} role="status" aria-live="polite" aria-label={saving ? 'Saving changes' : undefined}><i aria-hidden="true"/><span>Saving</span></div>;
+}
 function Head({ children, action }: {
     children: React.ReactNode;
     action?: React.ReactNode;
@@ -303,12 +356,35 @@ function Line({ values, saveWeight }: {
     }[];
     saveWeight: (weight: number, recordedOn?: string) => Promise<void>;
 }) {
+    const [displayValues, setDisplayValues] = useState(values);
     const [hovered, setHovered] = useState<number | null>(null), [editing, setEditing] = useState<number | null>(null), [draft, setDraft] = useState('');
-    const low = Math.min(...values.map(x => x.weight)), high = Math.max(...values.map(x => x.weight)), spread = high - low || 1, mid = (low + high) / 2;
+    const optimisticWeights = useRef(new Map<string, number>());
+    useEffect(() => setDisplayValues(values.map(entry => {
+        if (!entry.recorded_on) return entry;
+        const optimisticWeight = optimisticWeights.current.get(entry.recorded_on);
+        if (optimisticWeight === undefined) return entry;
+        return entry.weight === optimisticWeight ? entry : { ...entry, weight: optimisticWeight };
+    })), [values]);
+    const low = Math.min(...displayValues.map(x => x.weight)), high = Math.max(...displayValues.map(x => x.weight)), spread = high - low || 1, mid = (low + high) / 2;
     const formatDate = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    const point = (index: number) => ({ x: values.length < 2 ? 50 : index / (values.length - 1) * 100, y: 82 - ((values[index].weight - low) / spread) * 58 });
-    const pts = values.map((_, index) => { const position = point(index); return `${position.x},${position.y}`; }).join(' '), shown = editing ?? hovered;
-    return <div className={`chart ${values.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{values.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={pts}/>{values.map((entry, index) => { const position = point(index); return <g className="weight-point" key={`${entry.recorded_on}-${index}`} onPointerEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }} onClick={() => { setEditing(index); setHovered(index); setDraft(String(entry.weight)); }} tabIndex={0} role="button" aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms. Click to edit.`}><circle className="weight-point-hit" cx={position.x} cy={position.y} r="6"/><circle className="weight-point-dot" cx={position.x} cy={position.y} r="1.6"/></g>; })}</svg>{shown !== null && <div className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === values.length - 1 ? 'at-end' : ''}`} style={{ left: `${point(shown).x}%`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); const value = Number(draft); const recordedOn = values[shown].recorded_on; if (value > 0 && recordedOn) void saveWeight(value, recordedOn).then(() => { setEditing(null); setHovered(null); }); }}><label>{formatDate(values[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{values[shown].weight.toFixed(1)} kg</b><small>{formatDate(values[shown].recorded_on)}</small></>}</div>}<div className="chart-axis"><span>{high.toFixed(1)} kg</span><span>{mid.toFixed(1)} kg</span><span>{low.toFixed(1)} kg</span></div><div className="chart-dates"><span>{formatDate(values[0].recorded_on)}</span><span>{formatDate(values.at(-1)?.recorded_on)}</span></div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
+    const point = (index: number) => ({ x: displayValues.length < 2 ? 50 : index / (displayValues.length - 1) * 100, y: 82 - ((displayValues[index].weight - low) / spread) * 58 });
+    const pts = displayValues.map((_, index) => { const position = point(index); return `${position.x},${position.y}`; }).join(' '), shown = editing ?? hovered;
+    const saveEditedPoint = async (index: number) => {
+        const nextWeight = Number(draft), recordedOn = displayValues[index]?.recorded_on;
+        if (!(nextWeight > 0) || !recordedOn) return;
+        const previousWeight = displayValues[index].weight;
+        optimisticWeights.current.set(recordedOn, nextWeight);
+        setDisplayValues(current => current.map(entry => entry.recorded_on === recordedOn ? { ...entry, weight: nextWeight } : entry));
+        setEditing(null);
+        setHovered(null);
+        try {
+            await saveWeight(nextWeight, recordedOn);
+        } catch {
+            optimisticWeights.current.delete(recordedOn);
+            setDisplayValues(current => current.map(entry => entry.recorded_on === recordedOn ? { ...entry, weight: previousWeight } : entry));
+        }
+    };
+    return <div className={`chart ${displayValues.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{displayValues.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={pts}/>{displayValues.map((entry, index) => { const position = point(index); return <g className="weight-point" key={`${entry.recorded_on}-${index}`} onPointerEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }} onClick={() => { setEditing(index); setHovered(index); setDraft(String(entry.weight)); }} tabIndex={0} role="button" aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms. Click to edit.`}><circle className="weight-point-hit" cx={position.x} cy={position.y} r="6"/><circle className="weight-point-dot" cx={position.x} cy={position.y} r="1.6"/></g>; })}</svg>{shown !== null && <div className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === displayValues.length - 1 ? 'at-end' : ''}`} style={{ left: `${point(shown).x}%`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); void saveEditedPoint(shown); }}><label>{formatDate(displayValues[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{displayValues[shown].weight.toFixed(1)} kg</b><small>{formatDate(displayValues[shown].recorded_on)}</small></>}</div>}<div className="chart-axis"><span>{high.toFixed(1)} kg</span><span>{mid.toFixed(1)} kg</span><span>{low.toFixed(1)} kg</span></div><div className="chart-dates"><span>{formatDate(displayValues[0].recorded_on)}</span><span>{formatDate(displayValues.at(-1)?.recorded_on)}</span></div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
 }
 function Routines({ folders, refresh, start, note }: {
     folders: Folder[];

@@ -134,7 +134,12 @@ class Model(BaseModel):
 
 
 class ExerciseOut(Model):
-    id: int; name: str; equipment: str; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None
+    id: int; name: str; equipment: str; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None; saved: Optional[bool] = None
+
+
+def saved_response(payload: dict) -> dict:
+    """Add the explicit persistence acknowledgement expected by write clients."""
+    return {**payload, "saved": True}
 
 
 class ExerciseChoice(BaseModel):
@@ -405,7 +410,7 @@ def create_custom_exercise(payload: CustomExerciseIn, db: Session = Depends(get_
         exercise.primary_muscle = payload.primary_muscle
         exercise.muscle_group = payload.primary_muscle
     db.commit(); db.refresh(exercise)
-    return exercise_out(exercise)
+    return saved_response(exercise_out(exercise))
 
 
 @app.delete("/api/v1/exercises/custom/{exercise_id}")
@@ -414,26 +419,26 @@ def delete_custom_exercise(exercise_id: int, db: Session = Depends(get_db)):
     if not exercise or exercise.wger_id is not None:
         raise HTTPException(404, "Custom exercise not found")
     db.delete(exercise); db.commit()
-    return {"deleted": True}
+    return {"deleted": True, "saved": True}
 
 
 @app.post("/api/v1/folders")
 def create_folder(payload: FolderIn, db: Session = Depends(get_db)):
-    folder = RoutineFolder(name=payload.name); db.add(folder); db.commit(); db.refresh(folder); return {"id": folder.id, "name": folder.name, "routines": []}
+    folder = RoutineFolder(name=payload.name); db.add(folder); db.commit(); db.refresh(folder); return {"id": folder.id, "name": folder.name, "routines": [], "saved": True}
 
 
 @app.put("/api/v1/folders/{folder_id}")
 def rename_folder(folder_id: int, payload: FolderIn, db: Session = Depends(get_db)):
     folder = db.get(RoutineFolder, folder_id)
     if not folder: raise HTTPException(404, "Folder not found")
-    folder.name = payload.name; db.commit(); return {"id": folder.id, "name": folder.name}
+    folder.name = payload.name; db.commit(); return {"id": folder.id, "name": folder.name, "saved": True}
 
 
 @app.delete("/api/v1/folders/{folder_id}")
 def delete_folder(folder_id: int, db: Session = Depends(get_db)):
     folder = db.get(RoutineFolder, folder_id)
     if not folder: raise HTTPException(404, "Folder not found")
-    db.delete(folder); db.commit(); return {"deleted": True}
+    db.delete(folder); db.commit(); return {"deleted": True, "saved": True}
 
 
 @app.get("/api/v1/folders")
@@ -461,21 +466,21 @@ def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
 @app.post("/api/v1/routines")
 def create_routine(payload: RoutineIn, db: Session = Depends(get_db)):
     if payload.folder_id and not db.get(RoutineFolder, payload.folder_id): raise HTTPException(404, "Folder not found")
-    routine = Routine(); populate_routine(routine, payload, db); db.add(routine); db.commit(); db.refresh(routine); return routine_out(routine)
+    routine = Routine(); populate_routine(routine, payload, db); db.add(routine); db.commit(); db.refresh(routine); return saved_response(routine_out(routine))
 
 
 @app.put("/api/v1/routines/{routine_id}")
 def update_routine(routine_id: int, payload: RoutineIn, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
-    populate_routine(routine, payload, db); db.commit(); db.refresh(routine); return routine_out(routine)
+    populate_routine(routine, payload, db); db.commit(); db.refresh(routine); return saved_response(routine_out(routine))
 
 
 @app.delete("/api/v1/routines/{routine_id}")
 def delete_routine(routine_id: int, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
-    db.delete(routine); db.commit(); return {"deleted": True}
+    db.delete(routine); db.commit(); return {"deleted": True, "saved": True}
 
 
 @app.post("/api/v1/routines/{routine_id}/start")
@@ -487,7 +492,7 @@ def start_routine(routine_id: int, db: Session = Depends(get_db)):
         workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos, rest_seconds=item.rest_seconds)
         workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
         workout.exercises.append(workout_exercise)
-    db.add(workout); db.commit(); return workout_out(workout)
+    db.add(workout); db.commit(); return saved_response(workout_out(workout))
 
 
 def workout_out(workout: Workout) -> dict:
@@ -521,21 +526,21 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
 @app.post("/api/v1/workouts")
 def create_workout(payload: WorkoutIn, db: Session = Depends(get_db)):
     now = datetime.utcnow()
-    workout = Workout(completed=True, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return workout_out(workout)
+    workout = Workout(completed=True, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return saved_response(workout_out(workout))
 
 
 @app.post("/api/v1/workouts/draft")
 def create_workout_draft(payload: WorkoutDraftIn, db: Session = Depends(get_db)):
     workout = Workout(name=payload.name, performed_on=payload.performed_on, completed=False, started_at=datetime.utcnow())
     db.add(workout); db.commit(); db.refresh(workout)
-    return workout_out(workout)
+    return saved_response(workout_out(workout))
 
 
 @app.put("/api/v1/workouts/{workout_id}")
 def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
     workout = db.get(Workout, workout_id)
     if not workout: raise HTTPException(404, "Workout not found")
-    populate_workout(workout, payload, db); workout.completed = True; workout.completed_at = datetime.utcnow(); db.commit(); return workout_out(workout)
+    populate_workout(workout, payload, db); workout.completed = True; workout.completed_at = datetime.utcnow(); db.commit(); return saved_response(workout_out(workout))
 
 
 @app.patch("/api/v1/workouts/{workout_id}")
@@ -544,7 +549,7 @@ def update_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(ge
     if not workout: raise HTTPException(404, "Workout not found")
     populate_workout(workout, payload, db)
     db.commit(); db.refresh(workout)
-    return workout_out(workout)
+    return saved_response(workout_out(workout))
 
 
 @app.delete("/api/v1/workouts/{workout_id}")
@@ -552,7 +557,7 @@ def delete_workout(workout_id: int, db: Session = Depends(get_db)):
     workout = db.get(Workout, workout_id)
     if not workout: raise HTTPException(404, "Workout not found")
     db.delete(workout); db.commit()
-    return {"deleted": True}
+    return {"deleted": True, "saved": True}
 
 
 @app.get("/api/v1/workouts")
@@ -589,7 +594,7 @@ def save_weekly_plan(payload: WeeklyPlanIn, db: Session = Depends(get_db)):
     for item in payload.days:
         plan.days.append(WeeklyPlanDay(weekday=item.weekday, routine_id=item.routine_id))
     db.commit(); db.refresh(plan)
-    return weekly_plan_out(plan)
+    return saved_response(weekly_plan_out(plan))
 
 
 @app.get("/api/v1/calendar")
@@ -631,7 +636,7 @@ def save_weight(payload: WeightIn, db: Session = Depends(get_db)):
     entry = db.scalar(select(BodyweightEntry).where(BodyweightEntry.recorded_on == payload.recorded_on))
     if entry: entry.weight = payload.weight
     else: entry = BodyweightEntry(recorded_on=payload.recorded_on, weight=payload.weight); db.add(entry)
-    db.commit(); return {"recorded_on": entry.recorded_on, "weight": entry.weight}
+    db.commit(); return {"recorded_on": entry.recorded_on, "weight": entry.weight, "saved": True}
 
 
 @app.get("/api/v1/bodyweight")
@@ -775,7 +780,7 @@ def create_body_map_test_data(db: Session = Depends(get_db)):
             workout.exercises.append(item)
         db.add(workout)
     db.commit()
-    return {"created": len(muscles) * 10}
+    return {"created": len(muscles) * 10, "saved": True}
 
 
 @app.delete("/api/v1/dashboard/body-map/test-data")
@@ -783,7 +788,7 @@ def delete_body_map_test_data(db: Session = Depends(get_db)):
     for workout in db.scalars(select(Workout).where(Workout.name.like("Map test · Full body%"))).all():
         db.delete(workout)
     db.commit()
-    return {"deleted": True}
+    return {"deleted": True, "saved": True}
 
 
 @app.post("/api/v1/demo-data")
@@ -827,4 +832,4 @@ def create_demo_data(db: Session = Depends(get_db)):
             workout.exercises.append(exercise)
         db.add(workout)
     db.commit()
-    return {"created": len(sessions), "message": "Two weeks of demo training added"}
+    return {"created": len(sessions), "message": "Two weeks of demo training added", "saved": True}

@@ -29,6 +29,7 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     exercises = client.get("/api/v1/exercises").json()
     chest = next(item for item in exercises if item["muscle_group"] == "Chest")
     folder = client.post("/api/v1/folders", json={"name": "Upper"}).json()
+    assert folder["saved"] is True
     routine = client.post("/api/v1/routines", json={
         "name": "Push", "folder_id": folder["id"],
         "exercises": [{"exercise_id": chest["id"], "planned_sets": 3, "target_reps": 8, "target_weight": 60}],
@@ -39,6 +40,7 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
         "exercises": [{"exercise_id": chest["id"], "sets": [{"weight": 60, "reps": 8}] * 3}],
     })
     assert response.status_code == 200
+    assert response.json()["saved"] is True
     dashboard = client.get("/api/v1/dashboard").json()
     groups = {item["name"]: item["current_week_volume"] for item in dashboard["volume_by_muscle_group"]}
     assert set(groups) == {"Legs", "Back", "Core", "Chest", "Shoulders", "Arms"}
@@ -48,8 +50,8 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
 def test_bodyweight_entry_is_upserted_by_day():
     reset_db()
     payload = {"recorded_on": "2026-09-01", "weight": 82.5}
-    assert client.post("/api/v1/bodyweight", json=payload).status_code == 200
-    assert client.post("/api/v1/bodyweight", json={**payload, "weight": 82.2}).status_code == 200
+    assert client.post("/api/v1/bodyweight", json=payload).json()["saved"] is True
+    assert client.post("/api/v1/bodyweight", json={**payload, "weight": 82.2}).json()["saved"] is True
     entries = client.get("/api/v1/bodyweight").json()
     assert entries == [{"recorded_on": "2026-09-01", "weight": 82.2}]
 
@@ -66,4 +68,4 @@ def test_drafts_can_be_resumed_and_progress_is_available():
     assert finished.status_code == 200
     progress = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
     assert progress["sessions"][0]["best_weight"] == 50
-    assert client.delete(f"/api/v1/workouts/{draft['id']}").json() == {"deleted": True}
+    assert client.delete(f"/api/v1/workouts/{draft['id']}").json() == {"deleted": True, "saved": True}
