@@ -69,3 +69,23 @@ def test_drafts_can_be_resumed_and_progress_is_available():
     progress = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
     assert progress["sessions"][0]["best_weight"] == 50
     assert client.delete(f"/api/v1/workouts/{draft['id']}").json() == {"deleted": True, "saved": True}
+
+
+def test_workout_progress_is_fetched_in_one_batch():
+    reset_db()
+    exercises = client.get("/api/v1/exercises").json()[:2]
+    completed = client.post("/api/v1/workouts/draft", json={"name": "Previous", "performed_on": "2026-09-01"}).json()
+    client.put(f"/api/v1/workouts/{completed['id']}", json={
+        "name": "Previous", "performed_on": "2026-09-01",
+        "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 40 + index * 10, "reps": 8}]} for index, exercise in enumerate(exercises)],
+    })
+    active = client.post("/api/v1/workouts/draft", json={"name": "Current", "performed_on": "2026-09-02"}).json()
+    client.patch(f"/api/v1/workouts/{active['id']}", json={
+        "name": "Current", "performed_on": "2026-09-02",
+        "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 0, "reps": 8}]} for exercise in exercises],
+    })
+    progress = client.get(f"/api/v1/workouts/{active['id']}/exercise-progress")
+    assert progress.status_code == 200
+    payload = progress.json()
+    assert set(payload) == {str(exercise["id"]) for exercise in exercises}
+    assert [payload[str(exercise["id"])]["sessions"][0]["best_weight"] for exercise in exercises] == [40, 50]

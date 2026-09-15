@@ -631,6 +631,35 @@ def exercise_progress(exercise_id: int, exclude_workout_id: Optional[int] = None
     return {"exercise": exercise_out(exercise), "sessions": rows, "personal_best_weight": max((x["best_weight"] for x in rows), default=0), "personal_best_1rm": max((x["estimated_1rm"] for x in rows), default=0)}
 
 
+@app.get("/api/v1/workouts/{workout_id}/exercise-progress")
+def workout_exercise_progress(workout_id: int, db: Session = Depends(get_db)):
+    """Return progress for every exercise in a workout with one history query."""
+    current = db.get(Workout, workout_id)
+    if not current: raise HTTPException(404, "Workout not found")
+    exercise_ids = {item.cached_exercise_id for item in current.exercises if item.cached_exercise_id}
+    exercises = {exercise.id: exercise for exercise in db.scalars(select(Exercise).where(Exercise.id.in_(exercise_ids))).all()}
+    sessions: dict[int, list[dict]] = {exercise_id: [] for exercise_id in exercise_ids}
+    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.id != workout_id).order_by(Workout.performed_on.desc())).all()
+    for workout in workouts:
+        for item in workout.exercises:
+            exercise_id = item.cached_exercise_id
+            if exercise_id not in sessions: continue
+            sets = [{"weight": entry.weight, "reps": entry.reps, "exertion": entry.exertion} for entry in item.sets]
+            volume = sum(entry["weight"] * entry["reps"] for entry in sets)
+            best_weight = max((entry["weight"] for entry in sets), default=0)
+            estimated_1rm = max((entry["weight"] * (1 + entry["reps"] / 30) for entry in sets if entry["reps"] > 0), default=0)
+            sessions[exercise_id].append({"workout_id": workout.id, "performed_on": workout.performed_on, "workout_name": workout.name, "sets": sets, "volume": volume, "best_weight": best_weight, "estimated_1rm": estimated_1rm})
+    return {
+        str(exercise_id): {
+            "exercise": exercise_out(exercises[exercise_id]),
+            "sessions": rows,
+            "personal_best_weight": max((row["best_weight"] for row in rows), default=0),
+            "personal_best_1rm": max((row["estimated_1rm"] for row in rows), default=0),
+        }
+        for exercise_id, rows in sessions.items() if exercise_id in exercises
+    }
+
+
 @app.post("/api/v1/bodyweight")
 def save_weight(payload: WeightIn, db: Session = Depends(get_db)):
     entry = db.scalar(select(BodyweightEntry).where(BodyweightEntry.recorded_on == payload.recorded_on))
