@@ -251,5 +251,7 @@
 }
 @media(max-width:760px){.dashboard-volume .muscle-card-head{align-items:center}.dashboard-volume .metric-toggle button{min-height:34px;padding-inline:9px}}
 
+@media(max-width:760px){.workspace:has(.history-layout) .history-group .history-row{grid-template-columns:minmax(0,1fr) 34px;gap:2px}.workspace:has(.history-layout) .history-row>.history-row-delete{display:flex;width:30px;height:30px;min-height:30px;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--muted);font-size:0;opacity:.5}.workspace:has(.history-layout) .history-row>.history-row-delete::before{content:'×';font-size:20px;font-weight:500;line-height:1}}
+
 /* Set counts show the current total only; the volume view retains its comparison legend. */
 .dashboard-volume:has(.metric-toggle button:nth-child(2).active) .legend span:last-child{display:none}
