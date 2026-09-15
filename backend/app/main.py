@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+import logging
 from pathlib import Path
+import threading
 from typing import Optional
 
 import httpx
@@ -17,6 +19,9 @@ DB_PATH = Path(__file__).resolve().parent.parent / "workout_tracker.db"
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 WGER_MUSCLES: list[dict] | None = None
+LOGGER = logging.getLogger(__name__)
+CATALOGUE_REFRESH_LOCK = threading.Lock()
+CATALOGUE_REFRESH_THREAD: threading.Thread | None = None
 
 
 class Base(DeclarativeBase):
@@ -347,6 +352,8 @@ def startup():
             else:
                 exercise.muscle_group = group_for(canonical_muscle(exercise.primary_muscle)) or exercise.muscle_group
         db.commit()
+    if not getattr(app.state, "disable_catalogue_refresh", False):
+        start_catalogue_refresh_background()
 
 
 def sync_wger_catalogue(db: Session):
@@ -375,6 +382,35 @@ def sync_wger_catalogue(db: Session):
             offset += 100
 
 
+def refresh_wger_catalogue_background():
+    """Refresh the shared catalogue without delaying API requests or startup."""
+    if not CATALOGUE_REFRESH_LOCK.acquire(blocking=False):
+        return
+    try:
+        with SessionLocal() as db:
+            try:
+                sync_wger_catalogue(db)
+            except (httpx.HTTPError, ValueError, KeyError, SQLAlchemyError):
+                db.rollback()
+                LOGGER.exception("The background Wger catalogue refresh failed; cached exercises remain available")
+    finally:
+        CATALOGUE_REFRESH_LOCK.release()
+
+
+def start_catalogue_refresh_background() -> threading.Thread:
+    """Start at most one daemon refresh thread per backend process."""
+    global CATALOGUE_REFRESH_THREAD
+    if CATALOGUE_REFRESH_THREAD and CATALOGUE_REFRESH_THREAD.is_alive():
+        return CATALOGUE_REFRESH_THREAD
+    CATALOGUE_REFRESH_THREAD = threading.Thread(
+        target=refresh_wger_catalogue_background,
+        name="wger-catalogue-refresh",
+        daemon=True,
+    )
+    CATALOGUE_REFRESH_THREAD.start()
+    return CATALOGUE_REFRESH_THREAD
+
+
 @app.get("/api/v1/health")
 def health(): return {"status": "ok"}
 
@@ -382,9 +418,6 @@ def health(): return {"status": "ok"}
 @app.get("/api/v1/exercises", response_model=list[ExerciseOut])
 async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
     query = q.strip()
-    if len(query) >= 2:
-        try: sync_wger_catalogue(db)
-        except (httpx.HTTPError, ValueError, KeyError, SQLAlchemyError): db.rollback()
     words = [word for word in query.split() if word]
     statement = select(Exercise)
     for word in words:
@@ -443,12 +476,6 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/folders")
 def list_folders(db: Session = Depends(get_db)):
-    # Existing local catalogues predate secondary-muscle support. Refresh them
-    # before returning routines so the builder immediately shows both fields.
-    try:
-        sync_wger_catalogue(db)
-    except (httpx.HTTPError, ValueError, KeyError, SQLAlchemyError):
-        db.rollback()
     folders = db.scalars(select(RoutineFolder)).all()
     return [{"id": f.id, "name": f.name, "routines": [routine_out(r) for r in f.routines]} for f in folders]
 

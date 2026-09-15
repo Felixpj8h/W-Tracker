@@ -3,8 +3,8 @@
 Starts a temporary phone preview using Cloudflare Quick Tunnels.
 
 .DESCRIPTION
-Starts the FastAPI backend, tunnels it, starts Vite with that tunnel URL as
-VITE_API_URL, then tunnels Vite. Leave the processes running while testing.
+Starts the FastAPI backend, starts Vite with its same-origin API proxy, then
+tunnels Vite. Leave the processes running while testing.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -82,8 +82,6 @@ New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 
 $backendOut = Join-Path $logRoot 'backend.log'
 $backendErr = Join-Path $logRoot 'backend-error.log'
-$backendTunnelOut = Join-Path $logRoot 'backend-tunnel.log'
-$backendTunnelErr = Join-Path $logRoot 'backend-tunnel-error.log'
 $frontendOut = Join-Path $logRoot 'frontend.log'
 $frontendErr = Join-Path $logRoot 'frontend-error.log'
 $frontendTunnelOut = Join-Path $logRoot 'frontend-tunnel.log'
@@ -93,12 +91,7 @@ Write-Host 'Starting backend...' -ForegroundColor Cyan
 $null = Start-Process -FilePath 'python' -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') -WorkingDirectory $backendRoot -WindowStyle Hidden -RedirectStandardOutput $backendOut -RedirectStandardError $backendErr -PassThru
 Wait-ForBackend
 
-Write-Host 'Creating backend tunnel...' -ForegroundColor Cyan
-$null = Start-Process -FilePath 'npx.cmd' -ArgumentList @('--yes', 'wrangler', 'tunnel', 'quick-start', 'http://127.0.0.1:8000') -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $backendTunnelOut -RedirectStandardError $backendTunnelErr -PassThru
-$backendUrl = Get-TunnelUrl @($backendTunnelOut, $backendTunnelErr) 'backend'
-
 Write-Host 'Starting frontend...' -ForegroundColor Cyan
-$env:VITE_API_URL = "$backendUrl/api/v1"
 $null = Start-Process -FilePath 'npm.cmd' -ArgumentList @('run', 'dev', '--', '--host', '127.0.0.1') -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $frontendOut -RedirectStandardError $frontendErr -PassThru
 
 Write-Host 'Creating frontend tunnel...' -ForegroundColor Cyan

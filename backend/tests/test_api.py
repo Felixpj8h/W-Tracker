@@ -1,8 +1,11 @@
 from fastapi.testclient import TestClient
+import threading
 
+import app.main as main_module
 from app.main import Base, engine, app, group_for
 
 
+app.state.disable_catalogue_refresh = True
 client = TestClient(app)
 
 
@@ -22,6 +25,10 @@ def reset_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     app.router.on_startup[0]()
+    with main_module.SessionLocal() as db:
+        main_module.store_exercise(db, "Bench press", "Barbell", "Pectoralis major")
+        main_module.store_exercise(db, "Seated row", "Cable", "Latissimus dorsi")
+        db.commit()
 
 
 def test_routine_to_workout_updates_volume_and_all_groups_present():
@@ -89,3 +96,63 @@ def test_workout_progress_is_fetched_in_one_batch():
     payload = progress.json()
     assert set(payload) == {str(exercise["id"]) for exercise in exercises}
     assert [payload[str(exercise["id"])]["sessions"][0]["best_weight"] for exercise in exercises] == [40, 50]
+
+
+def test_folders_never_refreshes_wger(monkeypatch):
+    reset_db()
+    monkeypatch.setattr(main_module, "sync_wger_catalogue", lambda _db: (_ for _ in ()).throw(AssertionError("unexpected refresh")))
+    response = client.get("/api/v1/folders")
+    assert response.status_code == 200
+
+
+def test_background_catalogue_refresh_uses_its_own_session_and_starts_once(monkeypatch):
+    calls = []
+    started = threading.Event()
+    release = threading.Event()
+
+    class FakeSession:
+        def __enter__(self):
+            calls.append(self)
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def rollback(self):
+            calls.append("rollback")
+
+    fake_session = FakeSession()
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: fake_session)
+    def refresh(db):
+        calls.append(db)
+        started.set()
+        release.wait(timeout=2)
+
+    monkeypatch.setattr(main_module, "sync_wger_catalogue", refresh)
+    main_module.CATALOGUE_REFRESH_THREAD = None
+
+    first = main_module.start_catalogue_refresh_background()
+    assert started.wait(timeout=2)
+    second = main_module.start_catalogue_refresh_background()
+    release.set()
+    first.join(timeout=2)
+
+    assert first is second
+    assert calls == [fake_session, fake_session]
+
+
+def test_background_catalogue_failure_is_contained(monkeypatch):
+    class FailingSession:
+        rolled_back = False
+
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def rollback(self): self.rolled_back = True
+
+    session = FailingSession()
+    monkeypatch.setattr(main_module, "SessionLocal", lambda: session)
+    monkeypatch.setattr(main_module, "sync_wger_catalogue", lambda _db: (_ for _ in ()).throw(ValueError("bad catalogue")))
+
+    main_module.refresh_wger_catalogue_background()
+
+    assert session.rolled_back is True
