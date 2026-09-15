@@ -25,7 +25,9 @@ function Get-TunnelUrl([string[]]$logFiles, [string]$label) {
             if (-not (Test-Path $logFile)) { continue }
             $content = Get-Content -Raw $logFile
             if ([string]::IsNullOrWhiteSpace($content)) { continue }
-            $match = [regex]::Matches($content, 'https://[a-z0-9-]+\.trycloudflare\.com') | Select-Object -Last 1
+            # Quick Tunnel hostnames contain multiple hyphen-separated words.
+            # Exclude Cloudflare service hosts such as api.trycloudflare.com.
+            $match = [regex]::Matches($content, 'https://[a-z0-9]+(?:-[a-z0-9]+){2,}\.trycloudflare\.com') | Select-Object -Last 1
             if ($match) { return $match.Value }
         }
         Start-Sleep -Seconds 1

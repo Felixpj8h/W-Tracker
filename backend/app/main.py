@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import logging
 from pathlib import Path
+import re
 import threading
 from typing import Optional
 
@@ -267,12 +268,21 @@ def canonical_muscle(muscle: Optional[str]) -> str:
 
 
 def stored_secondary_muscles(value: Optional[str]) -> list[str]:
-    return [canonical_muscle(name) for name in (value or "").split("|") if canonical_muscle(name)]
+    normalized = re.sub(r"\s*·\s*Secondary:\s*", "|", value or "", flags=re.IGNORECASE)
+    names = re.split(r"[|,]", normalized)
+    result = []
+    for name in names:
+        cleaned = re.sub(r"^\s*Secondary:\s*", "", name, flags=re.IGNORECASE)
+        muscle = canonical_muscle(cleaned)
+        if muscle and muscle not in result:
+            result.append(muscle)
+    return result
 
 
 def exercise_out(exercise: Exercise) -> dict:
-    secondary = [x for x in exercise.secondary_muscles.split("|") if x]
-    display = f"Primary: {exercise.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
+    primary = canonical_muscle(exercise.primary_muscle) or "Unmapped"
+    secondary = [name for name in stored_secondary_muscles(exercise.secondary_muscles) if name != primary]
+    display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
     return {"id": exercise.id, "name": exercise.name, "equipment": exercise.equipment, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": exercise.muscle_group}
 
 
@@ -281,14 +291,16 @@ def routine_out(routine: Routine) -> dict:
 
 
 def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, secondary_muscles: list[str] = [], wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
-    corrected_muscle, corrected_group = EXERCISE_OVERRIDES.get(name.strip().lower(), (muscle, group_for(muscle)))
+    normalized_muscle = canonical_muscle(muscle)
+    normalized_secondary = [canonical_muscle(item) for item in secondary_muscles if canonical_muscle(item)]
+    corrected_muscle, corrected_group = EXERCISE_OVERRIDES.get(name.strip().lower(), (normalized_muscle, group_for(normalized_muscle)))
     existing = db.scalar(select(Exercise).where(Exercise.wger_id == wger_id)) if wger_id else db.scalar(select(Exercise).where(Exercise.name.ilike(name)))
     if existing:
         if aliases: existing.search_aliases = aliases
         existing.primary_muscle, existing.muscle_group = corrected_muscle, corrected_group
-        existing.secondary_muscles, existing.muscle_data_synced = "|".join(secondary_muscles), True
+        existing.secondary_muscles, existing.muscle_data_synced = "|".join(normalized_secondary), True
         return existing
-    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=corrected_muscle, muscle_group=corrected_group, secondary_muscles="|".join(secondary_muscles), muscle_data_synced=True, search_aliases=aliases)
+    exercise = Exercise(wger_id=wger_id, name=name, equipment=equipment or "Bodyweight", primary_muscle=corrected_muscle, muscle_group=corrected_group, secondary_muscles="|".join(normalized_secondary), muscle_data_synced=True, search_aliases=aliases)
     db.add(exercise); db.flush(); return exercise
 
 
@@ -344,13 +356,17 @@ def startup():
             if correction:
                 exercise.primary_muscle, exercise.muscle_group = correction
             else:
+                exercise.primary_muscle = canonical_muscle(exercise.primary_muscle)
                 exercise.muscle_group = group_for(exercise.primary_muscle) or exercise.muscle_group
+            exercise.secondary_muscles = "|".join(stored_secondary_muscles(exercise.secondary_muscles))
         for exercise in db.scalars(select(WorkoutExercise)).all():
             correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
             if correction:
                 exercise.primary_muscle, exercise.muscle_group = correction
             else:
-                exercise.muscle_group = group_for(canonical_muscle(exercise.primary_muscle)) or exercise.muscle_group
+                exercise.primary_muscle = canonical_muscle(exercise.primary_muscle)
+                exercise.muscle_group = group_for(exercise.primary_muscle) or exercise.muscle_group
+            exercise.secondary_muscles = "|".join(stored_secondary_muscles(exercise.secondary_muscles))
         db.commit()
     if not getattr(app.state, "disable_catalogue_refresh", False):
         start_catalogue_refresh_background()
@@ -534,8 +550,9 @@ def workout_out(workout: Workout) -> dict:
 
     duration_seconds = int((workout.completed_at - workout.started_at).total_seconds()) if workout.started_at and workout.completed_at else None
     def exercise_payload(e: WorkoutExercise):
-        secondary = [x for x in e.secondary_muscles.split("|") if x]
-        display = f"Primary: {e.primary_muscle or 'Unmapped'}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
+        primary = canonical_muscle(e.primary_muscle) or "Unmapped"
+        secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
+        display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
         return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
     return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
@@ -545,7 +562,9 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
     for pos, item in enumerate(payload.exercises):
         cached = db.get(Exercise, item.exercise_id) if item.exercise_id else None
         if item.exercise_id and not cached: raise HTTPException(404, "Exercise not found")
-        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=cached.primary_muscle if cached else item.primary_muscle, secondary_muscles=cached.secondary_muscles if cached else "|".join(item.secondary_muscles), muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(item.primary_muscle)), position=pos, note=item.note, rest_seconds=item.rest_seconds)
+        primary = cached.primary_muscle if cached else canonical_muscle(item.primary_muscle)
+        secondary = cached.secondary_muscles if cached else "|".join(stored_secondary_muscles("|".join(item.secondary_muscles)))
+        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=primary, secondary_muscles=secondary, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(primary)), position=pos, note=item.note, rest_seconds=item.rest_seconds)
         wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 

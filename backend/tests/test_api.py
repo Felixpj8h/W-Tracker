@@ -156,3 +156,19 @@ def test_background_catalogue_failure_is_contained(monkeypatch):
     main_module.refresh_wger_catalogue_background()
 
     assert session.rolled_back is True
+
+
+def test_muscle_labels_are_normalized_and_not_rewrapped():
+    reset_db()
+    with main_module.SessionLocal() as db:
+        exercise = db.scalar(main_module.select(main_module.Exercise).where(main_module.Exercise.name == "Bench press"))
+        exercise.primary_muscle = "Primary: Primary: Chest · Secondary: Shoulders, Triceps"
+        exercise.secondary_muscles = "Secondary: Shoulders|Triceps|Shoulders"
+        db.commit()
+
+    first = next(item for item in client.get("/api/v1/exercises").json() if item["name"] == "Bench press")
+    second = next(item for item in client.get("/api/v1/exercises").json() if item["name"] == "Bench press")
+
+    assert first["primary_muscle"] == "Primary: Chest · Secondary: Shoulders, Triceps"
+    assert second["primary_muscle"] == first["primary_muscle"]
+    assert second["secondary_muscles"] == ["Shoulders", "Triceps"]

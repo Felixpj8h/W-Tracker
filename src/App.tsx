@@ -89,12 +89,19 @@ const API = import.meta.env.VITE_API_URL ?? '/api/v1';
 const ACTIVE_WORKOUT_KEY = 'workout-active-session';
 const today = () => new Date().toISOString().slice(0, 10);
 const fieldValue = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+const cleanMuscleLabel = (value?: string | null, secondary: string[] = []) => {
+    const primary = (value ?? '').replace(/^(?:Primary:\s*)+/i, '').split(' · ')[0].trim() || 'Unmapped';
+    const uniqueSecondary = [...new Set(secondary.map(name => name.replace(/^Secondary:\s*/i, '').trim()).filter(name => name && name !== primary))];
+    return `Primary: ${primary}${uniqueSecondary.length ? ` · Secondary: ${uniqueSecondary.join(', ')}` : ''}`;
+};
 const storedWorkout = (): Workout | null => {
     try {
         const value = localStorage.getItem(ACTIVE_WORKOUT_KEY);
         if (!value) return null;
         const parsed = JSON.parse(value) as Workout;
-        return parsed && !parsed.completed && parsed.id && Array.isArray(parsed.exercises) ? parsed : null;
+        return parsed && !parsed.completed && parsed.id && Array.isArray(parsed.exercises)
+            ? { ...parsed, exercises: parsed.exercises.map(item => ({ ...item, primary_muscle: cleanMuscleLabel(item.primary_muscle, item.secondary_muscles) })) }
+            : null;
     } catch {
         localStorage.removeItem(ACTIVE_WORKOUT_KEY);
         return null;
