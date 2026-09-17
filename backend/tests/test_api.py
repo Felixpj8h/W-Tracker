@@ -54,6 +54,24 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     assert groups["Chest"] == 1440
 
 
+def test_dashboard_counts_sets_for_each_individual_muscle_worked():
+    reset_db()
+    with main_module.SessionLocal() as db:
+        exercise = db.scalar(main_module.select(main_module.Exercise).where(main_module.Exercise.name == "Bench press"))
+        exercise.secondary_muscles = "Anterior deltoid|Triceps brachii"
+        db.commit()
+        exercise_id = exercise.id
+    draft = client.post("/api/v1/workouts/draft", json={"name": "Push", "performed_on": str(main_module.date.today())}).json()
+    client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "name": "Push", "performed_on": str(main_module.date.today()),
+        "exercises": [{"exercise_id": exercise_id, "sets": [{"weight": 60, "reps": 8}] * 3}],
+    })
+    sets = {item["name"]: item["current_week_sets"] for item in client.get("/api/v1/dashboard").json()["sets_by_muscle"]}
+    assert sets["Pectoralis major"] == 3
+    assert sets["Front delts"] == 3
+    assert sets["Triceps"] == 3
+
+
 def test_bodyweight_entry_is_upserted_by_day():
     reset_db()
     payload = {"recorded_on": "2026-09-01", "weight": 82.5}

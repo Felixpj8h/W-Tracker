@@ -208,6 +208,12 @@ MUSCLE_MAP = {
     "biceps": "Arms", "biceps brachii": "Arms", "triceps": "Arms", "triceps brachii": "Arms", "brachialis": "Arms", "forearms": "Arms", "forearm": "Arms", "forearm curls": "Arms",
 }
 GROUPS = ["Legs", "Back", "Core", "Chest", "Shoulders", "Arms"]
+INDIVIDUAL_MUSCLES = [
+    "Pectoralis major", "Lats", "Traps", "Rhomboids", "Spinal erectors",
+    "Front delts", "Side delts", "Rear delts", "Biceps", "Triceps",
+    "Forearms", "Quads", "Hamstrings", "Glutes", "Calves", "Adductors",
+    "Abs", "Obliques",
+]
 WGER_GROUP_REGIONS = {
     "Legs": ("Quads", "Hamstrings", "Calves", "Soleus", "Glutes"),
     "Back": ("Lats", "Trapezius"),
@@ -277,6 +283,44 @@ def stored_secondary_muscles(value: Optional[str]) -> list[str]:
         if muscle and muscle not in result:
             result.append(muscle)
     return result
+
+
+def dashboard_muscle(muscle: Optional[str], exercise_name: str = "") -> Optional[str]:
+    """Map stored/Wger labels to the individual-muscle dashboard taxonomy."""
+    value = canonical_muscle(muscle)
+    key = value.casefold()
+    name = exercise_name.casefold()
+    exact = {
+        "chest": "Pectoralis major", "pectoralis major": "Pectoralis major", "pectoralis minor": "Pectoralis major",
+        "lats": "Lats", "latissimus dorsi": "Lats", "trapezius": "Traps", "traps": "Traps",
+        "rhomboids": "Rhomboids", "lower back": "Spinal erectors", "spinal erectors": "Spinal erectors",
+        "front delts": "Front delts", "anterior deltoid": "Front delts", "side delts": "Side delts", "lateral deltoid": "Side delts",
+        "rear delts": "Rear delts", "posterior deltoid": "Rear delts", "biceps": "Biceps", "biceps brachii": "Biceps",
+        "triceps": "Triceps", "triceps brachii": "Triceps", "brachialis": "Biceps", "forearms": "Forearms", "forearm": "Forearms",
+        "quads": "Quads", "quadriceps": "Quads", "quadriceps femoris": "Quads", "hamstrings": "Hamstrings", "biceps femoris": "Hamstrings",
+        "glutes": "Glutes", "gluteus maximus": "Glutes", "calves": "Calves", "gastrocnemius": "Calves", "soleus": "Calves",
+        "adductors": "Adductors", "abs": "Abs", "abdominals": "Abs", "rectus abdominis": "Abs",
+        "obliques": "Obliques", "obliquus externus abdominis": "Obliques",
+    }
+    if key in exact:
+        return exact[key]
+    if key == "shoulders":
+        return "Rear delts" if "rear" in name else "Side delts" if "lateral" in name else "Front delts"
+    if key == "back":
+        return "Spinal erectors" if "deadlift" in name or "back extension" in name else "Lats"
+    if key == "arms":
+        return "Triceps" if "tricep" in name or "pressdown" in name or "pushdown" in name else "Forearms" if "forearm" in name or "wrist" in name else "Biceps"
+    if key == "legs":
+        return "Hamstrings" if "deadlift" in name or "leg curl" in name else "Glutes" if "hip thrust" in name or "glute" in name else "Calves" if "calf" in name else "Adductors" if "adductor" in name else "Quads"
+    if key == "core":
+        return "Obliques" if "oblique" in name or "side bend" in name else "Abs"
+    return None
+
+
+def dashboard_muscles(exercise: WorkoutExercise) -> list[str]:
+    muscles = [dashboard_muscle(exercise.primary_muscle, exercise.name)]
+    muscles.extend(dashboard_muscle(item, exercise.name) for item in stored_secondary_muscles(exercise.secondary_muscles))
+    return list(dict.fromkeys(muscle for muscle in muscles if muscle))
 
 
 def exercise_out(exercise: Exercise) -> dict:
@@ -724,15 +768,19 @@ def dashboard(db: Session = Depends(get_db)):
     today = date.today(); week_start = today - timedelta(days=today.weekday()); previous_start = week_start - timedelta(days=7)
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
+    current_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}; previous_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}
     has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
     workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= previous_start)).all()
     for workout in workouts:
         bucket = current if workout.performed_on >= week_start else previous
         set_bucket = current_sets if workout.performed_on >= week_start else previous_sets
+        muscle_set_bucket = current_muscle_sets if workout.performed_on >= week_start else previous_muscle_sets
         for exercise in workout.exercises:
             if exercise.muscle_group in bucket:
                 bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
                 set_bucket[exercise.muscle_group] += len(exercise.sets)
+            for muscle in dashboard_muscles(exercise):
+                muscle_set_bucket[muscle] += len(exercise.sets)
     if has_demo:
         # The demo is meant to illustrate a stable training block: same work,
         # with a small 4% progression in this week rather than a huge swing.
@@ -743,7 +791,7 @@ def dashboard(db: Session = Depends(get_db)):
     if has_demo:
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
-    return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS]}
+    return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
 
 
 @app.get("/api/v1/dashboard/body-map")
