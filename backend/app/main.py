@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+import json
 import logging
+import os
 from pathlib import Path
 import re
 import threading
@@ -11,8 +13,9 @@ from typing import Optional
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, create_engine, select, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, select, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
@@ -56,6 +59,7 @@ class Routine(Base):
     folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("routine_folders.id"), nullable=True)
     folder: Mapped[Optional[RoutineFolder]] = relationship(back_populates="routines")
     exercises: Mapped[list["RoutineExercise"]] = relationship(cascade="all, delete-orphan", order_by="RoutineExercise.position")
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class RoutineExercise(Base):
@@ -135,6 +139,45 @@ class WeeklyPlanDay(Base):
     routine: Mapped[Routine] = relationship()
 
 
+class AIConversation(Base):
+    __tablename__ = "ai_conversations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_scope: Mapped[str] = mapped_column(String(80), default="local", index=True)
+    title: Mapped[str] = mapped_column(String(160), default="New conversation")
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="idle")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    messages: Mapped[list["AIMessage"]] = relationship(cascade="all, delete-orphan", order_by="AIMessage.id")
+    proposals: Mapped[list["AIChangeProposal"]] = relationship(cascade="all, delete-orphan", order_by="AIChangeProposal.id")
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="completed")
+    provider_metadata: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AIChangeProposal(Base):
+    __tablename__ = "ai_change_proposals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("ai_conversations.id"), index=True)
+    message_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ai_messages.id"), nullable=True)
+    operation: Mapped[str] = mapped_column(String(50))
+    payload: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    target_routine_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class Model(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -196,6 +239,22 @@ class WeeklyPlanIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     starts_on: date
     days: list[WeeklyPlanDayIn] = []
+
+
+class ActorContext(BaseModel):
+    owner_scope: str = "local"
+
+
+def get_actor_context() -> ActorContext:
+    return ActorContext()
+
+
+class AIConversationIn(BaseModel):
+    title: str = Field(default="New conversation", min_length=1, max_length=160)
+
+
+class AIMessageIn(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
 
 
 MUSCLE_MAP = {
@@ -331,7 +390,7 @@ def exercise_out(exercise: Exercise) -> dict:
 
 
 def routine_out(routine: Routine) -> dict:
-    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "rest_seconds": item.rest_seconds, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
+    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "version": routine.version, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "rest_seconds": item.rest_seconds, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
 
 
 def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, secondary_muscles: list[str] = [], wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
@@ -371,6 +430,9 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_max INTEGER")
         if "rest_seconds" not in columns:
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
+        routine_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(routines)")}
+        if "version" not in routine_columns:
+            connection.exec_driver_sql("ALTER TABLE routines ADD COLUMN version INTEGER DEFAULT 1")
         exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(exercises)")}
         if "search_aliases" not in exercise_columns:
             connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN search_aliases VARCHAR(1000) DEFAULT ''")
@@ -475,6 +537,127 @@ def start_catalogue_refresh_background() -> threading.Thread:
 def health(): return {"status": "ok"}
 
 
+def ai_proposal_out(item: AIChangeProposal) -> dict:
+    return {"id": item.id, "operation": item.operation, "payload": json.loads(item.payload), "summary": item.summary, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
+
+
+def ai_conversation_out(item: AIConversation, include_messages: bool = True) -> dict:
+    result = {"id": item.id, "title": item.title, "status": item.status, "created_at": item.created_at, "updated_at": item.updated_at}
+    if include_messages:
+        result["messages"] = [{"id": message.id, "role": message.role, "content": message.content, "status": message.status, "created_at": message.created_at} for message in item.messages]
+        result["proposals"] = [ai_proposal_out(proposal) for proposal in item.proposals]
+    return result
+
+
+@app.post("/api/v1/ai/conversations")
+def create_ai_conversation(payload: AIConversationIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    item = AIConversation(owner_scope=actor.owner_scope, title=payload.title.strip())
+    db.add(item); db.commit(); db.refresh(item)
+    return saved_response(ai_conversation_out(item))
+
+
+@app.get("/api/v1/ai/conversations")
+def list_ai_conversations(actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    items = db.scalars(select(AIConversation).where(AIConversation.owner_scope == actor.owner_scope).order_by(AIConversation.updated_at.desc())).all()
+    return [ai_conversation_out(item, include_messages=False) for item in items]
+
+
+@app.get("/api/v1/ai/conversations/{conversation_id}")
+def get_ai_conversation(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    item = db.get(AIConversation, conversation_id)
+    if not item or item.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    return ai_conversation_out(item)
+
+
+@app.delete("/api/v1/ai/conversations/{conversation_id}")
+def delete_ai_conversation(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    item = db.get(AIConversation, conversation_id)
+    if not item or item.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    if item.status == "generating": raise HTTPException(409, "Conversation is generating a response")
+    db.delete(item); db.commit()
+    return {"deleted": True, "saved": True}
+
+
+def _sse(payload: dict) -> str:
+    return f"event: {payload['type']}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+@app.post("/api/v1/ai/conversations/{conversation_id}/messages")
+def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(503, "AI coach is not configured")
+    conversation = db.get(AIConversation, conversation_id)
+    if not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    if conversation.status == "generating":
+        if conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5): raise HTTPException(409, "Conversation is already generating a response")
+    message = AIMessage(conversation_id=conversation.id, role="user", content=payload.content.strip(), status="completed")
+    db.add(message); conversation.status = "generating"; conversation.updated_at = datetime.utcnow()
+    if conversation.title == "New conversation": conversation.title = payload.content.strip()[:80]
+    db.commit(); db.refresh(message)
+    persisted_conversation_id, persisted_message_id = conversation.id, message.id
+    db.close()
+    from .chatBot import stream_coach_turn
+    def events():
+        for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_scope): yield _sse(event)
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _apply_weekly_plan(payload: WeeklyPlanIn, db: Session) -> WeeklyPlan:
+    if len({item.weekday for item in payload.days}) != len(payload.days): raise HTTPException(422, "Each weekday can only have one workout")
+    for item in payload.days:
+        if not db.get(Routine, item.routine_id): raise HTTPException(404, "Routine not found")
+    plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+    if not plan: plan = WeeklyPlan(); db.add(plan)
+    plan.name, plan.starts_on = payload.name, payload.starts_on; plan.days.clear()
+    for item in payload.days: plan.days.append(WeeklyPlanDay(weekday=item.weekday, routine_id=item.routine_id))
+    return plan
+
+
+@app.post("/api/v1/ai/proposals/{proposal_id}/confirm")
+def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    proposal = db.get(AIChangeProposal, proposal_id)
+    conversation = db.get(AIConversation, proposal.conversation_id) if proposal else None
+    if not proposal or not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Proposal not found")
+    if proposal.status == "applied": return saved_response(ai_proposal_out(proposal))
+    if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
+    try:
+        raw = json.loads(proposal.payload)
+        if proposal.operation == "create_routine":
+            payload = RoutineIn.model_validate(raw)
+            if payload.folder_id and not db.get(RoutineFolder, payload.folder_id): raise HTTPException(404, "Folder not found")
+            routine = Routine(); populate_routine(routine, payload, db); db.add(routine)
+        elif proposal.operation == "update_routine":
+            payload = RoutineIn.model_validate(raw); routine = db.get(Routine, proposal.target_routine_id)
+            if not routine: raise HTTPException(404, "Routine not found")
+            if routine.version != proposal.target_version: raise HTTPException(409, "Routine changed since this proposal was created")
+            populate_routine(routine, payload, db); routine.version += 1
+        elif proposal.operation == "delete_routine":
+            routine = db.get(Routine, proposal.target_routine_id)
+            if not routine: raise HTTPException(404, "Routine not found")
+            if routine.version != proposal.target_version: raise HTTPException(409, "Routine changed since this proposal was created")
+            db.delete(routine)
+        elif proposal.operation == "update_weekly_plan":
+            _apply_weekly_plan(WeeklyPlanIn.model_validate(raw), db)
+        else: raise HTTPException(422, "Unsupported proposal operation")
+        proposal.status = "applied"; proposal.resolved_at = datetime.utcnow(); db.commit(); db.refresh(proposal)
+        return saved_response(ai_proposal_out(proposal))
+    except HTTPException:
+        db.rollback(); raise
+    except (ValueError, TypeError) as exc:
+        db.rollback(); raise HTTPException(422, f"Invalid proposal: {exc}") from exc
+
+
+@app.post("/api/v1/ai/proposals/{proposal_id}/reject")
+def reject_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    proposal = db.get(AIChangeProposal, proposal_id)
+    conversation = db.get(AIConversation, proposal.conversation_id) if proposal else None
+    if not proposal or not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Proposal not found")
+    if proposal.status == "rejected": return saved_response(ai_proposal_out(proposal))
+    if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
+    proposal.status = "rejected"; proposal.resolved_at = datetime.utcnow(); db.commit(); db.refresh(proposal)
+    return saved_response(ai_proposal_out(proposal))
+
+
 @app.get("/api/v1/exercises", response_model=list[ExerciseOut])
 async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
     query = q.strip()
@@ -560,7 +743,7 @@ def create_routine(payload: RoutineIn, db: Session = Depends(get_db)):
 def update_routine(routine_id: int, payload: RoutineIn, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
-    populate_routine(routine, payload, db); db.commit(); db.refresh(routine); return saved_response(routine_out(routine))
+    populate_routine(routine, payload, db); routine.version += 1; db.commit(); db.refresh(routine); return saved_response(routine_out(routine))
 
 
 @app.delete("/api/v1/routines/{routine_id}")

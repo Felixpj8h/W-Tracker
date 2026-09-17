@@ -190,3 +190,77 @@ def test_muscle_labels_are_normalized_and_not_rewrapped():
     assert first["primary_muscle"] == "Primary: Chest · Secondary: Shoulders, Triceps"
     assert second["primary_muscle"] == first["primary_muscle"]
     assert second["secondary_muscles"] == ["Shoulders", "Triceps"]
+
+
+class _FakeInteraction:
+    steps = []
+    output_text = "Your recent training is progressing steadily."
+
+
+class _FakeInteractions:
+    def create(self, **_kwargs):
+        return _FakeInteraction()
+
+
+class _FakeGeminiClient:
+    interactions = _FakeInteractions()
+
+
+def test_ai_conversation_stream_is_persisted_and_uses_sse(monkeypatch):
+    reset_db()
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    monkeypatch.setenv("GEMINI_MODEL", "test-model")
+    app.state.gemini_client_factory = _FakeGeminiClient
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Coach"}).json()
+    response = client.post(f"/api/v1/ai/conversations/{conversation['id']}/messages", json={"content": "How is my training going?"})
+    assert response.status_code == 200
+    assert "event: message.started" in response.text
+    assert "event: text.delta" in response.text
+    assert "event: message.completed" in response.text
+    stored = client.get(f"/api/v1/ai/conversations/{conversation['id']}").json()
+    assert [message["role"] for message in stored["messages"]] == ["user", "assistant"]
+    assert stored["messages"][-1]["status"] == "completed"
+    del app.state.gemini_client_factory
+
+
+def test_ai_routine_proposal_requires_confirmation():
+    reset_db()
+    from app.tools import execute_tool
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Plan changes"}).json()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    result = execute_tool("propose_create_routine", {"routine": {"name": "AI Push", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3, "target_reps_min": 8, "target_reps_max": 12, "rest_seconds": 90}]}, "summary": "Create a push routine"}, conversation["id"], None)
+    assert result["status"] == "pending"
+    assert all(routine["name"] != "AI Push" for folder in client.get("/api/v1/folders").json() for routine in folder["routines"])
+    applied = client.post(f"/api/v1/ai/proposals/{result['proposal_id']}/confirm")
+    assert applied.status_code == 200
+    assert applied.json()["status"] == "applied"
+    assert client.post(f"/api/v1/ai/proposals/{result['proposal_id']}/confirm").status_code == 200
+    with main_module.SessionLocal() as db:
+        assert db.scalar(main_module.select(main_module.Routine).where(main_module.Routine.name == "AI Push")) is not None
+
+
+def test_ai_reject_and_stale_routine_proposal():
+    reset_db()
+    from app.tools import execute_tool
+    exercise = client.get("/api/v1/exercises").json()[0]
+    routine = client.post("/api/v1/routines", json={"name": "Original", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3}]}).json()
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Changes"}).json()
+    args = {"routine_id": routine["id"], "routine": {"name": "Revised", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 4}]}, "summary": "Increase volume"}
+    rejected = execute_tool("propose_update_routine", args, conversation["id"], None)
+    assert client.post(f"/api/v1/ai/proposals/{rejected['proposal_id']}/reject").json()["status"] == "rejected"
+    stale = execute_tool("propose_update_routine", args, conversation["id"], None)
+    client.put(f"/api/v1/routines/{routine['id']}", json={"name": "Manual edit", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 2}]})
+    response = client.post(f"/api/v1/ai/proposals/{stale['proposal_id']}/confirm")
+    assert response.status_code == 409
+    assert "changed" in response.json()["detail"]
+
+
+def test_ai_message_rejects_missing_configuration_and_concurrent_turn(monkeypatch):
+    reset_db()
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Coach"}).json()
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False); monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    assert client.post(f"/api/v1/ai/conversations/{conversation['id']}/messages", json={"content": "Review my plan"}).status_code == 503
+    monkeypatch.setenv("GEMINI_API_KEY", "test"); monkeypatch.setenv("GEMINI_MODEL", "test-model")
+    with main_module.SessionLocal() as db:
+        item = db.get(main_module.AIConversation, conversation["id"]); item.status = "generating"; item.updated_at = main_module.datetime.utcnow(); db.commit()
+    assert client.post(f"/api/v1/ai/conversations/{conversation['id']}/messages", json={"content": "Review my plan"}).status_code == 409
