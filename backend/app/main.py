@@ -139,6 +139,13 @@ class WeeklyPlanDay(Base):
     routine: Mapped[Routine] = relationship()
 
 
+class CalendarAssignment(Base):
+    __tablename__ = "calendar_assignments"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    routine_id: Mapped[int] = mapped_column(ForeignKey("routines.id"))
+    routine: Mapped[Routine] = relationship()
+
+
 class AIConversation(Base):
     __tablename__ = "ai_conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -171,6 +178,7 @@ class AIChangeProposal(Base):
     operation: Mapped[str] = mapped_column(String(50))
     payload: Mapped[str] = mapped_column(Text)
     summary: Mapped[str] = mapped_column(Text)
+    reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     target_routine_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     target_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="pending")
@@ -239,6 +247,29 @@ class WeeklyPlanIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     starts_on: date
     days: list[WeeklyPlanDayIn] = []
+
+
+class ProgramDayIn(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    routine_index: int = Field(ge=0)
+
+
+class ProgramDateIn(BaseModel):
+    date: date
+    routine_index: int = Field(ge=0)
+
+
+class ProgramPlanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    starts_on: date
+    days: list[ProgramDayIn] = []
+
+
+class TrainingProgramIn(BaseModel):
+    folder_name: str = Field(min_length=1, max_length=100)
+    routines: list[RoutineIn] = Field(min_length=1, max_length=14)
+    weekly_plan: Optional[ProgramPlanIn] = None
+    dates: list[ProgramDateIn] = Field(default_factory=list, max_length=90)
 
 
 class ActorContext(BaseModel):
@@ -456,6 +487,9 @@ def startup():
         workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
         if "secondary_muscles" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN secondary_muscles VARCHAR(300) DEFAULT ''")
+        proposal_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(ai_change_proposals)")}
+        if "reasoning" not in proposal_columns:
+            connection.exec_driver_sql("ALTER TABLE ai_change_proposals ADD COLUMN reasoning TEXT")
     with SessionLocal() as db:
         for exercise in db.scalars(select(Exercise)).all():
             correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
@@ -538,7 +572,7 @@ def health(): return {"status": "ok"}
 
 
 def ai_proposal_out(item: AIChangeProposal) -> dict:
-    return {"id": item.id, "operation": item.operation, "payload": json.loads(item.payload), "summary": item.summary, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
+    return {"id": item.id, "message_id": item.message_id, "operation": item.operation, "payload": json.loads(item.payload), "summary": item.summary, "reasoning": item.reasoning, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
 
 
 def ai_conversation_out(item: AIConversation, include_messages: bool = True) -> dict:
@@ -627,9 +661,14 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
             if payload.folder_id and not db.get(RoutineFolder, payload.folder_id): raise HTTPException(404, "Folder not found")
             routine = Routine(); populate_routine(routine, payload, db); db.add(routine)
         elif proposal.operation == "update_routine":
-            payload = RoutineIn.model_validate(raw); routine = db.get(Routine, proposal.target_routine_id)
+            routine = db.get(Routine, proposal.target_routine_id)
             if not routine: raise HTTPException(404, "Routine not found")
             if routine.version != proposal.target_version: raise HTTPException(409, "Routine changed since this proposal was created")
+            # Older proposals wrote a null folder when the coach omitted it.
+            # Keep the current folder unless removal was explicitly requested.
+            if raw.get("folder_id") is None and not raw.get("_folder_id_explicit"):
+                raw["folder_id"] = routine.folder_id
+            payload = RoutineIn.model_validate(raw)
             populate_routine(routine, payload, db); routine.version += 1
         elif proposal.operation == "delete_routine":
             routine = db.get(Routine, proposal.target_routine_id)
@@ -638,6 +677,33 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
             db.delete(routine)
         elif proposal.operation == "update_weekly_plan":
             _apply_weekly_plan(WeeklyPlanIn.model_validate(raw), db)
+        elif proposal.operation == "create_training_program":
+            payload = TrainingProgramIn.model_validate(raw)
+            if payload.weekly_plan and len({day.weekday for day in payload.weekly_plan.days}) != len(payload.weekly_plan.days):
+                raise HTTPException(422, "Each weekday can only have one workout")
+            if len({entry.date for entry in payload.dates}) != len(payload.dates):
+                raise HTTPException(422, "Each date can only have one workout")
+            folder = RoutineFolder(name=payload.folder_name)
+            db.add(folder); db.flush()
+            created = []
+            for item in payload.routines:
+                routine = Routine()
+                item.folder_id = folder.id
+                populate_routine(routine, item, db)
+                db.add(routine); db.flush(); created.append(routine)
+            if payload.weekly_plan:
+                plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+                if not plan: plan = WeeklyPlan(); db.add(plan)
+                plan.name, plan.starts_on = payload.weekly_plan.name, payload.weekly_plan.starts_on
+                plan.days.clear()
+                for day in payload.weekly_plan.days:
+                    if day.routine_index >= len(created): raise HTTPException(422, "Invalid routine index")
+                    plan.days.append(WeeklyPlanDay(weekday=day.weekday, routine_id=created[day.routine_index].id))
+            for entry in payload.dates:
+                if entry.routine_index >= len(created): raise HTTPException(422, "Invalid routine index")
+                assignment = db.get(CalendarAssignment, entry.date)
+                if not assignment: assignment = CalendarAssignment(day=entry.date); db.add(assignment)
+                assignment.routine_id = created[entry.routine_index].id
         else: raise HTTPException(422, "Unsupported proposal operation")
         proposal.status = "applied"; proposal.resolved_at = datetime.utcnow(); db.commit(); db.refresh(proposal)
         return saved_response(ai_proposal_out(proposal))
@@ -877,10 +943,11 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
     first = date(year, month, 1); last = date(year, month, monthrange(year, month)[1])
     completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
     planned = {item.weekday: item for item in plan.days} if plan else {}
+    assignments = {item.day: item for item in db.scalars(select(CalendarAssignment).where(CalendarAssignment.day >= first, CalendarAssignment.day <= last)).all() if item.routine is not None}
     result = []
     for offset in range((last - first).days + 1):
         day = first + timedelta(days=offset)
-        scheduled = planned.get(day.weekday()) if plan and day >= plan.starts_on else None
+        scheduled = assignments.get(day) or (planned.get(day.weekday()) if plan and day >= plan.starts_on else None)
         workout = completed.get(day)
         result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": scheduled.routine.name if scheduled else None, "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}

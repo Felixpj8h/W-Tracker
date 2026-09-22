@@ -12,6 +12,20 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $projectRoot 'backend'
 $logRoot = Join-Path $projectRoot '.phone-preview'
 
+# The backend reads Gemini settings from its process environment. Vite's .env
+# loading does not pass these settings to the separately launched API process.
+$envFile = Join-Path $projectRoot '.env'
+if (Test-Path -LiteralPath $envFile) {
+    foreach ($name in @('GEMINI_API_KEY', 'GEMINI_MODEL')) {
+        if ([Environment]::GetEnvironmentVariable($name, 'Process')) { continue }
+        $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match "^$name=" } | Select-Object -First 1
+        if ($line) {
+            $value = ($line -split '=', 2)[1].Trim().Trim('"', "'")
+            if ($value) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
+        }
+    }
+}
+
 function Require-Command([string]$name) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
         throw "'$name' was not found. Install it or add it to PATH, then run this script again."

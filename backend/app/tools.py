@@ -15,6 +15,7 @@ def _fn(name: str, description: str, properties: dict[str, Any], required: list[
 
 ROUTINE_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}, "folder_id": {"type": ["integer", "null"]}, "exercises": {"type": "array", "items": {"type": "object", "properties": {"exercise_id": {"type": "integer"}, "planned_sets": {"type": "integer"}, "target_reps_min": {"type": ["integer", "null"]}, "target_reps_max": {"type": ["integer", "null"]}, "target_weight": {"type": ["number", "null"]}, "rest_seconds": {"type": "integer"}}, "required": ["exercise_id", "planned_sets"]}}}, "required": ["name", "exercises"]}
 WEEKLY_PLAN_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}, "starts_on": {"type": "string", "description": "ISO date"}, "days": {"type": "array", "items": {"type": "object", "properties": {"weekday": {"type": "integer"}, "routine_id": {"type": "integer"}}, "required": ["weekday", "routine_id"]}}}, "required": ["name", "starts_on", "days"]}
+PROGRAM_SCHEMA = {"type": "object", "properties": {"folder_name": {"type": "string"}, "routines": {"type": "array", "items": ROUTINE_SCHEMA}, "weekly_plan": {"type": "object", "properties": {"name": {"type": "string"}, "starts_on": {"type": "string", "description": "ISO date"}, "days": {"type": "array", "items": {"type": "object", "properties": {"weekday": {"type": "integer", "description": "Monday is 0, Sunday is 6"}, "routine_index": {"type": "integer", "description": "Zero-based index into routines"}}, "required": ["weekday", "routine_index"]}}}, "required": ["name", "starts_on", "days"]}, "dates": {"type": "array", "items": {"type": "object", "properties": {"date": {"type": "string", "description": "ISO date YYYY-MM-DD"}, "routine_index": {"type": "integer", "description": "Zero-based index into routines"}}, "required": ["date", "routine_index"]}}}, "required": ["folder_name", "routines"]}
 
 TOOL_DECLARATIONS = [
     _fn("get_training_summary", "Get bounded workout, bodyweight, volume, and individual-muscle set totals.", {"days": {"type": "integer", "minimum": 7, "maximum": 365}}),
@@ -24,10 +25,11 @@ TOOL_DECLARATIONS = [
     _fn("get_exercise_progress", "Get bounded progress history for one exercise.", {"exercise_id": {"type": "integer"}, "days": {"type": "integer", "minimum": 7, "maximum": 730}}, ["exercise_id"]),
     _fn("get_weekly_plan", "Get the current weekly training plan.", {}),
     _fn("search_exercises", "Search the exercise catalogue before proposing a routine change.", {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, ["query"]),
-    _fn("propose_create_routine", "Create a pending routine proposal without modifying data.", {"routine": ROUTINE_SCHEMA, "summary": {"type": "string"}}, ["routine", "summary"]),
-    _fn("propose_update_routine", "Create a pending full-routine replacement proposal without modifying data.", {"routine_id": {"type": "integer"}, "routine": ROUTINE_SCHEMA, "summary": {"type": "string"}}, ["routine_id", "routine", "summary"]),
-    _fn("propose_delete_routine", "Create a pending routine deletion proposal without modifying data.", {"routine_id": {"type": "integer"}, "summary": {"type": "string"}}, ["routine_id", "summary"]),
-    _fn("propose_update_weekly_plan", "Create a pending weekly-plan proposal without modifying data.", {"plan": WEEKLY_PLAN_SCHEMA, "summary": {"type": "string"}}, ["plan", "summary"]),
+    _fn("propose_create_routine", "Create a pending routine proposal without modifying data.", {"routine": ROUTINE_SCHEMA, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change helps, grounded in available training data."}}, ["routine", "summary", "reasoning"]),
+    _fn("propose_update_routine", "Create a pending full-routine replacement proposal without modifying data.", {"routine_id": {"type": "integer"}, "routine": ROUTINE_SCHEMA, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change helps, grounded in available training data."}}, ["routine_id", "routine", "summary", "reasoning"]),
+    _fn("propose_delete_routine", "Create a pending routine deletion proposal without modifying data.", {"routine_id": {"type": "integer"}, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change is appropriate, including tradeoffs."}}, ["routine_id", "summary", "reasoning"]),
+    _fn("propose_update_weekly_plan", "Create a pending weekly-plan proposal without modifying data.", {"plan": WEEKLY_PLAN_SCHEMA, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this schedule helps, grounded in available training data."}}, ["plan", "summary", "reasoning"]),
+    _fn("propose_create_training_program", "Propose a new folder with new routines and optionally schedule them on individual dates or as a recurring weekly plan. One confirmation applies the full program together. Use routine_index to refer to newly proposed routines; Monday is weekday 0.", {"program": PROGRAM_SCHEMA, "summary": {"type": "string"}, "reasoning": {"type": "string"}}, ["program", "summary", "reasoning"]),
 ]
 
 
@@ -35,11 +37,11 @@ def _jsonable(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
-def _proposal(db, conversation_id: int, message_id: int | None, operation: str, payload: dict, summary: str, target=None) -> dict:
+def _proposal(db, conversation_id: int, message_id: int | None, operation: str, payload: dict, summary: str, target=None, reasoning: str = "") -> dict:
     from .main import AIChangeProposal
-    item = AIChangeProposal(conversation_id=conversation_id, message_id=message_id, operation=operation, payload=json.dumps(payload), summary=summary[:2000], target_routine_id=target.id if target else None, target_version=target.version if target else None)
+    item = AIChangeProposal(conversation_id=conversation_id, message_id=message_id, operation=operation, payload=json.dumps(payload), summary=summary[:2000], reasoning=reasoning[:4000], target_routine_id=target.id if target else None, target_version=target.version if target else None)
     db.add(item); db.commit(); db.refresh(item)
-    return {"proposal_id": item.id, "operation": operation, "summary": item.summary, "status": item.status}
+    return {"proposal_id": item.id, "operation": operation, "summary": item.summary, "reasoning": item.reasoning, "status": item.status}
 
 
 def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_id: int | None, owner_scope: str = "local") -> dict:
@@ -89,23 +91,44 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
                 weights = db.scalars(select(main.BodyweightEntry).where(main.BodyweightEntry.recorded_on >= start).order_by(main.BodyweightEntry.recorded_on)).all()
                 return {"from": str(start), "to": str(date.today()), "completed_sessions": len(workouts), "total_volume": volume, "sets_by_muscle": dict(muscle_sets), "bodyweight": [{"date": str(x.recorded_on), "weight": x.weight} for x in weights[-30:]]}
             if name in {"propose_create_routine", "propose_update_routine"}:
-                payload = main.RoutineIn.model_validate(args["routine"])
+                target = db.get(main.Routine, int(args["routine_id"])) if name == "propose_update_routine" else None
+                if name == "propose_update_routine" and not target: return {"error": "Routine not found"}
+                raw_routine = args["routine"]
+                folder_explicit = isinstance(raw_routine, dict) and "folder_id" in raw_routine
+                payload = main.RoutineIn.model_validate(raw_routine)
+                if target and not folder_explicit:
+                    payload.folder_id = target.folder_id
                 for choice in payload.exercises:
                     if not db.get(main.Exercise, choice.exercise_id): return {"error": f"Exercise {choice.exercise_id} not found"}
                 if payload.folder_id and not db.get(main.RoutineFolder, payload.folder_id): return {"error": "Folder not found"}
-                target = db.get(main.Routine, int(args["routine_id"])) if name == "propose_update_routine" else None
-                if name == "propose_update_routine" and not target: return {"error": "Routine not found"}
-                return _proposal(db, conversation_id, message_id, name.removeprefix("propose_"), payload.model_dump(mode="json"), str(args["summary"]), target)
+                proposal_payload = payload.model_dump(mode="json")
+                if target:
+                    proposal_payload["_folder_id_explicit"] = folder_explicit
+                return _proposal(db, conversation_id, message_id, name.removeprefix("propose_"), proposal_payload, str(args["summary"]), target, str(args.get("reasoning") or args["summary"]))
             if name == "propose_delete_routine":
                 target = db.get(main.Routine, int(args["routine_id"]))
                 if not target: return {"error": "Routine not found"}
-                return _proposal(db, conversation_id, message_id, "delete_routine", {"routine_id": target.id}, str(args["summary"]), target)
+                return _proposal(db, conversation_id, message_id, "delete_routine", {"routine_id": target.id}, str(args["summary"]), target, str(args.get("reasoning") or args["summary"]))
             if name == "propose_update_weekly_plan":
                 payload = main.WeeklyPlanIn.model_validate(args["plan"])
                 if len({x.weekday for x in payload.days}) != len(payload.days): return {"error": "Each weekday can only have one workout"}
                 for day in payload.days:
                     if not db.get(main.Routine, day.routine_id): return {"error": f"Routine {day.routine_id} not found"}
-                return _proposal(db, conversation_id, message_id, "update_weekly_plan", payload.model_dump(mode="json"), str(args["summary"]))
+                return _proposal(db, conversation_id, message_id, "update_weekly_plan", payload.model_dump(mode="json"), str(args["summary"]), reasoning=str(args.get("reasoning") or args["summary"]))
+            if name == "propose_create_training_program":
+                payload = main.TrainingProgramIn.model_validate(args["program"])
+                count = len(payload.routines)
+                if payload.weekly_plan and len({day.weekday for day in payload.weekly_plan.days}) != len(payload.weekly_plan.days): return {"error": "Each weekday can only have one workout"}
+                if len({entry.date for entry in payload.dates}) != len(payload.dates): return {"error": "Each date can only have one workout"}
+                for routine in payload.routines:
+                    if not routine.exercises: return {"error": f"Routine {routine.name} has no exercises"}
+                    for choice in routine.exercises:
+                        if not db.get(main.Exercise, choice.exercise_id): return {"error": f"Exercise {choice.exercise_id} not found"}
+                        if choice.target_reps_min and choice.target_reps_max and choice.target_reps_min > choice.target_reps_max: return {"error": "Minimum reps cannot exceed maximum reps"}
+                    routine.folder_id = None
+                references = ([day.routine_index for day in payload.weekly_plan.days] if payload.weekly_plan else []) + [entry.routine_index for entry in payload.dates]
+                if any(index >= count for index in references): return {"error": "Schedule references a missing routine"}
+                return _proposal(db, conversation_id, message_id, "create_training_program", payload.model_dump(mode="json"), str(args["summary"]), reasoning=str(args.get("reasoning") or args["summary"]))
             return {"error": "Unknown tool"}
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
             db.rollback(); return {"error": f"Invalid tool arguments: {exc}"}

@@ -127,7 +127,9 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
                 yield {"type": "tool.completed", "name": name, "ok": "error" not in result}
                 if result.get("proposal_id"):
                     yield {"type": "proposal.created", **result}
-                history.append({"type": "function_result", "name": name, "call_id": call.get("id"), "result": [{"type": "text", "text": json.dumps(result, default=str)}]})
+                # Gemini 2.5 expects a structured result. Text-content arrays are
+                # treated as multimodal function responses and rejected by this model.
+                history.append({"type": "function_result", "name": name, "call_id": call.get("id"), "result": result})
         raise RuntimeError("Tool round limit reached")
     except GeneratorExit:
         _mark_interrupted(conversation_id, assistant_text)
