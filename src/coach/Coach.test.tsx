@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Coach, ProposalCard } from './Coach';
 import type { CoachController } from './useCoachController';
 
@@ -53,5 +55,36 @@ describe('Coach proposal card', () => {
     expect(html).toContain('Recurring · PPL week');
     expect(html).toContain('Monday: Push');
     expect(html).toContain('2026-09-29: Legs');
+  });
+
+  it('opens a readable dialog and closes it with Escape', async () => {
+    render(<ProposalCard
+      proposal={{ id: 4, operation: 'create_routine', payload: { name: 'Push', exercises: [] }, summary: 'Add Push', status: 'applied', target_routine_id: null, created_at: '2026-09-22' }}
+      coach={{ outdated: {}, pending: {}, resolve: async () => undefined } as unknown as CoachController}
+      id={1} folders={[]} plan={null}
+    />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Create routine proposal' }));
+    expect(screen.getByRole('dialog', { name: 'Create routine proposal' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close expanded proposal' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Expand Create routine proposal' })));
+  });
+
+  it('shows one clear progress state while the coach works', () => {
+    const created_at = '2026-09-22T12:00:00';
+    const html = renderToStaticMarkup(<Coach
+      coach={{
+        selectedId: 1,
+        details: { 1: { id: 1, title: 'Coach', status: 'generating', created_at, updated_at: created_at, messages: [], proposals: [] } },
+        conversations: [], loading: false, drafts: { 1: '' }, optimistic: { 1: 'Build a plan' }, streaming: { 1: true },
+        proposalNotice: { 1: 'Plan change proposed' }, activity: { 1: 'proposal_ready' }, errors: {}, outdated: {}, pending: {},
+        load: async () => undefined, refresh: async () => undefined, send: async () => true, create: async () => 1, resolve: async () => undefined,
+      } as unknown as CoachController}
+      folders={[]} plan={null}
+    />);
+    expect(html).toContain('Proposal ready. Preparing reply…');
+    expect((html.match(/role="status"/g) ?? [])).toHaveLength(1);
+    expect(html).not.toContain('Preparing proposal details');
   });
 });

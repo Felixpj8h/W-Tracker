@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { CoachController } from './useCoachController';
@@ -13,9 +14,47 @@ type Props = { coach: CoachController; folders: Folder[]; plan: WeeklyPlan };
 const prompts = ['Review my current training volume.', 'Why has my bench press stalled?', 'Suggest improvements to my weekly plan.'];
 const label = (operation: string) => operation.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
 const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const progressLabel = (activity: string | undefined, hasDraft: boolean, hasProposal: boolean) => {
+  if (activity === 'saving_response') return 'Finishing response…';
+  if (activity === 'writing_response') return 'Writing response…';
+  if (activity === 'proposal_ready') return 'Proposal ready. Preparing reply…';
+  if (activity === 'reviewing_results') return 'Reviewing what I found…';
+  if (activity?.startsWith('propose_')) return 'Preparing a change for your review…';
+  if (activity === 'search_exercises') return 'Finding suitable exercises…';
+  if (activity === 'list_routines' || activity === 'get_routine' || activity === 'get_weekly_plan') return 'Reviewing your plan…';
+  if (activity?.startsWith('get_')) return 'Reviewing your training data…';
+  return hasDraft ? 'Writing response…' : hasProposal ? 'Proposal ready. Preparing reply…' : 'Thinking through your training…';
+};
 
 export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal: Proposal; coach: CoachController; id: number; folders: Folder[]; plan: WeeklyPlan }) {
   const [catalogue, setCatalogue] = useState<Record<number, string>>({});
+  const [expanded, setExpanded] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const expandButton = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeExpanded = () => {
+    if (closing) return;
+    setClosing(true);
+    closeTimer.current = setTimeout(() => { setExpanded(false); setClosing(false); requestAnimationFrame(() => expandButton.current?.focus()); }, 200);
+  };
+  useEffect(() => {
+    if (!expanded) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialog.current?.querySelector<HTMLButtonElement>('.coach-proposal-close')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeExpanded(); }
+      if (event.key !== 'Tab' || !dialog.current) return;
+      const buttons = [...dialog.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+      if (!buttons.length) return;
+      if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1].focus(); }
+      else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0].focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', onKeyDown); };
+  }, [expanded, closing]);
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
   const data = proposal.payload as Record<string, unknown>;
   const programRoutines = Array.isArray(data.routines) ? data.routines as Record<string, unknown>[] : [];
   const exercises = Array.isArray(data.exercises) ? data.exercises as Record<string, unknown>[] : programRoutines.flatMap(routine => Array.isArray(routine.exercises) ? routine.exercises as Record<string, unknown>[] : []);
@@ -40,8 +79,8 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     return `${name} · ${item.planned_sets ?? '—'} sets × ${reps} reps${item.target_weight ? ` · ${item.target_weight} kg` : ''} · ${item.rest_seconds ?? 90}s rest`;
   };
   const proposedFolderId = data.folder_id === null && data._folder_id_explicit !== true && target ? target.folder_id : data.folder_id;
-  return <article className={`coach-proposal ${proposal.operation === 'delete_routine' ? 'danger' : ''}`}>
-    <div className="coach-proposal-head"><b>{label(proposal.operation)}</b><span>{status}</span></div>
+  const renderCard = (modal: boolean) => <article ref={modal ? dialog : undefined} role={modal ? 'dialog' : undefined} aria-modal={modal ? true : undefined} aria-label={modal ? `${label(proposal.operation)} proposal` : undefined} className={`coach-proposal ${proposal.operation === 'delete_routine' ? 'danger' : ''} ${modal ? 'coach-proposal-expanded' : ''}`}>
+    <div className="coach-proposal-head"><b>{label(proposal.operation)}</b><div className="coach-proposal-head-actions"><span>{status}</span>{modal ? <button type="button" className="coach-proposal-close" onClick={closeExpanded} aria-label="Close expanded proposal">×</button> : <button type="button" ref={expandButton} onClick={() => setExpanded(true)} aria-label={`Expand ${label(proposal.operation)} proposal`}>Expand ↗</button>}</div></div>
     <p>{proposal.summary}</p>
     {proposal.reasoning && <div className="coach-proposal-reasoning"><strong>Why this change</strong><p>{proposal.reasoning}</p></div>}
     {proposal.operation === 'delete_routine' && <p><b>{target?.name ?? `Routine #${proposal.target_routine_id}`}</b> · {target?.exercises.length ?? 'Unknown'} exercises will be removed.</p>}
@@ -61,6 +100,7 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     {status === 'outdated' && <small>This plan changed. Ask the coach for a fresh proposal.</small>}
     {status === 'pending' && <div className="coach-proposal-actions"><button disabled={coach.pending[proposal.id]} onClick={() => void coach.resolve(id, proposal, 'reject')}>Reject</button><button className="primary" disabled={coach.pending[proposal.id]} onClick={() => void coach.resolve(id, proposal, 'confirm')}>{coach.pending[proposal.id] ? 'Saving…' : 'Confirm change'}</button></div>}
   </article>;
+  return <><div style={expanded ? { visibility: 'hidden' } : undefined}>{renderCard(false)}</div>{expanded && typeof document !== 'undefined' && createPortal(<div className={`coach-proposal-overlay ${closing ? 'is-closing' : ''}`}><button type="button" className="coach-proposal-backdrop" aria-label="Close by clicking outside proposal" onClick={closeExpanded}/>{renderCard(true)}</div>, document.querySelector('.app') ?? document.body)}</>;
 }
 
 export function Coach({ coach, folders, plan }: Props) {
@@ -73,6 +113,9 @@ export function Coach({ coach, folders, plan }: Props) {
   const detail = id ? coach.details[id] : null;
   const messages = detail?.messages ?? [];
   const proposals = detail?.proposals ?? [];
+  const isWorking = Boolean(id && coach.streaming[id] && !coach.errors[id]);
+  const draft = id ? coach.drafts[id] : '';
+  const workingLabel = id ? progressLabel(coach.activity[id], Boolean(draft), Boolean(coach.proposalNotice[id])) : '';
   useEffect(() => { void coach.load(); }, [coach.load]);
   useEffect(() => { if (id && !detail) void coach.refresh(id); }, [id, detail, coach.refresh]);
   useEffect(() => { if (nearBottom && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; }, [id, messages.length, id && coach.drafts[id], nearBottom]);
@@ -81,15 +124,13 @@ export function Coach({ coach, folders, plan }: Props) {
     setInput('');
     try { await coach.send(text, id); composer.current?.focus(); } catch (error) { setInput(text); window.alert((error as Error).message); }
   };
-  const list = <div className="coach-list"><div className="coach-list-head"><span>CONVERSATIONS</span><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}>＋ New chat</button></div>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><b>{item.title}</b><small>{dateLabel(item.updated_at)} {coach.streaming[item.id] && <span className="coach-dot" aria-label="Generating"/>}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div>;
+  const list = <div className="coach-list"><div className="coach-list-head"><span>CONVERSATIONS</span><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}>＋ New chat</button></div>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><b>{item.title}</b><small>{dateLabel(item.updated_at)} {coach.streaming[item.id] && <span className="coach-thread-state"><span className="coach-dot"/> Working</span>}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div>;
   return <section className="coach-page"><aside className="coach-desktop-list">{list}</aside><div className="coach-chat"><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><div><span className="overline">AI TRAINING COACH</span><h1>{detail?.title ?? 'Your training coach'}</h1></div><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}>＋</button></header>
     <div className="coach-timeline" ref={timeline} onScroll={event => { const node = event.currentTarget; setNearBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 110); }}>
       {!messages.length && !coach.optimistic[id ?? -1] && <div className="coach-welcome"><span>✦</span><h2>Let's talk training.</h2><p>Ask about your workouts, progress, routines, or weekly plan.</p><div>{prompts.map(prompt => <button key={prompt} onClick={() => { setInput(prompt); composer.current?.focus(); }}>{prompt}</button>)}</div></div>}
       {messages.map((message, index) => <div key={message.id} className={`coach-message ${message.role} ${message.status}`}><div className="coach-bubble">{message.role === 'assistant' ? <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => /^https?:\/\//i.test(url) ? url : ''} components={{ a: props => <a {...props} target="_blank" rel="noreferrer noopener"/> }}>{message.content}</ReactMarkdown> : message.content}</div>{message.status !== 'completed' && <small>{message.status} {message.role === 'assistant' && (message.status === 'failed' || message.status === 'interrupted') && <button className="coach-retry" onClick={() => { const previous = messages.slice(0, index).reverse().find(item => item.role === 'user'); if (previous && id) void coach.send(previous.content, id); }}>Retry</button>}</small>}{message.role === 'assistant' && proposalsForMessage(proposals, messages, message.id).map(proposal => <ProposalCard key={proposal.id} proposal={proposal} coach={coach} id={id!} folders={folders} plan={plan}/>)}</div>)}
       {id && coach.optimistic[id] && <div className="coach-message user"><div className="coach-bubble">{coach.optimistic[id]}</div></div>}
-      {id && (coach.drafts[id] || coach.streaming[id]) && <div className="coach-message assistant" aria-live="polite"><div className="coach-bubble"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => /^https?:\/\//i.test(url) ? url : ''}>{coach.drafts[id] || 'Thinking…'}</ReactMarkdown></div></div>}
-      {id && coach.proposalNotice[id] && coach.streaming[id] && <div className="coach-activity" role="status">✦ Preparing proposal details…</div>}
-      {id && coach.activity[id] && <div className="coach-activity" role="status">✦ {label(coach.activity[id])}…</div>}
+      {id && (draft || isWorking) && <div className="coach-message assistant coach-streaming-message">{draft && <div className="coach-bubble"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => /^https?:\/\//i.test(url) ? url : ''}>{draft}</ReactMarkdown></div>}{isWorking && <div className="coach-progress" role="status" aria-live="polite"><span className="coach-progress-mark" aria-hidden="true"><i/><i/><i/></span><span>{workingLabel}</span></div>}</div>}
       {coach.errors[id ?? 0] && <div className="coach-error" role="alert">{coach.errors[id ?? 0]}{id && <button onClick={() => { const last = [...messages].reverse().find(message => message.role === 'user'); if (last) void coach.send(last.content, id); }}>Retry</button>}</div>}
     </div>
     {!nearBottom && <button className="coach-jump" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; setNearBottom(true); }}>Jump to latest ↓</button>}

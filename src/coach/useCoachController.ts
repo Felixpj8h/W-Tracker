@@ -84,11 +84,11 @@ export function useCoachController(onApplied: (operation: string) => void) {
     let settled = false;
     try {
       await streamMessage(key, trimmed, controller.signal, event => {
-        if (event.type === 'text.delta') setDrafts(current => ({ ...current, [key]: (current[key] ?? '') + (event.text ?? '') }));
-        if (event.type === 'tool.started') setActivity(current => ({ ...current, [key]: event.name?.replaceAll('_', ' ') ?? 'Reviewing training data' }));
-        if (event.type === 'tool.completed') setActivity(current => ({ ...current, [key]: '' }));
-        if (event.type === 'proposal.created') setProposalNotice(current => ({ ...current, [key]: event.summary ?? 'Plan change proposed' }));
-        if (event.type === 'message.completed') setActivity(current => ({ ...current, [key]: '' }));
+        if (event.type === 'text.delta') { setDrafts(current => ({ ...current, [key]: (current[key] ?? '') + (event.text ?? '') })); setActivity(current => ({ ...current, [key]: 'writing_response' })); }
+        if (event.type === 'tool.started') setActivity(current => ({ ...current, [key]: event.name ?? 'reviewing_results' }));
+        if (event.type === 'tool.completed') setActivity(current => ({ ...current, [key]: 'reviewing_results' }));
+        if (event.type === 'proposal.created') { setProposalNotice(current => ({ ...current, [key]: event.summary ?? 'Plan change proposed' })); setActivity(current => ({ ...current, [key]: 'proposal_ready' })); }
+        if (event.type === 'message.completed') setActivity(current => ({ ...current, [key]: 'saving_response' }));
         if (event.type === 'error') setErrors(current => ({ ...current, [key]: event.message ?? 'The coach could not finish this response.' }));
       });
       await settleTurn(key); settled = true;
