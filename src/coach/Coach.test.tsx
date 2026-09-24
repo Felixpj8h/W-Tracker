@@ -32,7 +32,7 @@ describe('Coach proposal card', () => {
           proposals: [{ id: 9, message_id: 2, operation: 'create_routine', payload: { name: 'Upper', exercises: [] }, summary: 'First proposal', status: 'rejected', target_routine_id: null, created_at }],
         } },
         conversations: [], loading: false, drafts: {}, optimistic: {}, streaming: {}, proposalNotice: {}, activity: {}, errors: {}, outdated: {}, pending: {},
-        load: async () => undefined, refresh: async () => undefined, send: async () => true, create: async () => 1, resolve: async () => undefined,
+        load: async () => undefined, refresh: async () => undefined, send: async () => true, cancel: async () => undefined, create: async () => 1, resolve: async () => undefined,
       } as unknown as CoachController}
       folders={[]} plan={null}
     />);
@@ -79,11 +79,12 @@ describe('Coach proposal card', () => {
         details: { 1: { id: 1, title: 'Coach', status: 'generating', created_at, updated_at: created_at, messages: [], proposals: [] } },
         conversations: [], loading: false, drafts: { 1: '' }, optimistic: { 1: 'Build a plan' }, streaming: { 1: true },
         proposalNotice: { 1: 'Plan change proposed' }, activity: { 1: 'proposal_ready' }, errors: {}, outdated: {}, pending: {},
-        load: async () => undefined, refresh: async () => undefined, send: async () => true, create: async () => 1, resolve: async () => undefined,
+        load: async () => undefined, refresh: async () => undefined, send: async () => true, cancel: async () => undefined, create: async () => 1, resolve: async () => undefined,
       } as unknown as CoachController}
       folders={[]} plan={null}
     />);
     expect(html).toContain('Proposal ready. Preparing reply…');
+    expect(html).toContain('Stop ■');
     expect((html.match(/role="status"/g) ?? [])).toHaveLength(1);
     expect(html).not.toContain('Preparing proposal details');
   });

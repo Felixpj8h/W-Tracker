@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import os
+from threading import Event, Lock
 from uuid import uuid4
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from sqlalchemy import select
 
@@ -15,6 +16,30 @@ from .coach_logging import LOGGER
 MAX_TOOL_ROUNDS = 8
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
 PROPOSAL_REPLY_MAX_OUTPUT_TOKENS = 128
+_CANCEL_LOCK = Lock()
+_ACTIVE_CANCELS: dict[int, Event] = {}
+
+
+def begin_cancel_scope(conversation_id: int) -> Event:
+    event = Event()
+    with _CANCEL_LOCK:
+        _ACTIVE_CANCELS[conversation_id] = event
+    return event
+
+
+def request_cancel(conversation_id: int) -> bool:
+    with _CANCEL_LOCK:
+        event = _ACTIVE_CANCELS.get(conversation_id)
+    if not event:
+        return False
+    event.set()
+    return True
+
+
+def end_cancel_scope(conversation_id: int, event: Event) -> None:
+    with _CANCEL_LOCK:
+        if _ACTIVE_CANCELS.get(conversation_id) is event:
+            _ACTIVE_CANCELS.pop(conversation_id, None)
 
 
 def _model() -> str:
@@ -136,7 +161,7 @@ def _maybe_summarize(conversation_id: int) -> None:
         LOGGER.exception("AI conversation summarization failed conversation_id=%s", conversation_id)
 
 
-def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: str = "local") -> Iterator[dict]:
+def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: str = "local", is_cancelled: Callable[[], bool] | None = None) -> Iterator[dict]:
     from . import main
     assistant_text = ""
     round_index = -1
@@ -145,6 +170,10 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
         client = _client(); history = _conversation_input(conversation_id, owner_scope); metadata: dict[str, Any] = {"tool_rounds": 0}
         proposal_created = False
         for round_index in range(MAX_TOOL_ROUNDS + 1):
+            if is_cancelled and is_cancelled():
+                _mark_interrupted(conversation_id, assistant_text or "Response stopped.")
+                yield {"type": "message.interrupted"}
+                return
             request: dict[str, Any] = {
                 "model": _model(),
                 "store": False,
@@ -160,6 +189,10 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
             if not proposal_created:
                 request["tools"] = TOOL_DECLARATIONS
             interaction = client.interactions.create(**request)
+            if is_cancelled and is_cancelled():
+                _mark_interrupted(conversation_id, assistant_text or "Response stopped.")
+                yield {"type": "message.interrupted"}
+                return
             metadata["tool_rounds"] = round_index
             steps = [_dump_step(step) for step in getattr(interaction, "steps", []) or []]
             history.extend(steps)
@@ -175,6 +208,10 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
                 return
             if round_index >= MAX_TOOL_ROUNDS: raise RuntimeError("Tool round limit reached")
             for call in calls:
+                if is_cancelled and is_cancelled():
+                    _mark_interrupted(conversation_id, assistant_text or "Response stopped.")
+                    yield {"type": "message.interrupted"}
+                    return
                 name = str(call.get("name") or "")
                 yield {"type": "tool.started", "name": name}
                 result = execute_tool(name, call.get("arguments") or {}, conversation_id, None, owner_scope)

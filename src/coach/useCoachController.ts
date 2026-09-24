@@ -106,6 +106,15 @@ export function useCoachController(onApplied: (operation: string) => void) {
     }
     return true;
   }, [create, settleTurn, selectedId]);
+  const cancel = useCallback(async (id: number) => {
+    if (!active.current.has(id)) return;
+    setActivity(current => ({ ...current, [id]: 'stopping' }));
+    try {
+      await coachJson(`/conversations/${id}/cancel`, { method: 'POST' });
+    } catch (error) {
+      setErrors(current => ({ ...current, [id]: (error as Error).message }));
+    }
+  }, []);
   const resolve = useCallback(async (id: number, proposal: Proposal, action: 'confirm' | 'reject') => {
     if (pending[proposal.id]) return;
     setPending(current => ({ ...current, [proposal.id]: true }));
@@ -119,6 +128,6 @@ export function useCoachController(onApplied: (operation: string) => void) {
     } finally { setPending(current => ({ ...current, [proposal.id]: false })); }
   }, [pending, refresh]);
   useEffect(() => { const current = controllers.current; return () => { current.forEach(controller => controller.abort()); }; }, []);
-  return { conversations, selectedId, details, drafts, optimistic, activity, proposalNotice, streaming, errors, pending, outdated, loading, loaded, load, refresh, select, create, remove, send, resolve };
+  return { conversations, selectedId, details, drafts, optimistic, activity, proposalNotice, streaming, errors, pending, outdated, loading, loaded, load, refresh, select, create, remove, send, cancel, resolve };
 }
 export type CoachController = ReturnType<typeof useCoachController>;

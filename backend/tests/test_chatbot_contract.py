@@ -177,6 +177,28 @@ def test_provider_rejection_has_logged_reference(monkeypatch):
     assert f"ref={saved['error_ref']}" in Path(chatBot.LOGGER.handlers[0].baseFilename).read_text(encoding="utf-8")
 
 
+def test_cancel_after_provider_response_prevents_tool_execution(monkeypatch):
+    class FunctionCall:
+        def model_dump(self, **_kwargs):
+            return {"type": "function_call", "name": "propose_create_routine", "id": "call-1", "arguments": {}}
+
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(
+        interactions=SimpleNamespace(create=lambda **_kwargs: SimpleNamespace(steps=[FunctionCall()], output_text=""))
+    ))
+    monkeypatch.setattr(chatBot, "_conversation_input", lambda *_args: [])
+    executed = []
+    monkeypatch.setattr(chatBot, "execute_tool", lambda *_args: executed.append(True))
+    saved = {}
+    monkeypatch.setattr(chatBot, "_mark_interrupted", lambda _id, text: saved.update(text=text))
+
+    checks = iter([False, True])
+    events = list(chatBot.stream_coach_turn(1, 1, is_cancelled=lambda: next(checks)))
+
+    assert executed == []
+    assert saved["text"] == "Response stopped."
+    assert events[-1] == {"type": "message.interrupted"}
+
+
 def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
     from app import main
     from app.tools import execute_tool

@@ -15,6 +15,7 @@ const prompts = ['Review my current training volume.', 'Why has my bench press s
 const label = (operation: string) => operation.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
 const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const progressLabel = (activity: string | undefined, hasDraft: boolean, hasProposal: boolean) => {
+  if (activity === 'stopping') return 'Stopping response…';
   if (activity === 'saving_response') return 'Finishing response…';
   if (activity === 'writing_response') return 'Writing response…';
   if (activity === 'proposal_ready') return 'Proposal ready. Preparing reply…';
@@ -134,7 +135,7 @@ export function Coach({ coach, folders, plan }: Props) {
       {coach.errors[id ?? 0] && <div className="coach-error" role="alert">{coach.errors[id ?? 0]}{id && <button onClick={() => { const last = [...messages].reverse().find(message => message.role === 'user'); if (last) void coach.send(last.content, id, last.id); }}>Retry</button>}</div>}
     </div>
     {!nearBottom && <button className="coach-jump" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; setNearBottom(true); }}>Jump to latest ↓</button>}
-    <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}><textarea ref={composer} aria-label="Message your coach" placeholder="Ask about your training…" maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/><div><small>{input.length}/4000</small><button type="submit" className="primary" disabled={!input.trim() || Boolean(id && coach.streaming[id])}>Send ↗</button></div></form></div>
+    <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}><textarea ref={composer} aria-label="Message your coach" placeholder="Ask about your training…" maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/><div><small>{input.length}/4000</small>{id && coach.streaming[id] ? <button type="button" className="primary" onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}>{coach.activity[id] === 'stopping' ? 'Stopping…' : 'Stop ■'}</button> : <button type="submit" className="primary" disabled={!input.trim()}>Send ↗</button>}</div></form></div>
     {drawer && <div className="coach-drawer-wrap"><button className="coach-drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)}/><aside className="coach-drawer"><button className="coach-drawer-close" onClick={() => setDrawer(false)}>Close ×</button>{list}</aside></div>}
   </section>;
 }

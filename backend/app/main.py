@@ -634,9 +634,13 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     db.commit(); db.refresh(message)
     persisted_conversation_id, persisted_message_id = conversation.id, message.id
     db.close()
-    from .chatBot import stream_coach_turn
+    from .chatBot import begin_cancel_scope, end_cancel_scope, stream_coach_turn
+    cancel_event = begin_cancel_scope(persisted_conversation_id)
     def events():
-        for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_scope): yield _sse(event)
+        try:
+            for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_scope, cancel_event.is_set): yield _sse(event)
+        finally:
+            end_cancel_scope(persisted_conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -655,10 +659,25 @@ def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorConte
         raise HTTPException(409, "Only the latest failed response can be retried")
     conversation.status = "generating"; conversation.updated_at = datetime.utcnow()
     db.commit(); db.close()
-    from .chatBot import stream_coach_turn
+    from .chatBot import begin_cancel_scope, end_cancel_scope, stream_coach_turn
+    cancel_event = begin_cancel_scope(conversation_id)
     def events():
-        for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_scope): yield _sse(event)
+        try:
+            for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_scope, cancel_event.is_set): yield _sse(event)
+        finally:
+            end_cancel_scope(conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/v1/ai/conversations/{conversation_id}/cancel")
+def cancel_ai_message(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    conversation = db.get(AIConversation, conversation_id)
+    if not conversation or conversation.owner_scope != actor.owner_scope:
+        raise HTTPException(404, "Conversation not found")
+    if conversation.status != "generating":
+        return {"cancel_requested": False}
+    from .chatBot import request_cancel
+    return {"cancel_requested": request_cancel(conversation_id)}
 
 
 def _apply_weekly_plan(payload: WeeklyPlanIn, db: Session) -> WeeklyPlan:
