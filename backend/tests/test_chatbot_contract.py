@@ -27,6 +27,8 @@ def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
         def create(self, **kwargs):
             self.calls += 1
             if self.calls == 1:
+                assert kwargs["generation_config"] == {"max_output_tokens": 2048}
+                assert kwargs["tools"] == chatBot.TOOL_DECLARATIONS
                 return SimpleNamespace(steps=[FunctionCall()], output_text="")
             result_step = kwargs["input"][-1]
             assert result_step == {
@@ -48,6 +50,43 @@ def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
         "message.started", "tool.started", "tool.completed", "text.delta", "message.completed",
     ]
     assert interactions.calls == 2
+
+
+def test_proposal_reply_omits_tools_and_has_small_output_budget(monkeypatch):
+    class FunctionCall:
+        def model_dump(self, **_kwargs):
+            return {"type": "function_call", "name": "propose_create_routine", "id": "proposal-1", "arguments": {}}
+
+    class Interactions:
+        calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                assert kwargs["generation_config"] == {"max_output_tokens": 2048}
+                assert kwargs["tools"] == chatBot.TOOL_DECLARATIONS
+                return SimpleNamespace(steps=[FunctionCall()], output_text="")
+            assert kwargs["generation_config"] == {"max_output_tokens": 128}
+            assert "tools" not in kwargs
+            return SimpleNamespace(steps=[], output_text="Your proposal is ready to review and confirm.")
+
+    interactions = Interactions()
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=interactions))
+    monkeypatch.setattr(chatBot, "_conversation_input", lambda *_args: [])
+    monkeypatch.setattr(chatBot, "execute_tool", lambda *_args: {
+        "proposal_id": 12,
+        "operation": "create_routine",
+        "summary": "Create Upper A",
+        "reasoning": "Adds the requested upper-body session.",
+        "status": "pending",
+    })
+    monkeypatch.setattr(chatBot, "_save_assistant", lambda *_args: 9)
+    monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
+
+    events = list(chatBot.stream_coach_turn(1, 1))
+    assert interactions.calls == 2
+    assert any(event["type"] == "proposal.created" for event in events)
+    assert events[-1] == {"type": "message.completed", "message_id": 9}
 
 
 def test_tool_error_is_marked_and_remains_structured_json(monkeypatch):
@@ -86,6 +125,38 @@ def test_tool_error_is_marked_and_remains_structured_json(monkeypatch):
     events = list(chatBot.stream_coach_turn(1, 1))
     assert events[-1] == {"type": "message.completed", "message_id": 8}
     assert interactions.calls == 2
+
+
+def test_conversation_input_includes_latest_pending_proposal_and_exercise_names(monkeypatch):
+    from app import main
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    main.Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False)
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(chatBot, "execute_tool", lambda name, *_args: {name: []})
+
+    with session_factory() as db:
+        exercise = main.Exercise(name="Barbell bench press", equipment="Barbell")
+        conversation = main.AIConversation(owner_scope="local", title="Coach")
+        db.add_all([exercise, conversation]); db.flush()
+        db.add(main.AIChangeProposal(
+            conversation_id=conversation.id,
+            operation="create_routine",
+            payload=json.dumps({"name": "Upper A", "exercises": [{"exercise_id": exercise.id, "planned_sets": 3}]}),
+            summary="Create Upper A",
+            reasoning="Adds upper-body volume.",
+            status="pending",
+        ))
+        db.commit()
+        conversation_id = conversation.id
+        exercise_id = exercise.id
+
+    content = chatBot._conversation_input(conversation_id, "local")[0]["content"][0]["text"]
+    assert "<latest_pending_proposal" in content
+    assert '"name": "Upper A"' in content
+    assert f'"{exercise_id}": "Barbell bench press"' in content
+    engine.dispose()
 
 
 def test_provider_rejection_has_logged_reference(monkeypatch):

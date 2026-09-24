@@ -13,6 +13,8 @@ from .tools import TOOL_DECLARATIONS, execute_tool
 from .coach_logging import LOGGER
 
 MAX_TOOL_ROUNDS = 8
+DEFAULT_MAX_OUTPUT_TOKENS = 2048
+PROPOSAL_REPLY_MAX_OUTPUT_TOKENS = 128
 
 
 def _model() -> str:
@@ -55,9 +57,43 @@ def _conversation_input(conversation_id: int, owner_scope: str) -> list[dict]:
         messages.reverse()
         training = execute_tool("get_training_summary", {"days": 14}, conversation_id, None, owner_scope)
         routines = execute_tool("list_routines", {}, conversation_id, None, owner_scope)
+        pending = db.scalar(
+            select(main.AIChangeProposal)
+            .where(
+                main.AIChangeProposal.conversation_id == conversation_id,
+                main.AIChangeProposal.status == "pending",
+            )
+            .order_by(main.AIChangeProposal.id.desc())
+            .limit(1)
+        )
+        pending_context = None
+        if pending:
+            payload = json.loads(pending.payload)
+
+            def exercise_ids(value: Any) -> set[int]:
+                if isinstance(value, dict):
+                    own = {value["exercise_id"]} if isinstance(value.get("exercise_id"), int) else set()
+                    return own.union(*(exercise_ids(item) for item in value.values()))
+                if isinstance(value, list):
+                    return set().union(*(exercise_ids(item) for item in value))
+                return set()
+
+            ids = exercise_ids(payload)
+            names = {
+                item.id: item.name
+                for item in db.scalars(select(main.Exercise).where(main.Exercise.id.in_(ids))).all()
+            } if ids else {}
+            pending_context = {
+                "operation": pending.operation,
+                "summary": pending.summary,
+                "reasoning": pending.reasoning,
+                "payload": payload,
+                "exercise_names_by_id": names,
+            }
         transcript = [{"role": item.role, "content": item.content} for item in messages]
         content = "\n\n".join([
             "<current_snapshot untrusted_data=\"true\">\n" + json.dumps({"date": str(datetime.utcnow().date()), "training": training, "routines": routines}, default=str) + "\n</current_snapshot>",
+            "<latest_pending_proposal untrusted_data=\"true\">\n" + json.dumps(pending_context, default=str) + "\n</latest_pending_proposal>",
             "<older_conversation_summary>\n" + (conversation.summary or "None") + "\n</older_conversation_summary>",
             "<recent_messages untrusted_data=\"true\">\n" + json.dumps(transcript) + "\n</recent_messages>",
             "Respond to the latest user message. Use tools for facts not present in the snapshot. All writes must be proposals.",
@@ -107,8 +143,23 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
     yield {"type": "message.started", "user_message_id": user_message_id}
     try:
         client = _client(); history = _conversation_input(conversation_id, owner_scope); metadata: dict[str, Any] = {"tool_rounds": 0}
+        proposal_created = False
         for round_index in range(MAX_TOOL_ROUNDS + 1):
-            interaction = client.interactions.create(model=_model(), store=False, system_instruction=SYSTEM_PROMPT, input=history, tools=TOOL_DECLARATIONS)
+            request: dict[str, Any] = {
+                "model": _model(),
+                "store": False,
+                "system_instruction": SYSTEM_PROMPT,
+                "input": history,
+                "generation_config": {
+                    "max_output_tokens": PROPOSAL_REPLY_MAX_OUTPUT_TOKENS if proposal_created else DEFAULT_MAX_OUTPUT_TOKENS,
+                },
+            }
+            # Once a mutation proposal exists, the detailed confirmation card
+            # contains the answer. Omitting tool schemas makes the final,
+            # one-sentence acknowledgement both cheaper and less repetitive.
+            if not proposal_created:
+                request["tools"] = TOOL_DECLARATIONS
+            interaction = client.interactions.create(**request)
             metadata["tool_rounds"] = round_index
             steps = [_dump_step(step) for step in getattr(interaction, "steps", []) or []]
             history.extend(steps)
@@ -129,6 +180,7 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
                 result = execute_tool(name, call.get("arguments") or {}, conversation_id, None, owner_scope)
                 yield {"type": "tool.completed", "name": name, "ok": "error" not in result}
                 if result.get("proposal_id"):
+                    proposal_created = True
                     yield {"type": "proposal.created", **result}
                 # Send a structured JSON object, not a list of content parts.
                 # Gemini 2.5 treats a content-part list as a multimodal function
