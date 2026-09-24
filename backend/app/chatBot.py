@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import os
+from uuid import uuid4
 from typing import Any, Iterator
 
 from sqlalchemy import select
 
 from .prompt import SYSTEM_PROMPT
 from .tools import TOOL_DECLARATIONS, execute_tool
+from .coach_logging import LOGGER
 
 MAX_TOOL_ROUNDS = 8
 
@@ -95,12 +97,13 @@ def _maybe_summarize(conversation_id: int) -> None:
             with main.SessionLocal() as db:
                 conversation = db.get(main.AIConversation, conversation_id); conversation.summary = summary[:8000]; conversation.updated_at = datetime.utcnow(); db.commit()
     except Exception:
-        main.LOGGER.exception("AI conversation summarization failed")
+        LOGGER.exception("AI conversation summarization failed conversation_id=%s", conversation_id)
 
 
 def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: str = "local") -> Iterator[dict]:
     from . import main
     assistant_text = ""
+    round_index = -1
     yield {"type": "message.started", "user_message_id": user_message_id}
     try:
         client = _client(); history = _conversation_input(conversation_id, owner_scope); metadata: dict[str, Any] = {"tool_rounds": 0}
@@ -127,14 +130,29 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_scope: s
                 yield {"type": "tool.completed", "name": name, "ok": "error" not in result}
                 if result.get("proposal_id"):
                     yield {"type": "proposal.created", **result}
-                # Gemini 2.5 expects a structured result. Text-content arrays are
-                # treated as multimodal function responses and rejected by this model.
-                history.append({"type": "function_result", "name": name, "call_id": call.get("id"), "result": result})
+                # Send a structured JSON object, not a list of content parts.
+                # Gemini 2.5 treats a content-part list as a multimodal function
+                # response and rejects it for this model with HTTP 400.
+                history.append({
+                    "type": "function_result",
+                    "name": name,
+                    "call_id": call.get("id"),
+                    "result": json.loads(json.dumps(result, default=str)),
+                    "is_error": "error" in result,
+                })
         raise RuntimeError("Tool round limit reached")
     except GeneratorExit:
         _mark_interrupted(conversation_id, assistant_text)
         raise
     except Exception as exc:
-        main.LOGGER.exception("AI coach turn failed")
-        _save_assistant(conversation_id, assistant_text, "failed", {"error_type": type(exc).__name__})
-        yield {"type": "error", "message": "The AI coach is temporarily unavailable. Please try again."}
+        reference = uuid4().hex[:10]
+        code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        LOGGER.exception("AI coach turn failed ref=%s conversation_id=%s user_message_id=%s model=%s round=%s error_type=%s provider_code=%s", reference, conversation_id, user_message_id, _model(), round_index, type(exc).__name__, code)
+        _save_assistant(conversation_id, assistant_text or f"Unable to complete this response. Error reference: {reference}.", "failed", {"error_type": type(exc).__name__, "error_ref": reference, "provider_code": code, "tool_round": round_index})
+        if code == 400:
+            message = "The AI provider rejected this request."
+        elif code in (429, 503):
+            message = "The AI provider is busy right now. Please try again shortly."
+        else:
+            message = "The AI coach could not complete this response."
+        yield {"type": "error", "message": f"{message} Error reference: {reference}. Details are in backend/logs/coach.log."}

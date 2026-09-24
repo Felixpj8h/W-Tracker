@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 import json
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -10,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app import chatBot
 
 
-def test_tool_result_is_structured_for_gemini_25(monkeypatch):
+def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
     class FunctionCall:
         type = "function_call"
         name = "get_training_summary"
@@ -31,6 +32,7 @@ def test_tool_result_is_structured_for_gemini_25(monkeypatch):
             assert result_step == {
                 "type": "function_result", "name": "get_training_summary",
                 "call_id": "call-1", "result": {"completed_sessions": 2},
+                "is_error": False,
             }
             return SimpleNamespace(steps=[], output_text="Two sessions completed.")
 
@@ -46,6 +48,62 @@ def test_tool_result_is_structured_for_gemini_25(monkeypatch):
         "message.started", "tool.started", "tool.completed", "text.delta", "message.completed",
     ]
     assert interactions.calls == 2
+
+
+def test_tool_error_is_marked_and_remains_structured_json(monkeypatch):
+    class FunctionCall:
+        def model_dump(self, **_kwargs):
+            return {
+                "type": "function_call",
+                "name": "get_routine",
+                "id": "call-2",
+                "arguments": {"routine_id": 999},
+            }
+
+    class Interactions:
+        calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(steps=[FunctionCall()], output_text="")
+            assert kwargs["input"][-1] == {
+                "type": "function_result",
+                "name": "get_routine",
+                "call_id": "call-2",
+                "result": {"error": "Routine not found"},
+                "is_error": True,
+            }
+            return SimpleNamespace(steps=[], output_text="That routine was not found.")
+
+    interactions = Interactions()
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=interactions))
+    monkeypatch.setattr(chatBot, "_conversation_input", lambda *_args: [])
+    monkeypatch.setattr(chatBot, "execute_tool", lambda *_args: {"error": "Routine not found"})
+    monkeypatch.setattr(chatBot, "_save_assistant", lambda *_args: 8)
+    monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
+
+    events = list(chatBot.stream_coach_turn(1, 1))
+    assert events[-1] == {"type": "message.completed", "message_id": 8}
+    assert interactions.calls == 2
+
+
+def test_provider_rejection_has_logged_reference(monkeypatch):
+    class ProviderError(Exception):
+        code = 400
+
+    def fail_client():
+        raise ProviderError("Invalid request schema")
+
+    saved = {}
+    monkeypatch.setattr(chatBot, "_client", fail_client)
+    monkeypatch.setattr(chatBot, "_save_assistant", lambda _id, _text, _status, metadata: saved.update(metadata))
+    events = list(chatBot.stream_coach_turn(12, 34))
+    error = events[-1]
+    assert error["type"] == "error"
+    assert saved["error_ref"] in error["message"]
+    assert "backend/logs/coach.log" in error["message"]
+    assert f"ref={saved['error_ref']}" in Path(chatBot.LOGGER.handlers[0].baseFilename).read_text(encoding="utf-8")
 
 
 def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):

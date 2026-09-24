@@ -288,6 +288,10 @@ class AIMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class AIRetryIn(BaseModel):
+    user_message_id: int
+
+
 MUSCLE_MAP = {
     "quadriceps": "Legs", "hamstrings": "Legs", "calves": "Legs", "glutes": "Legs", "abductors": "Legs", "adductors": "Legs",
     "quads": "Legs", "quadriceps femoris": "Legs", "biceps femoris": "Legs", "gluteus maximus": "Legs", "soleus": "Legs", "gastrocnemius": "Legs",
@@ -633,6 +637,27 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     from .chatBot import stream_coach_turn
     def events():
         for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_scope): yield _sse(event)
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/v1/ai/conversations/{conversation_id}/retry")
+def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(503, "AI coach is not configured")
+    conversation = db.get(AIConversation, conversation_id)
+    if not conversation or conversation.owner_scope != actor.owner_scope:
+        raise HTTPException(404, "Conversation not found")
+    if conversation.status == "generating" and conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5):
+        raise HTTPException(409, "Conversation is already generating a response")
+    latest_user = db.scalar(select(AIMessage).where(AIMessage.conversation_id == conversation_id, AIMessage.role == "user").order_by(AIMessage.id.desc()))
+    latest_assistant = db.scalar(select(AIMessage).where(AIMessage.conversation_id == conversation_id, AIMessage.role == "assistant").order_by(AIMessage.id.desc()))
+    if not latest_user or latest_user.id != payload.user_message_id or not latest_assistant or latest_assistant.id < latest_user.id or latest_assistant.status not in ("failed", "interrupted"):
+        raise HTTPException(409, "Only the latest failed response can be retried")
+    conversation.status = "generating"; conversation.updated_at = datetime.utcnow()
+    db.commit(); db.close()
+    from .chatBot import stream_coach_turn
+    def events():
+        for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_scope): yield _sse(event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 

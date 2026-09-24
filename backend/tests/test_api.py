@@ -1,9 +1,27 @@
 from fastapi.testclient import TestClient
 import threading
+import tempfile
+from pathlib import Path
+import pytest
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import app.main as main_module
-from app.main import Base, engine, app, group_for
+from app.main import Base, app, group_for
 
+
+_test_database = tempfile.TemporaryDirectory(prefix="w-tracker-api-tests-")
+engine = create_engine(f"sqlite:///{Path(_test_database.name) / 'workout_tracker.db'}", connect_args={"check_same_thread": False})
+main_module.engine = engine
+main_module.SessionLocal = sessionmaker(bind=engine, autoflush=False)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _close_test_database():
+    yield
+    engine.dispose()
+    _test_database.cleanup()
 
 app.state.disable_catalogue_refresh = True
 client = TestClient(app)
@@ -220,6 +238,26 @@ def test_ai_conversation_stream_is_persisted_and_uses_sse(monkeypatch):
     stored = client.get(f"/api/v1/ai/conversations/{conversation['id']}").json()
     assert [message["role"] for message in stored["messages"]] == ["user", "assistant"]
     assert stored["messages"][-1]["status"] == "completed"
+    del app.state.gemini_client_factory
+
+
+def test_ai_retry_reuses_latest_user_message(monkeypatch):
+    reset_db()
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Coach"}).json()
+    with main_module.SessionLocal() as db:
+        db.add(main_module.AIMessage(conversation_id=conversation["id"], role="user", content="Help my jump", status="completed"))
+        db.flush()
+        user_id = db.scalar(main_module.select(main_module.AIMessage.id).where(main_module.AIMessage.conversation_id == conversation["id"], main_module.AIMessage.role == "user"))
+        db.add(main_module.AIMessage(conversation_id=conversation["id"], role="assistant", content="", status="failed"))
+        db.commit()
+    app.state.gemini_client_factory = _FakeGeminiClient
+    response = client.post(f"/api/v1/ai/conversations/{conversation['id']}/retry", json={"user_message_id": user_id})
+    assert response.status_code == 200
+    assert "event: message.completed" in response.text
+    stored = client.get(f"/api/v1/ai/conversations/{conversation['id']}").json()
+    assert [message["role"] for message in stored["messages"]] == ["user", "assistant", "assistant"]
+    assert client.post(f"/api/v1/ai/conversations/{conversation['id']}/retry", json={"user_message_id": user_id}).status_code == 409
     del app.state.gemini_client_factory
 
 

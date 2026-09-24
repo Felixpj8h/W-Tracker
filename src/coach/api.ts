@@ -35,8 +35,8 @@ export function createSseParser(onEvent: (event: CoachEvent) => void) {
   return { push(chunk: Uint8Array) { buffer += decoder.decode(chunk, { stream: true }); lines(); }, finish() { buffer += decoder.decode(); lines(true); } };
 }
 
-export async function streamMessage(id: number, content: string, signal: AbortSignal, onEvent: (event: CoachEvent) => void) {
-  const response = await fetch(`${base}/ai/conversations/${id}/messages`, { method: 'POST', headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' }, body: JSON.stringify({ content }), signal });
+export async function streamMessage(id: number, content: string, signal: AbortSignal, onEvent: (event: CoachEvent) => void, retryMessageId?: number) {
+  const response = await fetch(`${base}/ai/conversations/${id}/${retryMessageId ? 'retry' : 'messages'}`, { method: 'POST', headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' }, body: JSON.stringify(retryMessageId ? { user_message_id: retryMessageId } : { content }), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(typeof body.detail === 'string' ? body.detail : `Coach request failed (${response.status})`);

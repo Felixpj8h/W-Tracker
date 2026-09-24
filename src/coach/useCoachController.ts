@@ -69,7 +69,7 @@ export function useCoachController(onApplied: (operation: string) => void) {
     setActivity(current => ({ ...current, [id]: '' }));
     setProposalNotice(current => ({ ...current, [id]: '' }));
   }, []);
-  const send = useCallback(async (content: string, id?: number | null) => {
+  const send = useCallback(async (content: string, id?: number | null, retryMessageId?: number) => {
     const trimmed = content.trim(); if (!trimmed || trimmed.length > 4000) return false;
     let target = id ?? selectedId;
     if (target && active.current.has(target)) return false;
@@ -79,7 +79,7 @@ export function useCoachController(onApplied: (operation: string) => void) {
     active.current.add(key); const controller = new AbortController(); controllers.current.set(key, controller);
     setStreaming(current => ({ ...current, [key]: true }));
     setErrors(current => ({ ...current, [key]: '' })); setDrafts(current => ({ ...current, [key]: '' }));
-    setOptimistic(current => ({ ...current, [key]: trimmed })); setActivity(current => ({ ...current, [key]: '' }));
+    setOptimistic(current => ({ ...current, [key]: retryMessageId ? '' : trimmed })); setActivity(current => ({ ...current, [key]: '' }));
     setProposalNotice(current => ({ ...current, [key]: '' }));
     let settled = false;
     try {
@@ -90,7 +90,7 @@ export function useCoachController(onApplied: (operation: string) => void) {
         if (event.type === 'proposal.created') { setProposalNotice(current => ({ ...current, [key]: event.summary ?? 'Plan change proposed' })); setActivity(current => ({ ...current, [key]: 'proposal_ready' })); }
         if (event.type === 'message.completed') setActivity(current => ({ ...current, [key]: 'saving_response' }));
         if (event.type === 'error') setErrors(current => ({ ...current, [key]: event.message ?? 'The coach could not finish this response.' }));
-      });
+      }, retryMessageId);
       await settleTurn(key); settled = true;
     } catch (error) {
       setErrors(current => ({ ...current, [key]: (error as Error).message }));
