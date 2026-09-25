@@ -237,7 +237,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     const finish = async (entry: Workout) => { const wasEditing = editing; setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const cancelWorkout = async (entry: Workout) => { if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage('dashboard'); if (entry.id) void api(`/workouts/${entry.id}`, { method: 'DELETE' }).then(async () => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(entry.performed_on); }).catch(() => { setActive(current => current.some(item => item.id === entry.id) ? current : [...current, entry]); localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const pageError = page === 'coach' ? undefined : page === 'dashboard' ? loadErrors.dashboard : page === 'routines' ? loadErrors.folders : page === 'history' ? loadErrors.history : page === 'calendar' ? loadErrors.calendar : loadErrors.active || loadErrors.folders;
-    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)} user={user}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} log={() => setPage('workout')} saveWeight={async (weight, recordedOn) => {
+    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)} user={user}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} log={() => setPage('workout')} openCalendar={() => setPage('calendar')} openHistory={() => setPage('history')} openWorkout={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} saveWeight={async (weight, recordedOn) => {
         const date = recordedOn ?? today();
         const previousWeight = dash?.weight_series.find(entry => entry.recorded_on === date)?.weight;
         optimisticWeights.current.set(date, weight);
@@ -367,7 +367,18 @@ function Head({ children, action }: {
     children: React.ReactNode;
     action?: React.ReactNode;
 }) { return <header className="head"><div>{children}</div>{action}</header>; }
-function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth; firstName: string }) {
+function DashboardIcon({ name }: { name: 'scale' | 'volume' | 'session' | 'clock' | 'calendar' | 'chevron' }) {
+    const paths = {
+        scale: <><path d="M5 19a8 8 0 1 1 14 0"/><path d="M12 7v3"/><path d="m12 10 3-2"/><path d="M5 19h14"/></>,
+        volume: <><path d="M5 20v-6M10 20V9M15 20V4M20 20v-9"/></>,
+        session: <><path d="M4 10v4M7 8v8M17 8v8M20 10v4M7 12h10"/></>,
+        clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></>,
+        calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></>,
+        chevron: <path d="m9 10 3 3 3-3"/>,
+    };
+    return <svg className="dashboard-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+export function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth; firstName: string }) {
     const greeting = `Hello ${firstName}.`;
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -431,23 +442,25 @@ function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }
     }, [backendReady, factKey, greeting]);
     return <p className="dashboard-greeting" aria-live="polite">{backendReady && <><span>{text}</span><i aria-hidden="true" /></>}</p>;
 }
-function LegacyDashboard({ dash, history, historyLoaded, calendar, firstName, log, saveWeight }: {
+function LegacyDashboard({ dash, history, historyLoaded: _historyLoaded, calendar, firstName, log, openCalendar, openHistory, openWorkout, saveWeight }: {
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
     calendar?: CalendarMonth;
     firstName: string;
     log: () => void;
+    openCalendar: () => void;
+    openHistory: () => void;
+    openWorkout: (workout: Workout) => void;
     saveWeight: (n: number, recordedOn?: string) => Promise<void>;
 }) {
-    const [panel, setPanel] = useState<'overview' | 'weight' | 'volume'>('overview');
     const [muscleMetric, setMuscleMetric] = useState<'volume' | 'sets'>('volume');
     const volumeGroups = dash?.volume_by_muscle_group ?? [];
     const muscleName = (value: string | null | undefined, exerciseName: string) => {
         const key = (value ?? '').replace(/^(?:Primary:\s*)+/i, '').split(' · ')[0].trim().toLowerCase();
         const name = exerciseName.toLowerCase();
         const exact: Record<string, string> = {
-            'chest': 'Pectoralis major', 'pectoralis major': 'Pectoralis major', 'pectoralis minor': 'Pectoralis major',
+            'chest': 'Chest', 'pectoralis major': 'Chest', 'pectoralis minor': 'Chest',
             'lats': 'Lats', 'latissimus dorsi': 'Lats', 'back': 'Lats', 'trapezius': 'Traps', 'traps': 'Traps',
             'rhomboids': 'Rhomboids', 'lower back': 'Spinal erectors', 'spinal erectors': 'Spinal erectors',
             'anterior deltoid': 'Front delts', 'front delts': 'Front delts', 'lateral deltoid': 'Side delts', 'side delts': 'Side delts',
@@ -485,21 +498,68 @@ function LegacyDashboard({ dash, history, historyLoaded, calendar, firstName, lo
     })();
     const apiMuscleSets = dash?.sets_by_muscle ?? [];
     const muscleSets = (apiMuscleSets.some(muscle => muscle.current_week_sets > 0 || muscle.last_week_sets > 0) ? apiMuscleSets : derivedMuscleSets)
-        .filter(muscle => muscle.current_week_sets > 0 || muscle.last_week_sets > 0);
+        .filter(muscle => muscle.current_week_sets > 0 || muscle.last_week_sets > 0)
+        .map(muscle => ({ ...muscle, name: /pectoralis|^chest$/i.test(muscle.name) ? 'Chest' : muscle.name }))
+        .reduce<{ name: string; current_week_sets: number; last_week_sets: number }[]>((groups, muscle) => {
+            const existing = groups.find(group => group.name === muscle.name);
+            if (existing) { existing.current_week_sets += muscle.current_week_sets; existing.last_week_sets += muscle.last_week_sets; }
+            else groups.push({ name: muscle.name, current_week_sets: muscle.current_week_sets, last_week_sets: muscle.last_week_sets });
+            return groups;
+        }, []);
     const rows = muscleMetric === 'volume'
         ? volumeGroups.map(group => ({ name: group.name, current: group.current_week_volume, previous: group.last_week_volume }))
         : muscleSets.map(muscle => ({ name: muscle.name, current: muscle.current_week_sets, previous: muscle.last_week_sets }));
     const max = Math.max(1, ...rows.flatMap(row => [row.current, row.previous]));
-    return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">DASHBOARD</p><h1>Training overview</h1></Head><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/><div className="dash-tabs" role="tablist"><button className={panel === 'overview' ? 'active' : ''} onClick={() => setPanel('overview')}>Overview</button><button className={panel === 'weight' ? 'active' : ''} onClick={() => setPanel('weight')}>Weight</button><button className={panel === 'volume' ? 'active' : ''} onClick={() => setPanel('volume')}>Volume</button></div><div className={`dashboard-panels panel-${panel}`}><section className="stats dashboard-overview"><Stat label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={dash?.latest_weight ? 'Latest tracked entry' : 'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume ?? 0)} kg`} sub={dash?.total_previous_volume ? `${Math.round(((dash.total_current_volume - dash.total_previous_volume) / dash.total_previous_volume) * 100)}% vs last week` : 'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume ?? 0)} kg`} sub="Completed load volume"/></section><section className="grid"><BodyweightCard dash={dash} saveWeight={saveWeight}/><article className="card dashboard-volume"><div className="muscle-card-head"><Title n="02" text={muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}/><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} onClick={() => setMuscleMetric('sets')}>Sets</button></div></div><div className="legend"><span><i />This week</span><span><i />Last week</span></div>{rows.length ? rows.map(row => <div className="bar" key={`${muscleMetric}-${row.name}`}><div><b>{row.name}</b><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${row.current} sets`}</span></div><div><i style={{ width: `${row.current / max * 100}%` }}/><i style={{ width: `${row.previous / max * 100}%` }}/></div></div>) : <div className="empty">Complete a workout to see sets by muscle.</div>}</article></section></div></>;
+    const completed = history.filter(workout => workout.completed).sort((a, b) => b.performed_on.localeCompare(a.performed_on));
+    const now = new Date(), weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+    const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+    const thisWeek = completed.filter(workout => { const date = new Date(`${workout.performed_on}T12:00:00`); return date >= weekStart && date < weekEnd; });
+    const previousWeekStart = new Date(weekStart); previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    const previousWeekSessions = completed.filter(workout => { const date = new Date(`${workout.performed_on}T12:00:00`); return date >= previousWeekStart && date < weekStart; }).length;
+    const sessionChange = thisWeek.length - previousWeekSessions;
+    const previousVolume = dash?.total_previous_volume ?? 0, currentVolume = dash?.total_current_volume ?? 0;
+    const volumeChange = previousVolume ? Math.round((currentVolume - previousVolume) / previousVolume * 100) : null;
+    const monthWeights = (dash?.weight_series ?? []).filter(entry => { const date = new Date(`${entry.recorded_on}T12:00:00`); return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear(); });
+    const weightChange = monthWeights.length > 1 ? monthWeights.at(-1)!.weight - monthWeights[0].weight : null;
+    const lastWorkout = completed[0];
+    const lastWorkoutDays = lastWorkout ? Math.max(0, Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - new Date(`${lastWorkout.performed_on}T12:00:00`).getTime()) / 86400000)) : null;
+    const lastWorkoutLabel = lastWorkoutDays === null ? '—' : lastWorkoutDays === 0 ? 'Today' : lastWorkoutDays === 1 ? 'Yesterday' : `${lastWorkoutDays} days ago`;
+    const workoutVolume = (workout: Workout) => workout.exercises.reduce((sum, exercise) => sum + (exercise.sets ?? []).reduce((setSum, set) => setSum + set.weight * set.reps, 0), 0);
+    const workoutSets = (workout: Workout) => workout.exercises.reduce((sum, exercise) => sum + (exercise.sets?.length ?? 0), 0);
+    const dateParts = (date: string) => { const value = new Date(`${date}T12:00:00`); return { month: value.toLocaleDateString(undefined, { month: 'short' }).toUpperCase(), day: value.toLocaleDateString(undefined, { day: '2-digit' }) }; };
+    const todayDate = today();
+    const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const weekDays = Array.from({ length: 7 }, (_, index) => { const date = new Date(weekStart); date.setDate(date.getDate() + index); const key = localDateKey(date); const plan = calendar?.days.find(day => day.date === key); const workout = completed.find(entry => entry.performed_on === key); return { date, key, plan, workout }; });
+    const upcoming = (calendar?.days ?? []).filter(day => day.date >= todayDate && day.status !== 'completed').slice(0, 4);
+    const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
+    return <>
+        <Head action={<div className="dashboard-head-actions"><button className="primary dashboard-log" onClick={log}>＋ Log workout</button><button className="today-control" type="button"><DashboardIcon name="calendar"/><span><b>Today</b><small>{now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</small></span><DashboardIcon name="chevron"/></button></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={_historyLoaded} calendar={calendar} firstName={firstName}/></Head>
+        <section className="dashboard-metrics" aria-label="Training summary">
+            <Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : `${weightChange >= 0 ? '+' : ''}${weightChange.toFixed(1)} kg this month ${weightChange >= 0 ? '↑' : '↓'}`}/>
+            <Stat icon="volume" label="Weekly volume" value={`${vol(currentVolume)} kg`} sub={volumeChange === null ? 'No comparison yet' : `${volumeChange >= 0 ? '+' : ''}${volumeChange}% vs last week ${volumeChange >= 0 ? '↑' : '↓'}`}/>
+            <Stat icon="session" label="Sessions this week" value={String(thisWeek.length)} sub={previousWeekSessions || thisWeek.length ? `${Math.abs(sessionChange)} ${sessionChange >= 0 ? 'more' : 'fewer'} than last week ${sessionChange >= 0 ? '↑' : '↓'}` : 'No sessions logged yet'}/>
+            <Stat icon="clock" label="Last workout" value={lastWorkoutLabel} sub={lastWorkout ? `${lastWorkout.name} · ${workoutSets(lastWorkout)} sets` : 'Log your first workout'}/>
+        </section>
+        <section className="dashboard-analytics">
+            <BodyweightCard dash={dash} saveWeight={saveWeight}/>
+            <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : ''}`}><div className="muscle-card-head"><div><h2>{muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}</h2><p>This week compared with last week.</p></div><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} onClick={() => setMuscleMetric('sets')}>Sets</button></div></div>{rows.length ? <div className="muscle-rows" onWheel={event => { if (muscleMetric === 'sets' && Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY; }}>{(muscleMetric === 'volume' ? rows.slice(0, 7) : rows).map(row => { const change = row.previous ? Math.round((row.current - row.previous) / row.previous * 100) : null; return <div className="muscle-row" key={`${muscleMetric}-${row.name}`}><b>{row.name}</b><div><i style={{ width: `${row.current / max * 100}%` }}/></div><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${row.current} sets`}</span><small className={change !== null && change < 0 ? 'negative' : ''}>{change === null ? '—' : `${change >= 0 ? '+' : ''}${change}%`}</small></div>; })}</div> : <div className="dashboard-empty"><b>No workouts logged this week</b><span>Log a workout to start tracking volume by muscle group.</span><button onClick={log}>Log workout</button></div>}</article>
+        </section>
+        <section className="dashboard-lower">
+            <article className="recent-workouts"><div className="section-heading"><h2>Recent workouts</h2>{completed.length ? <button type="button" onClick={openHistory}>View all →</button> : null}</div>{completed.length ? completed.slice(0, 3).map(workout => { const date = dateParts(workout.performed_on); return <button type="button" className="recent-row" onClick={() => openWorkout(workout)} key={workout.id ?? `${workout.performed_on}-${workout.name}`}><time><small>{date.month}</small><strong>{date.day}</strong></time><span className="recent-row-copy"><b>{workout.name}</b><small>{[...new Set(workout.exercises.map(exercise => (exercise.primary_muscle ?? exercise.muscle_group ?? '').replace(/^Primary:\s*/i, '').split(' · ')[0]).filter(Boolean))].slice(0, 3).join(' · ') || 'Workout session'}</small></span><span>{workoutSets(workout)} sets · {duration(workout.duration_seconds)} · {vol(workoutVolume(workout))} kg</span><i aria-hidden="true">›</i></button>; }) : <div className="lower-empty">Your completed workouts will appear here.</div>}</article>
+            <article className="week-overview"><div className="section-heading"><h2>This week</h2><span>{thisWeek.length} sessions</span></div>{weekDays.map(({ date, key, plan, workout }) => <div className="week-row" key={key}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><b>{workout?.name ?? plan?.routine_name ?? plan?.workout_name ?? (plan === null ? 'Rest' : '—')}</b>{workout && <i aria-label="Completed">✓</i>}</div>)}</article>
+            <article className="upcoming-workouts"><div className="section-heading"><h2>Upcoming</h2><button type="button" onClick={openCalendar}>View calendar →</button></div>{upcoming.length ? upcoming.map(day => <div className="upcoming-row" key={day.date}><time>{relativeDay(day.date)}</time><i className="upcoming-status" aria-hidden="true"/><b>{day.routine_name ?? day.workout_name ?? 'Rest day'}</b><i aria-hidden="true">⋮</i></div>) : <div className="lower-empty">No upcoming sessions planned.</div>}</article>
+        </section>
+    </>;
 }
-function Dashboard({ dash, history, historyLoaded = false, calendar, firstName = 'Athlete', log, saveWeight }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; firstName?: string; log: () => void; saveWeight: (n: number, recordedOn?: string) => Promise<void> }) {
+function Dashboard({ dash, history, historyLoaded = false, calendar, firstName = 'Athlete', log, openCalendar = () => undefined, openHistory = () => undefined, openWorkout = () => undefined, saveWeight }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; firstName?: string; log: () => void; openCalendar?: () => void; openHistory?: () => void; openWorkout?: (workout: Workout) => void; saveWeight: (n: number, recordedOn?: string) => Promise<void> }) {
     const dashboardRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const workspace = dashboardRef.current?.closest('main');
         workspace?.classList.add('dashboard-workspace');
-        return () => workspace?.classList.remove('dashboard-workspace');
+        workspace?.style.setProperty('--dashboard-inline-gutter', '28px');
+        return () => { workspace?.classList.remove('dashboard-workspace'); workspace?.style.removeProperty('--dashboard-inline-gutter'); };
     }, []);
-    return <div className="dashboard-shell" ref={dashboardRef}><LegacyDashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName} log={log} saveWeight={saveWeight}/></div>;
+    return <div className="dashboard-shell" ref={dashboardRef}><LegacyDashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName} log={log} openCalendar={openCalendar} openHistory={openHistory} openWorkout={openWorkout} saveWeight={saveWeight}/></div>;
 }
 type BodyMapMuscle = { id: number; name: string; volume: number; intensity: number; is_front: boolean; image_url: string; role?: 'primary' | 'secondary' | 'tertiary' };
 const WGER_BODY_BASE = {
@@ -508,15 +568,24 @@ const WGER_BODY_BASE = {
 };
 function BodyweightCard({ dash, saveWeight }: { dash: Dash | null; saveWeight: (n: number, recordedOn?: string) => Promise<void> }) {
     const [weight, setWeight] = useState('');
-    const [showMap, setShowMap] = useState(false);
-    const [mapOpened, setMapOpened] = useState(false);
-    return <article className="card dashboard-weight"><Title n="01" text="Bodyweight"/><button className="card-switch" onClick={() => { setShowMap(current => { if (!current) setMapOpened(true); return !current; }); }} aria-label={showMap ? 'Show bodyweight' : 'Show weekly muscle map'}>{showMap ? 'Bodyweight' : 'Muscle map'} <b>{showMap ? '←' : '→'}</b></button><div className={`weight-card-viewport ${showMap ? 'show-map' : ''}`}><div className="weight-card-panel weight-panel"><div className="weight"><div><strong>{dash?.latest_weight?.weight.toFixed(1) ?? '—'} <small>kg</small></strong><p>Current tracked weight</p></div><form onSubmit={event => { event.preventDefault(); if (+weight) void saveWeight(+weight).then(() => setWeight('')); }}><input value={weight} onChange={event => setWeight(event.target.value)} placeholder="kg" inputMode="decimal"/><button>Save</button></form></div><Line values={dash?.weight_series ?? []} saveWeight={saveWeight}/></div><div className="weight-card-panel map-panel">{mapOpened && <BodyMap/>}</div></div></article>;
+    const [range, setRange] = useState<'1M' | '3M' | '6M' | '1Y' | 'All'>('All');
+    const entries = dash?.weight_series ?? [];
+    const rangeDays = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366, All: Infinity }[range];
+    const latestDate = entries.at(-1)?.recorded_on ? new Date(`${entries.at(-1)!.recorded_on}T12:00:00`) : new Date();
+    const domainEnd = latestDate.getTime();
+    const domainStart = rangeDays === Infinity
+        ? (entries[0]?.recorded_on ? new Date(`${entries[0].recorded_on}T12:00:00`).getTime() : domainEnd)
+        : domainEnd - rangeDays * 86400000;
+    const visibleEntries = entries.filter(entry => { const timestamp = new Date(`${entry.recorded_on}T12:00:00`).getTime(); return timestamp >= domainStart && timestamp <= domainEnd; });
+    const latest = dash?.latest_weight;
+    const formatDate = (date?: string) => date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    return <article className="dashboard-weight"><div className="dashboard-section-head"><div><h2>Bodyweight</h2><p>Your tracked weight over time.</p></div><div className="dashboard-weight-actions"><div className="weight-ranges" role="group" aria-label="Bodyweight timeframe">{(['1M', '3M', '6M', '1Y', 'All'] as const).map(option => <button type="button" className={range === option ? 'active' : ''} onClick={() => setRange(option)} key={option}>{option}</button>)}</div><form onSubmit={event => { event.preventDefault(); if (+weight) void saveWeight(+weight).then(() => setWeight('')); }}><input aria-label="Bodyweight in kilograms" value={weight} onChange={event => setWeight(event.target.value)} placeholder="kg" inputMode="decimal"/><button>Save</button></form></div></div>{visibleEntries.length === 1 && latest ? <div className="first-weight"><strong>{latest.weight.toFixed(1)} kg</strong><b>First tracked entry</b><span>{formatDate(latest.recorded_on)}</span></div> : <Line values={visibleEntries} domainStart={domainStart} domainEnd={domainEnd} saveWeight={saveWeight}/>}</article>;
 }
 export function AnatomyFallback({ intensity, view, showRegions }: { intensity: (group: string) => number; view: 'front' | 'back'; showRegions: boolean }) {
     const base = <><circle className="body-map-base" cx="90" cy="25" r="17"/><path className="body-map-base" d="M83 42H97L101 54 118 61 132 93 127 151 114 149 108 107 111 168Q108 188 104 200L116 298 103 315 92 310 90 222 88 310 77 315 64 298 76 200Q72 188 69 168L72 107 66 149 53 151 48 93 62 61 79 54Z"/></>;
     return view === 'front' ? <svg className={`body-map-fallback ${showRegions ? '' : 'base-only'}`} viewBox="0 0 180 330" aria-label="Front muscle view">{base}<path className="body-region" style={{ opacity: intensity('shoulders') }} d="M62 62Q71 54 80 57L75 84 57 93 52 88ZM118 62Q109 54 100 57L105 84 123 93 128 88Z"/><path className="body-region" style={{ opacity: intensity('chest') }} d="M77 83Q84 77 89 84V111Q80 109 73 117L70 96ZM103 83Q96 77 91 84V111Q100 109 107 117L110 96Z"/><path className="body-region" style={{ opacity: intensity('arms') }} d="M57 95 51 104 54 143 65 141 70 108ZM123 95 129 104 126 143 115 141 110 108Z"/><path className="body-region" style={{ opacity: intensity('core') }} d="M75 119Q90 113 105 119L108 166Q90 177 72 166Z"/><path className="body-region" style={{ opacity: intensity('legs') }} d="M77 181Q83 185 88 184L86 303 77 307 68 296ZM103 181Q97 185 92 184L94 303 103 307 112 296Z"/></svg> : <svg className={`body-map-fallback ${showRegions ? '' : 'base-only'}`} viewBox="0 0 180 330" aria-label="Back muscle view">{base}<path className="body-region body-back" style={{ opacity: intensity('back') }} d="M79 55H101L112 83 105 129 99 154 81 154 75 129 68 83Z"/><path className="body-region" style={{ opacity: intensity('shoulders') }} d="M62 62Q71 54 80 57L75 84 57 93 52 88ZM118 62Q109 54 100 57L105 84 123 93 128 88Z"/><path className="body-region" style={{ opacity: intensity('arms') }} d="M57 95 51 104 54 143 65 141 70 108ZM123 95 129 104 126 143 115 141 110 108Z"/><path className="body-region" style={{ opacity: intensity('core') }} d="M74 154Q90 163 106 154L108 178Q90 190 72 178Z"/><path className="body-region" style={{ opacity: intensity('legs') }} d="M77 186Q83 190 88 189L86 303 77 307 68 296ZM103 186Q97 190 92 189L94 303 103 307 112 296Z"/></svg>;
 }
-function BodyMap() {
+export function BodyMap() {
     const [muscles, setMuscles] = useState<BodyMapMuscle[] | null>(null);
     const [mapUnavailable, setMapUnavailable] = useState(false);
     const [view, setView] = useState<'front' | 'back'>('front');
@@ -539,11 +608,12 @@ function BodyMap() {
     const visibleMuscles = (muscles ?? []).filter(muscle => muscle.is_front === (view === 'front'));
     return <div className="body-map"><div className="body-map-copy"><span>THIS WEEK</span><b>Muscles trained</b><small>{mapUnavailable ? 'Restart the API to load your muscle overlays.' : muscles === null ? 'Loading your training map…' : trainedMuscles.length ? `${trainedMuscles.length} muscle region${trainedMuscles.length === 1 ? '' : 's'} hit` : 'Complete a workout to light up your map.'}</small><div className="body-map-view-toggle"><button className={view === 'front' ? 'active' : ''} onClick={() => setView('front')}>Front</button><button className={view === 'back' ? 'active' : ''} onClick={() => setView('back')}>Back</button></div><button className={`body-map-test ${testMode ? 'active' : ''}`} onClick={() => void toggleTestMode()} disabled={testing}>{testing ? 'Updating test…' : testMode ? 'Clear map test' : 'Test full map'}</button></div><div className="body-map-figure" aria-label={`${view} muscles trained this week`}><img className="wger-body-base" src={WGER_BODY_BASE[view]} alt=""/>{visibleMuscles.map(muscle => <img className="wger-muscle-layer" key={muscle.id} src={muscle.image_url} alt="" style={{ opacity: .24 + muscle.intensity * .76 }} />)}</div>{strongest.length > 0 && <div className="body-map-list">{strongest.map(muscle => <span key={muscle.id}>{muscle.name}<b>{Math.round(muscle.volume).toLocaleString()} kg</b></span>)}</div>}</div>;
 }
-function Stat({ label, value, sub }: {
+function Stat({ icon, label, value, sub }: {
+    icon?: 'scale' | 'volume' | 'session' | 'clock';
     label: string;
     value: string;
     sub: string;
-}) { return <article><span>{label}</span><strong><AnimatedValue value={value}/></strong><small>{sub}</small></article>; }
+}) { const tone = sub.includes('↓') || sub.includes('fewer') ? 'negative' : sub.includes('↑') || sub.includes('more') || sub.trim().startsWith('+') ? 'positive' : ''; return <article>{icon && <DashboardIcon name={icon}/>}<div><span>{label}</span><strong><AnimatedValue value={value}/></strong><small className={tone}>{sub}</small></div></article>; }
 function AnimatedValue({ value }: { value: string }) {
     const match = value.match(/^([\d,.]+)(.*)$/), target = match ? Number(match[1].replaceAll(',', '')) : null, suffix = match?.[2] ?? '';
     const decimals = match?.[1].includes('.') ? (match[1].split('.')[1]?.length ?? 0) : 0;
@@ -555,16 +625,18 @@ function AnimatedValue({ value }: { value: string }) {
     return target === null ? <span ref={ref}>{value}</span> : <span ref={ref}>{shown.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}</span>;
 }
 ;
-function Title({ n, text }: {
+export function Title({ n, text }: {
     text: string;
     n: string;
 }) { return <p className="title">{n} · {text}</p>; }
 ;
-function Line({ values, saveWeight }: {
+function Line({ values, domainStart, domainEnd, saveWeight }: {
     values: {
         weight: number;
         recorded_on?: string;
     }[];
+    domainStart: number;
+    domainEnd: number;
     saveWeight: (weight: number, recordedOn?: string) => Promise<void>;
 }) {
     const [displayValues, setDisplayValues] = useState(values);
@@ -576,10 +648,19 @@ function Line({ values, saveWeight }: {
         if (optimisticWeight === undefined) return entry;
         return entry.weight === optimisticWeight ? entry : { ...entry, weight: optimisticWeight };
     })), [values]);
-    const low = Math.min(...displayValues.map(x => x.weight)), high = Math.max(...displayValues.map(x => x.weight)), spread = high - low || 1, mid = (low + high) / 2;
+    const rawLow = Math.min(...displayValues.map(x => x.weight)), rawHigh = Math.max(...displayValues.map(x => x.weight)), rawSpread = rawHigh - rawLow;
+    const center = Math.round((rawLow + rawHigh) / 2), low = rawSpread < 4 ? center - 4 : Math.floor(rawLow - rawSpread * .12), high = rawSpread < 4 ? center + 4 : Math.ceil(rawHigh + rawSpread * .12), spread = high - low || 1;
     const formatDate = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    const point = (index: number) => ({ x: displayValues.length < 2 ? 50 : index / (displayValues.length - 1) * 100, y: 82 - ((displayValues[index].weight - low) / spread) * 58 });
-    const pts = displayValues.map((_, index) => { const position = point(index); return `${position.x},${position.y}`; }).join(' '), shown = editing ?? hovered;
+    const firstTime = domainStart, lastTime = domainEnd;
+    const point = (index: number) => { const timestamp = displayValues[index].recorded_on ? new Date(`${displayValues[index].recorded_on}T12:00:00`).getTime() : index; return { x: displayValues.length < 2 || firstTime === lastTime ? 50 : 2 + (timestamp - firstTime) / (lastTime - firstTime) * 96, y: 88 - ((displayValues[index].weight - low) / spread) * 72 }; };
+    const positions = displayValues.map((_, index) => point(index));
+    const curve = positions.length ? positions.slice(1).reduce((path, current, index) => { const previous = positions[index], distance = (current.x - previous.x) / 3; return `${path} C ${previous.x + distance},${previous.y} ${current.x - distance},${current.y} ${current.x},${current.y}`; }, `M ${positions[0].x},${positions[0].y}`) : '';
+    const area = curve ? `${curve} L ${positions.at(-1)!.x},100 L ${positions[0].x},100 Z` : '';
+    const shown = editing ?? hovered;
+    const gridTicks = [0, 1, 2, 3, 4];
+    const yTickValues = gridTicks.map(index => high - spread * index / 4);
+    const dateTicks = gridTicks.map(index => new Date(firstTime + (lastTime - firstTime) * index / 4));
+    const formatTickDate = (value: Date) => value.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     const saveEditedPoint = async (index: number) => {
         const nextWeight = Number(draft), recordedOn = displayValues[index]?.recorded_on;
         if (!(nextWeight > 0) || !recordedOn) return;
@@ -595,7 +676,7 @@ function Line({ values, saveWeight }: {
             setDisplayValues(current => current.map(entry => entry.recorded_on === recordedOn ? { ...entry, weight: previousWeight } : entry));
         }
     };
-    return <div className={`chart ${displayValues.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{displayValues.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points={pts}/>{displayValues.map((entry, index) => { const position = point(index); return <g className="weight-point" key={`${entry.recorded_on}-${index}`} onPointerEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }} onClick={() => { setEditing(index); setHovered(index); setDraft(String(entry.weight)); }} tabIndex={0} role="button" aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms. Click to edit.`}><circle className="weight-point-hit" cx={position.x} cy={position.y} r="6"/><circle className="weight-point-dot" cx={position.x} cy={position.y} r="1.6"/></g>; })}</svg>{shown !== null && <div className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === displayValues.length - 1 ? 'at-end' : ''}`} style={{ left: `${point(shown).x}%`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); void saveEditedPoint(shown); }}><label>{formatDate(displayValues[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{displayValues[shown].weight.toFixed(1)} kg</b><small>{formatDate(displayValues[shown].recorded_on)}</small></>}</div>}<div className="chart-axis"><span>{high.toFixed(1)} kg</span><span>{mid.toFixed(1)} kg</span><span>{low.toFixed(1)} kg</span></div><div className="chart-dates"><span>{formatDate(displayValues[0].recorded_on)}</span><span>{formatDate(displayValues.at(-1)?.recorded_on)}</span></div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
+    return <div className={`chart ${displayValues.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{displayValues.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="weight-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs><g className="weight-grid">{gridTicks.map(index => <line key={`y-${index}`} x1="2" x2="98" y1={16 + index * 18} y2={16 + index * 18}/>) }{gridTicks.map(index => <line key={`x-${index}`} x1={2 + index * 24} x2={2 + index * 24} y1="16" y2="88"/>)}</g><path className="weight-area" d={area}/><path className="weight-curve" d={curve}/></svg>{displayValues.map((entry, index) => { const position = point(index); const distance = hovered === null ? null : Math.abs(index - hovered); return <button type="button" className={`weight-point-circle ${distance !== null && distance <= 2 ? `proximity-${distance}` : ''} ${index === displayValues.length - 1 ? 'latest' : ''}`} key={`${entry.recorded_on}-${index}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width)) * ${position.x / 100})`, top: `${position.y}%` }} onPointerEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }} onClick={() => { setEditing(index); setHovered(index); setDraft(String(entry.weight)); }} aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms. Click to edit.`}/>; })}{shown !== null && <div className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === displayValues.length - 1 ? 'at-end' : ''}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width)) * ${point(shown).x / 100})`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); void saveEditedPoint(shown); }}><label>{formatDate(displayValues[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{displayValues[shown].weight.toFixed(1)} kg</b><small>{formatDate(displayValues[shown].recorded_on)}</small></>}</div>}<div className="chart-axis">{yTickValues.map((value, index) => <span key={index}>{value.toFixed(0)}</span>)}</div><div className="chart-dates">{dateTicks.map((date, index) => <span key={index}>{formatTickDate(date)}</span>)}</div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
 }
 function Routines({ folders, refresh, start, note }: {
     folders: Folder[];

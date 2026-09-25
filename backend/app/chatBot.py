@@ -14,8 +14,12 @@ from .tools import TOOL_DECLARATIONS, execute_tool
 from .coach_logging import LOGGER
 
 MAX_TOOL_ROUNDS = 8
-DEFAULT_MAX_OUTPUT_TOKENS = 2048
+# A complete training-program tool call can contain seven routines and dozens of
+# exercise prescriptions.  A 2K cap can truncate that JSON before Gemini has a
+# chance to close it, which the provider reports as `malformed_tool_call`.
+DEFAULT_MAX_OUTPUT_TOKENS = 8192
 PROPOSAL_REPLY_MAX_OUTPUT_TOKENS = 128
+MAX_MALFORMED_TOOL_RETRIES = 2
 _CANCEL_LOCK = Lock()
 _ACTIVE_CANCELS: dict[int, Event] = {}
 
@@ -200,12 +204,12 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             if not proposal_created:
                 request["tools"] = TOOL_DECLARATIONS
             interaction = None
-            for provider_attempt in range(2):
+            for provider_attempt in range(MAX_MALFORMED_TOOL_RETRIES + 1):
                 try:
                     interaction = client.interactions.create(**request)
                     break
                 except Exception as error:
-                    if provider_attempt > 0 or not _is_malformed_tool_call(error):
+                    if provider_attempt >= MAX_MALFORMED_TOOL_RETRIES or not _is_malformed_tool_call(error):
                         raise
                     metadata["malformed_tool_retries"] = metadata.get("malformed_tool_retries", 0) + 1
                     history.append({

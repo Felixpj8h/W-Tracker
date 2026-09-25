@@ -27,7 +27,7 @@ def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
         def create(self, **kwargs):
             self.calls += 1
             if self.calls == 1:
-                assert kwargs["generation_config"] == {"max_output_tokens": 2048}
+                assert kwargs["generation_config"] == {"max_output_tokens": 8192}
                 assert kwargs["tools"] == chatBot.TOOL_DECLARATIONS
                 return SimpleNamespace(steps=[FunctionCall()], output_text="")
             result_step = kwargs["input"][-1]
@@ -63,7 +63,7 @@ def test_proposal_reply_omits_tools_and_has_small_output_budget(monkeypatch):
         def create(self, **kwargs):
             self.calls += 1
             if self.calls == 1:
-                assert kwargs["generation_config"] == {"max_output_tokens": 2048}
+                assert kwargs["generation_config"] == {"max_output_tokens": 8192}
                 assert kwargs["tools"] == chatBot.TOOL_DECLARATIONS
                 return SimpleNamespace(steps=[FunctionCall()], output_text="")
             assert kwargs["generation_config"] == {"max_output_tokens": 128}
@@ -127,7 +127,7 @@ def test_tool_error_is_marked_and_remains_structured_json(monkeypatch):
     assert interactions.calls == 2
 
 
-def test_malformed_tool_call_is_reprompted_once(monkeypatch):
+def test_malformed_tool_call_is_reprompted_with_bounded_retries(monkeypatch):
     class MalformedToolCall(Exception):
         code = 400
 
@@ -136,7 +136,7 @@ def test_malformed_tool_call_is_reprompted_once(monkeypatch):
 
         def create(self, **kwargs):
             self.calls += 1
-            if self.calls == 1:
+            if self.calls <= 2:
                 raise MalformedToolCall("malformed_tool_call: Model generated invalid JSON syntax")
             correction = kwargs["input"][-1]["content"][0]["text"]
             assert "strict JSON" in correction
@@ -151,8 +151,8 @@ def test_malformed_tool_call_is_reprompted_once(monkeypatch):
 
     events = list(chatBot.stream_coach_turn(1, 1, "test@example.com"))
 
-    assert interactions.calls == 2
-    assert saved["malformed_tool_retries"] == 1
+    assert interactions.calls == 3
+    assert saved["malformed_tool_retries"] == 2
     assert events[-1] == {"type": "message.completed", "message_id": 10}
 
 
