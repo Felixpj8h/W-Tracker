@@ -1,9 +1,10 @@
 import type { CoachEvent } from './types';
+import { authHeaders } from '../auth';
 
 export const base = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 export async function coachJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${base}/ai${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const response = await fetch(`${base}/ai${path}`, { ...options, headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(options.headers)) }) });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     const error = new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status})`) as Error & { status?: number };
@@ -36,7 +37,7 @@ export function createSseParser(onEvent: (event: CoachEvent) => void) {
 }
 
 export async function streamMessage(id: number, content: string, signal: AbortSignal, onEvent: (event: CoachEvent) => void, retryMessageId?: number) {
-  const response = await fetch(`${base}/ai/conversations/${id}/${retryMessageId ? 'retry' : 'messages'}`, { method: 'POST', headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' }, body: JSON.stringify(retryMessageId ? { user_message_id: retryMessageId } : { content }), signal });
+  const response = await fetch(`${base}/ai/conversations/${id}/${retryMessageId ? 'retry' : 'messages'}`, { method: 'POST', headers: authHeaders({ Accept: 'text/event-stream', 'Content-Type': 'application/json' }), body: JSON.stringify(retryMessageId ? { user_message_id: retryMessageId } : { content }), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(typeof body.detail === 'string' ? body.detail : `Coach request failed (${response.status})`);

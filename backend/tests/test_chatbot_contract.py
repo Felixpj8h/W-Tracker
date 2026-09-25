@@ -45,7 +45,7 @@ def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
     monkeypatch.setattr(chatBot, "_save_assistant", lambda *_args: 7)
     monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
 
-    events = list(chatBot.stream_coach_turn(1, 1))
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com"))
     assert [event["type"] for event in events] == [
         "message.started", "tool.started", "tool.completed", "text.delta", "message.completed",
     ]
@@ -83,7 +83,7 @@ def test_proposal_reply_omits_tools_and_has_small_output_budget(monkeypatch):
     monkeypatch.setattr(chatBot, "_save_assistant", lambda *_args: 9)
     monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
 
-    events = list(chatBot.stream_coach_turn(1, 1))
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com"))
     assert interactions.calls == 2
     assert any(event["type"] == "proposal.created" for event in events)
     assert events[-1] == {"type": "message.completed", "message_id": 9}
@@ -122,9 +122,38 @@ def test_tool_error_is_marked_and_remains_structured_json(monkeypatch):
     monkeypatch.setattr(chatBot, "_save_assistant", lambda *_args: 8)
     monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
 
-    events = list(chatBot.stream_coach_turn(1, 1))
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com"))
     assert events[-1] == {"type": "message.completed", "message_id": 8}
     assert interactions.calls == 2
+
+
+def test_malformed_tool_call_is_reprompted_once(monkeypatch):
+    class MalformedToolCall(Exception):
+        code = 400
+
+    class Interactions:
+        calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise MalformedToolCall("malformed_tool_call: Model generated invalid JSON syntax")
+            correction = kwargs["input"][-1]["content"][0]["text"]
+            assert "strict JSON" in correction
+            return SimpleNamespace(steps=[], output_text="Recovered response.")
+
+    interactions = Interactions()
+    saved = {}
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=interactions))
+    monkeypatch.setattr(chatBot, "_conversation_input", lambda *_args: [])
+    monkeypatch.setattr(chatBot, "_save_assistant", lambda _id, _owner, _text, _status, metadata: saved.update(metadata) or 10)
+    monkeypatch.setattr(chatBot, "_maybe_summarize", lambda *_args: None)
+
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com"))
+
+    assert interactions.calls == 2
+    assert saved["malformed_tool_retries"] == 1
+    assert events[-1] == {"type": "message.completed", "message_id": 10}
 
 
 def test_conversation_input_includes_latest_pending_proposal_and_exercise_names(monkeypatch):
@@ -132,13 +161,13 @@ def test_conversation_input_includes_latest_pending_proposal_and_exercise_names(
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     main.Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, autoflush=False)
+    session_factory = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
     monkeypatch.setattr(main, "SessionLocal", session_factory)
     monkeypatch.setattr(chatBot, "execute_tool", lambda name, *_args: {name: []})
 
     with session_factory() as db:
         exercise = main.Exercise(name="Barbell bench press", equipment="Barbell")
-        conversation = main.AIConversation(owner_scope="local", title="Coach")
+        conversation = main.AIConversation(owner_email="test@example.com", title="Coach")
         db.add_all([exercise, conversation]); db.flush()
         db.add(main.AIChangeProposal(
             conversation_id=conversation.id,
@@ -152,7 +181,7 @@ def test_conversation_input_includes_latest_pending_proposal_and_exercise_names(
         conversation_id = conversation.id
         exercise_id = exercise.id
 
-    content = chatBot._conversation_input(conversation_id, "local")[0]["content"][0]["text"]
+    content = chatBot._conversation_input(conversation_id, "test@example.com")[0]["content"][0]["text"]
     assert "<latest_pending_proposal" in content
     assert '"name": "Upper A"' in content
     assert f'"{exercise_id}": "Barbell bench press"' in content
@@ -168,8 +197,8 @@ def test_provider_rejection_has_logged_reference(monkeypatch):
 
     saved = {}
     monkeypatch.setattr(chatBot, "_client", fail_client)
-    monkeypatch.setattr(chatBot, "_save_assistant", lambda _id, _text, _status, metadata: saved.update(metadata))
-    events = list(chatBot.stream_coach_turn(12, 34))
+    monkeypatch.setattr(chatBot, "_save_assistant", lambda _id, _owner, _text, _status, metadata: saved.update(metadata))
+    events = list(chatBot.stream_coach_turn(12, 34, "test@example.com"))
     error = events[-1]
     assert error["type"] == "error"
     assert saved["error_ref"] in error["message"]
@@ -189,10 +218,10 @@ def test_cancel_after_provider_response_prevents_tool_execution(monkeypatch):
     executed = []
     monkeypatch.setattr(chatBot, "execute_tool", lambda *_args: executed.append(True))
     saved = {}
-    monkeypatch.setattr(chatBot, "_mark_interrupted", lambda _id, text: saved.update(text=text))
+    monkeypatch.setattr(chatBot, "_mark_interrupted", lambda _id, _owner, text: saved.update(text=text))
 
     checks = iter([False, True])
-    events = list(chatBot.stream_coach_turn(1, 1, is_cancelled=lambda: next(checks)))
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com", is_cancelled=lambda: next(checks)))
 
     assert executed == []
     assert saved["text"] == "Response stopped."
@@ -205,7 +234,7 @@ def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     main.Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, autoflush=False)
+    session_factory = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
     monkeypatch.setattr(main, "SessionLocal", session_factory)
     with session_factory() as db:
         folder = main.RoutineFolder(name="Training")
@@ -213,7 +242,7 @@ def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
         db.add_all([folder, exercise]); db.flush()
         routine = main.Routine(name="Upper", folder_id=folder.id)
         routine.exercises.append(main.RoutineExercise(exercise_id=exercise.id, position=0, planned_sets=3))
-        conversation = main.AIConversation(owner_scope="local", title="Coach")
+        conversation = main.AIConversation(owner_email="test@example.com", title="Coach")
         db.add_all([routine, conversation]); db.commit()
         folder_id, exercise_id, routine_id, conversation_id = folder.id, exercise.id, routine.id, conversation.id
 
@@ -222,7 +251,7 @@ def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
         "routine": {"name": "Upper", "exercises": [{"exercise_id": exercise_id, "planned_sets": 5}]},
         "summary": "Add lateral raise sets",
         "reasoning": "The current three sets leave room for a gradual increase based on recent training.",
-    }, conversation_id, None)
+    }, conversation_id, None, "test@example.com")
     with session_factory() as db:
         proposal = db.get(main.AIChangeProposal, proposed["proposal_id"])
         message = main.AIMessage(conversation_id=conversation_id, role="assistant", content="Proposal ready", status="completed")
@@ -231,7 +260,7 @@ def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
         assert json.loads(proposal.payload)["_folder_id_explicit"] is False
         assert main.ai_proposal_out(proposal)["reasoning"] == "The current three sets leave room for a gradual increase based on recent training."
         assert main.ai_proposal_out(proposal)["message_id"] == message.id
-        main.confirm_ai_proposal(proposal.id, main.ActorContext(), db)
+        main.confirm_ai_proposal(proposal.id, main.ActorContext(owner_email="test@example.com"), db)
         db.refresh(db.get(main.Routine, routine_id))
         assert db.get(main.Routine, routine_id).folder_id == folder_id
 
@@ -239,11 +268,11 @@ def test_routine_update_keeps_folder_unless_explicitly_removed(monkeypatch):
         "routine_id": routine_id,
         "routine": {"name": "Upper", "folder_id": None, "exercises": [{"exercise_id": exercise_id, "planned_sets": 5}]},
         "summary": "Move routine out of its folder",
-    }, conversation_id, None)
+    }, conversation_id, None, "test@example.com")
     with session_factory() as db:
         proposal = db.get(main.AIChangeProposal, removal["proposal_id"])
         assert json.loads(proposal.payload)["_folder_id_explicit"] is True
-        main.confirm_ai_proposal(proposal.id, main.ActorContext(), db)
+        main.confirm_ai_proposal(proposal.id, main.ActorContext(owner_email="test@example.com"), db)
         assert db.get(main.Routine, routine_id).folder_id is None
 
     engine.dispose()
@@ -255,11 +284,11 @@ def test_program_proposal_creates_folder_routines_and_calendar_together(monkeypa
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     main.Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, autoflush=False)
+    session_factory = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
     monkeypatch.setattr(main, "SessionLocal", session_factory)
     with session_factory() as db:
         exercise = main.Exercise(name="Squat", equipment="Barbell")
-        conversation = main.AIConversation(owner_scope="local", title="Coach")
+        conversation = main.AIConversation(owner_email="test@example.com", title="Coach")
         db.add_all([exercise, conversation]); db.commit()
         exercise_id, conversation_id = exercise.id, conversation.id
 
@@ -273,14 +302,14 @@ def test_program_proposal_creates_folder_routines_and_calendar_together(monkeypa
         ]},
         "dates": [{"date": "2026-09-29", "routine_index": 2}],
     }
-    bad = execute_tool("propose_create_training_program", {"program": {**program, "dates": [{"date": "2026-09-29", "routine_index": 3}]}, "summary": "Bad"}, conversation_id, None)
+    bad = execute_tool("propose_create_training_program", {"program": {**program, "dates": [{"date": "2026-09-29", "routine_index": 3}]}, "summary": "Bad"}, conversation_id, None, "test@example.com")
     assert "error" in bad
-    result = execute_tool("propose_create_training_program", {"program": program, "summary": "Build PPL", "reasoning": "Three days fit the requested split."}, conversation_id, None)
+    result = execute_tool("propose_create_training_program", {"program": program, "summary": "Build PPL", "reasoning": "Three days fit the requested split."}, conversation_id, None, "test@example.com")
     with session_factory() as db:
         assert db.query(main.RoutineFolder).count() == 0
         assert db.query(main.Routine).count() == 0
         proposal = db.get(main.AIChangeProposal, result["proposal_id"])
-        main.confirm_ai_proposal(proposal.id, main.ActorContext(), db)
+        main.confirm_ai_proposal(proposal.id, main.ActorContext(owner_email="test@example.com"), db)
         folder = db.query(main.RoutineFolder).one()
         assert folder.name == "PPL"
         assert {routine.name for routine in folder.routines} == {"Push", "Pull", "Legs"}

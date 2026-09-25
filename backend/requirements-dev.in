@@ -1,0 +1,4 @@
+-r requirements.in
+pytest>=8,<9
+pip-audit>=2.7,<3
+pip-tools>=7.4,<8

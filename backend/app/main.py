@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections import deque
 from datetime import date, datetime, timedelta, timezone
 import json
 import logging
@@ -8,28 +9,47 @@ import os
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Optional
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, select, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, select, or_
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 DB_PATH = Path(__file__).resolve().parent.parent / "workout_tracker.db"
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+if DATABASE_URL.startswith("sqlite:///"):
+    Path(DATABASE_URL.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 WGER_MUSCLES: list[dict] | None = None
 LOGGER = logging.getLogger(__name__)
 CATALOGUE_REFRESH_LOCK = threading.Lock()
 CATALOGUE_REFRESH_THREAD: threading.Thread | None = None
+GOOGLE_REQUEST = google_requests.Request()
+RATE_LIMIT_LOCK = threading.Lock()
+RATE_LIMIT_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class OwnedRecord:
+    """Marker for rows that belong to exactly one authenticated account."""
+
+    owner_email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
 
 
 class Exercise(Base):
@@ -45,14 +65,14 @@ class Exercise(Base):
     search_aliases: Mapped[str] = mapped_column(String(1000), default="")
 
 
-class RoutineFolder(Base):
+class RoutineFolder(OwnedRecord, Base):
     __tablename__ = "routine_folders"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     routines: Mapped[list["Routine"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
 
 
-class Routine(Base):
+class Routine(OwnedRecord, Base):
     __tablename__ = "routines"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
@@ -77,7 +97,7 @@ class RoutineExercise(Base):
     exercise: Mapped[Exercise] = relationship()
 
 
-class Workout(Base):
+class Workout(OwnedRecord, Base):
     __tablename__ = "workouts"
     id: Mapped[int] = mapped_column(primary_key=True)
     routine_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -115,14 +135,15 @@ class WorkoutSet(Base):
     exertion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
-class BodyweightEntry(Base):
+class BodyweightEntry(OwnedRecord, Base):
     __tablename__ = "bodyweight_entries"
+    __table_args__ = (UniqueConstraint("owner_email", "recorded_on", name="uq_bodyweight_owner_date"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    recorded_on: Mapped[date] = mapped_column(Date, unique=True)
+    recorded_on: Mapped[date] = mapped_column(Date)
     weight: Mapped[float] = mapped_column(Float)
 
 
-class WeeklyPlan(Base):
+class WeeklyPlan(OwnedRecord, Base):
     __tablename__ = "weekly_plans"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), default="My training week")
@@ -139,17 +160,18 @@ class WeeklyPlanDay(Base):
     routine: Mapped[Routine] = relationship()
 
 
-class CalendarAssignment(Base):
+class CalendarAssignment(OwnedRecord, Base):
     __tablename__ = "calendar_assignments"
-    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
     routine_id: Mapped[int] = mapped_column(ForeignKey("routines.id"))
     routine: Mapped[Routine] = relationship()
+    __table_args__ = (UniqueConstraint("owner_email", "day", name="uq_calendar_owner_day"),)
 
 
-class AIConversation(Base):
+class AIConversation(OwnedRecord, Base):
     __tablename__ = "ai_conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
-    owner_scope: Mapped[str] = mapped_column(String(80), default="local", index=True)
     title: Mapped[str] = mapped_column(String(160), default="New conversation")
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="idle")
@@ -186,6 +208,39 @@ class AIChangeProposal(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, AIConversation)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _scope_tenant_queries(execute_state):
+    """Apply the authenticated owner to every ORM SELECT, including relationships."""
+    owner_email = execute_state.session.info.get("owner_email")
+    if not owner_email or not execute_state.is_select or execute_state.execution_options.get("skip_tenant_scope"):
+        return
+    statement = execute_state.statement
+    for model in TENANT_MODELS:
+        statement = statement.options(
+            with_loader_criteria(model, lambda cls: cls.owner_email == owner_email, include_aliases=True)
+        )
+    execute_state.statement = statement
+
+
+@event.listens_for(Session, "before_flush")
+def _stamp_tenant_rows(session, _flush_context, _instances):
+    """Stamp new personal rows and prevent a session from changing ownership."""
+    owner_email = session.info.get("owner_email")
+    if not owner_email:
+        return
+    for item in session.new:
+        if isinstance(item, TENANT_MODELS):
+            if item.owner_email and item.owner_email != owner_email:
+                raise PermissionError("Cross-account write rejected")
+            item.owner_email = owner_email
+    for item in session.dirty:
+        if isinstance(item, TENANT_MODELS) and item.owner_email != owner_email:
+            raise PermissionError("Cross-account write rejected")
+
+
 class Model(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -210,7 +265,7 @@ class CustomExerciseIn(BaseModel):
 
 
 class RoutineIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120); folder_id: Optional[int] = None; exercises: list[ExerciseChoice] = []
+    name: str = Field(min_length=1, max_length=120); folder_id: Optional[int] = None; exercises: list[ExerciseChoice] = Field(default_factory=list, max_length=50)
 
 
 class FolderIn(BaseModel):
@@ -222,11 +277,11 @@ class LoggedSetIn(BaseModel):
 
 
 class WorkoutExerciseIn(BaseModel):
-    exercise_id: Optional[int] = None; name: Optional[str] = None; primary_muscle: Optional[str] = None; secondary_muscles: list[str] = []; muscle_group: Optional[str] = None; note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); sets: list[LoggedSetIn] = []
+    exercise_id: Optional[int] = None; name: Optional[str] = Field(None, max_length=180); primary_muscle: Optional[str] = Field(None, max_length=80); secondary_muscles: list[str] = Field(default_factory=list, max_length=20); muscle_group: Optional[str] = Field(None, max_length=20); note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); sets: list[LoggedSetIn] = Field(default_factory=list, max_length=100)
 
 
 class WorkoutIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120); performed_on: date; exercises: list[WorkoutExerciseIn]
+    name: str = Field(min_length=1, max_length=120); performed_on: date; exercises: list[WorkoutExerciseIn] = Field(max_length=100)
 
 
 class WorkoutDraftIn(BaseModel):
@@ -246,7 +301,7 @@ class WeeklyPlanDayIn(BaseModel):
 class WeeklyPlanIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     starts_on: date
-    days: list[WeeklyPlanDayIn] = []
+    days: list[WeeklyPlanDayIn] = Field(default_factory=list, max_length=7)
 
 
 class ProgramDayIn(BaseModel):
@@ -273,11 +328,14 @@ class TrainingProgramIn(BaseModel):
 
 
 class ActorContext(BaseModel):
-    owner_scope: str = "local"
+    owner_email: str
 
 
-def get_actor_context() -> ActorContext:
-    return ActorContext()
+def get_actor_context(request: Request) -> ActorContext:
+    email = getattr(request.state, "user_email", None)
+    if not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication context is missing.")
+    return ActorContext(owner_email=email)
 
 
 class AIConversationIn(BaseModel):
@@ -347,10 +405,37 @@ EXERCISE_OVERRIDES = {
     "deficit deadlift": ("Hamstrings", "Legs"),
     "low row": ("Lats", "Back"),
 }
-def get_db():
-    db = SessionLocal()
+def get_db(request: Request):
+    owner_email = getattr(request.state, "user_email", None)
+    db = SessionLocal(info={"owner_email": owner_email} if owner_email else {})
     try: yield db
     finally: db.close()
+
+
+def authenticate_request(request: Request) -> dict[str, str]:
+    """Verify a Google ID token and enforce the configured account allowlist."""
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    allowed_emails = {email.strip().lower() for email in os.getenv("ALLOWED_EMAILS", "").split(",") if email.strip()}
+    if not google_client_id or not allowed_emails:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google sign-in is not configured on the server.")
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to use the workout tracker.")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is missing.")
+    try:
+        token_info = id_token.verify_oauth2_token(token, GOOGLE_REQUEST, google_client_id)
+    except (ValueError, GoogleAuthError) as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is invalid or has expired. Sign in again.") from error
+    email = str(token_info.get("email", "")).strip().lower()
+    if token_info.get("email_verified") is not True or email not in allowed_emails:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This Google account does not have access to the workout tracker.")
+    full_name = str(token_info.get("name", "")).strip()[:160]
+    given_name = str(token_info.get("given_name", "")).strip()[:80]
+    if not given_name and full_name:
+        given_name = full_name.split()[0]
+    return {"email": email, "name": full_name, "given_name": given_name}
 
 
 def group_for(muscle: Optional[str]) -> Optional[str]:
@@ -442,19 +527,97 @@ def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle
     db.add(exercise); db.flush(); return exercise
 
 
-app = FastAPI(title="Workout Tracker API", version="1.0.0")
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+DOCS_ENABLED = os.getenv("ENABLE_API_DOCS", "true" if APP_ENV == "development" else "false").strip().lower() == "true"
+app = FastAPI(
+    title="Workout Tracker API",
+    version="1.0.0",
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url="/redoc" if DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+)
+
+
+def _rate_limit(email: str, bucket: str, limit: int, window_seconds: int = 60) -> int | None:
+    now = time.monotonic()
+    key = (email, bucket)
+    with RATE_LIMIT_LOCK:
+        entries = RATE_LIMIT_BUCKETS[key]
+        while entries and entries[0] <= now - window_seconds:
+            entries.popleft()
+        if len(entries) >= limit:
+            return max(1, int(window_seconds - (now - entries[0])))
+        entries.append(now)
+    return None
+
+
+@app.middleware("http")
+async def require_google_auth(request: Request, call_next):
+    is_api = request.url.path.startswith("/api/v1/")
+    is_public = request.url.path == "/api/v1/health" or request.method == "OPTIONS"
+    content_length = request.headers.get("content-length")
+    if is_api and content_length and content_length.isdigit() and int(content_length) > 1_048_576:
+        return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"detail": "Request body is too large."})
+    if is_api and not is_public and not getattr(request.app.state, "disable_auth", False):
+        client_ip = request.client.host if request.client else "unknown"
+        auth_retry_after = _rate_limit(client_ip, "authentication", 60)
+        if auth_retry_after is not None:
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"detail": "Authentication rate limit exceeded."},
+                headers={"Retry-After": str(auth_retry_after)},
+            )
+        try:
+            identity = authenticate_request(request)
+            request.state.user_email = identity["email"]
+            request.state.user_name = identity["name"]
+            request.state.user_given_name = identity["given_name"]
+        except HTTPException as error:
+            return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+    elif is_api and not is_public:
+        request.state.user_email = getattr(request.app.state, "test_user_email", "test@example.com")
+        request.state.user_name = getattr(request.app.state, "test_user_name", "Test User")
+        request.state.user_given_name = getattr(request.app.state, "test_user_given_name", "Test")
+    if is_api and not is_public:
+        email = request.state.user_email
+        if request.url.path.startswith("/api/v1/ai/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            bucket, limit = "ai-write", 10
+        elif request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            bucket, limit = "write", 120
+        else:
+            bucket, limit = "read", 300
+        retry_after = _rate_limit(email, bucket, limit)
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"detail": "Rate limit exceeded."},
+                headers={"Retry-After": str(retry_after)},
+            )
+    return await call_next(request)
+
+
+configured_origins = [value.strip().rstrip("/") for value in os.getenv("ALLOWED_ORIGINS", "").split(",") if value.strip()]
+development_origin_regex = (
+    r"https?://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"
+    r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|[a-z0-9-]+\.trycloudflare\.com)(?::\d+)?$"
+    if APP_ENV == "development" else None
+)
 app.add_middleware(
     CORSMiddleware,
-    # Local development, private-network phones, and temporary Cloudflare preview URLs.
-    allow_origin_regex=r"https?://(?:localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}|[a-z0-9-]+\.trycloudflare\.com)(?::\d+)?$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=configured_origins,
+    allow_origin_regex=development_origin_regex,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 
 @app.on_event("startup")
 def startup():
+    if APP_ENV == "production":
+        if not getattr(app.state, "disable_catalogue_refresh", False):
+            start_catalogue_refresh_background()
+        return
     Base.metadata.create_all(engine)
     # Lightweight backwards-compatible migration for existing local SQLite files.
     with engine.begin() as connection:
@@ -575,8 +738,33 @@ def start_catalogue_refresh_background() -> threading.Thread:
 def health(): return {"status": "ok"}
 
 
+@app.get("/api/v1/session")
+def session(request: Request):
+    return {
+        "email": getattr(request.state, "user_email", None),
+        "name": getattr(request.state, "user_name", ""),
+        "given_name": getattr(request.state, "user_given_name", ""),
+    }
+
+
 def ai_proposal_out(item: AIChangeProposal) -> dict:
-    return {"id": item.id, "message_id": item.message_id, "operation": item.operation, "payload": json.loads(item.payload), "summary": item.summary, "reasoning": item.reasoning, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
+    payload = json.loads(item.payload)
+
+    def exercise_ids(value) -> set[int]:
+        if isinstance(value, dict):
+            own = {value["exercise_id"]} if isinstance(value.get("exercise_id"), int) else set()
+            return own.union(*(exercise_ids(child) for child in value.values()))
+        if isinstance(value, list):
+            return set().union(*(exercise_ids(child) for child in value))
+        return set()
+
+    ids = exercise_ids(payload)
+    db = object_session(item)
+    exercise_names = {
+        exercise.id: exercise.name
+        for exercise in db.scalars(select(Exercise).where(Exercise.id.in_(ids))).all()
+    } if db is not None and ids else {}
+    return {"id": item.id, "message_id": item.message_id, "operation": item.operation, "payload": payload, "exercise_names_by_id": exercise_names, "summary": item.summary, "reasoning": item.reasoning, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
 
 
 def ai_conversation_out(item: AIConversation, include_messages: bool = True) -> dict:
@@ -589,28 +777,28 @@ def ai_conversation_out(item: AIConversation, include_messages: bool = True) -> 
 
 @app.post("/api/v1/ai/conversations")
 def create_ai_conversation(payload: AIConversationIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
-    item = AIConversation(owner_scope=actor.owner_scope, title=payload.title.strip())
+    item = AIConversation(owner_email=actor.owner_email, title=payload.title.strip())
     db.add(item); db.commit(); db.refresh(item)
     return saved_response(ai_conversation_out(item))
 
 
 @app.get("/api/v1/ai/conversations")
 def list_ai_conversations(actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
-    items = db.scalars(select(AIConversation).where(AIConversation.owner_scope == actor.owner_scope).order_by(AIConversation.updated_at.desc())).all()
+    items = db.scalars(select(AIConversation).order_by(AIConversation.updated_at.desc())).all()
     return [ai_conversation_out(item, include_messages=False) for item in items]
 
 
 @app.get("/api/v1/ai/conversations/{conversation_id}")
 def get_ai_conversation(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     item = db.get(AIConversation, conversation_id)
-    if not item or item.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    if not item: raise HTTPException(404, "Conversation not found")
     return ai_conversation_out(item)
 
 
 @app.delete("/api/v1/ai/conversations/{conversation_id}")
 def delete_ai_conversation(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     item = db.get(AIConversation, conversation_id)
-    if not item or item.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    if not item: raise HTTPException(404, "Conversation not found")
     if item.status == "generating": raise HTTPException(409, "Conversation is generating a response")
     db.delete(item); db.commit()
     return {"deleted": True, "saved": True}
@@ -625,7 +813,7 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(503, "AI coach is not configured")
     conversation = db.get(AIConversation, conversation_id)
-    if not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Conversation not found")
+    if not conversation: raise HTTPException(404, "Conversation not found")
     if conversation.status == "generating":
         if conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5): raise HTTPException(409, "Conversation is already generating a response")
     message = AIMessage(conversation_id=conversation.id, role="user", content=payload.content.strip(), status="completed")
@@ -638,7 +826,7 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     cancel_event = begin_cancel_scope(persisted_conversation_id)
     def events():
         try:
-            for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_scope, cancel_event.is_set): yield _sse(event)
+            for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_email, cancel_event.is_set): yield _sse(event)
         finally:
             end_cancel_scope(persisted_conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -649,7 +837,7 @@ def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorConte
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(503, "AI coach is not configured")
     conversation = db.get(AIConversation, conversation_id)
-    if not conversation or conversation.owner_scope != actor.owner_scope:
+    if not conversation:
         raise HTTPException(404, "Conversation not found")
     if conversation.status == "generating" and conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5):
         raise HTTPException(409, "Conversation is already generating a response")
@@ -663,7 +851,7 @@ def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorConte
     cancel_event = begin_cancel_scope(conversation_id)
     def events():
         try:
-            for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_scope, cancel_event.is_set): yield _sse(event)
+            for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_email, cancel_event.is_set): yield _sse(event)
         finally:
             end_cancel_scope(conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -672,7 +860,7 @@ def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorConte
 @app.post("/api/v1/ai/conversations/{conversation_id}/cancel")
 def cancel_ai_message(conversation_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     conversation = db.get(AIConversation, conversation_id)
-    if not conversation or conversation.owner_scope != actor.owner_scope:
+    if not conversation:
         raise HTTPException(404, "Conversation not found")
     if conversation.status != "generating":
         return {"cancel_requested": False}
@@ -695,7 +883,7 @@ def _apply_weekly_plan(payload: WeeklyPlanIn, db: Session) -> WeeklyPlan:
 def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     proposal = db.get(AIChangeProposal, proposal_id)
     conversation = db.get(AIConversation, proposal.conversation_id) if proposal else None
-    if not proposal or not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Proposal not found")
+    if not proposal or not conversation: raise HTTPException(404, "Proposal not found")
     if proposal.status == "applied": return saved_response(ai_proposal_out(proposal))
     if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
     try:
@@ -745,7 +933,7 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
                     plan.days.append(WeeklyPlanDay(weekday=day.weekday, routine_id=created[day.routine_index].id))
             for entry in payload.dates:
                 if entry.routine_index >= len(created): raise HTTPException(422, "Invalid routine index")
-                assignment = db.get(CalendarAssignment, entry.date)
+                assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == entry.date))
                 if not assignment: assignment = CalendarAssignment(day=entry.date); db.add(assignment)
                 assignment.routine_id = created[entry.routine_index].id
         else: raise HTTPException(422, "Unsupported proposal operation")
@@ -761,7 +949,7 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
 def reject_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     proposal = db.get(AIChangeProposal, proposal_id)
     conversation = db.get(AIConversation, proposal.conversation_id) if proposal else None
-    if not proposal or not conversation or conversation.owner_scope != actor.owner_scope: raise HTTPException(404, "Proposal not found")
+    if not proposal or not conversation: raise HTTPException(404, "Proposal not found")
     if proposal.status == "rejected": return saved_response(ai_proposal_out(proposal))
     if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
     proposal.status = "rejected"; proposal.resolved_at = datetime.utcnow(); db.commit(); db.refresh(proposal)

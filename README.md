@@ -29,6 +29,23 @@ GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
+### Configure Google sign-in
+
+Create a Google OAuth client with application type **Web application**. Add
+`http://localhost:5173` (and each deployed frontend URL) under **Authorized
+JavaScript origins**, then configure the same client ID for the frontend and
+backend:
+
+```dotenv
+VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+ALLOWED_EMAILS=you@example.com
+```
+
+`ALLOWED_EMAILS` accepts a comma-separated list. The API verifies every Google
+ID token and rejects accounts outside this allowlist. `/api/v1/health` remains
+public for deployment health checks.
+
 The backend reads these settings from its process environment. Before starting
 it directly with Uvicorn, load them from the project-level `.env` file:
 
@@ -100,6 +117,46 @@ npm run dev -- --host
 
 Open the Network address Vite prints on your phone. The app will now automatically call the API on the same computer, using port 8000.
 
-## Deploying
+## Production deployment (Docker/VPS)
 
-The frontend needs a reachable FastAPI deployment; Vite only serves the interface. Set `VITE_API_URL` to the deployed API's `/api/v1` address before building the frontend. Copy `.env.example` to `.env` and replace the example URL.
+The production stack serves the frontend and API from one HTTPS origin. Nginx
+serves the Vite build on `127.0.0.1:8080` and proxies `/api/v1` to a single
+FastAPI worker. Put a TLS terminator such as Caddy, Traefik, or Cloudflare in
+front of port 8080; do not expose the backend container directly.
+
+1. Copy `.env.example` to `.env` and set `PUBLIC_ORIGIN` and
+   `ALLOWED_ORIGINS` to the exact public HTTPS origin, without a trailing slash.
+2. Set the same Google Web client ID in `GOOGLE_CLIENT_ID` and
+   `VITE_GOOGLE_CLIENT_ID`. Add the public origin to Google's authorized
+   JavaScript origins.
+3. Set `ALLOWED_EMAILS` to the comma-separated accounts that may sign in, plus
+   `GEMINI_API_KEY`. Never commit `.env`.
+4. Run `docker compose up --build -d`, then check
+   `https://your-domain.example/healthz`.
+
+The first backend start runs `alembic upgrade head` against the named
+`workout_data` volume. SQLite is intentionally limited to one Uvicorn worker;
+move to PostgreSQL before adding backend replicas.
+
+### Upgrades, backups, and recovery
+
+Before an upgrade, stop writes and copy `/data/workout_tracker.db` from the
+`workout_data` volume to encrypted backup storage. Then pull the new release
+and run `docker compose up --build -d`; migrations run before the API starts.
+To recover, stop the stack, restore the database file into the volume, and
+start the stack again. Keep backup access restricted because the database
+contains workout, bodyweight, and coach-conversation data.
+
+### Dependency locks and checks
+
+Production Python dependencies are hash-pinned in
+`backend/requirements.lock`; development and audit tools are pinned in
+`backend/requirements-dev.lock`. Regenerate them on Linux/Python 3.12 with:
+
+```text
+uv pip compile backend/requirements.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --output-file backend/requirements.lock
+uv pip compile backend/requirements-dev.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --output-file backend/requirements-dev.lock
+```
+
+CI runs frontend tests, lint, production builds, npm and Python vulnerability
+audits, backend tests, migrations, and both container builds.

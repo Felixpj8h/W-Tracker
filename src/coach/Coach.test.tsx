@@ -57,6 +57,18 @@ describe('Coach proposal card', () => {
     expect(html).toContain('2026-09-29: Legs');
   });
 
+  it('uses catalogue names supplied with a program proposal', () => {
+    const html = renderToStaticMarkup(<ProposalCard
+      proposal={{ id: 8, operation: 'create_training_program', summary: 'Build full body', status: 'pending', target_routine_id: null, created_at: '2026-09-22', exercise_names_by_id: { '57': 'Barbell Bench Press' }, payload: {
+        folder_name: 'Full body', routines: [{ name: 'Full Body A', exercises: [{ exercise_id: 57, planned_sets: 3, target_reps_min: 8, target_reps_max: 12, rest_seconds: 90 }] }], dates: [],
+      } }}
+      coach={{ outdated: {}, pending: {}, resolve: async () => undefined } as unknown as CoachController}
+      id={1} folders={[]} plan={null}
+    />);
+    expect(html).toContain('Barbell Bench Press');
+    expect(html).not.toContain('Exercise #57');
+  });
+
   it('opens a readable dialog and closes it with Escape', async () => {
     render(<ProposalCard
       proposal={{ id: 4, operation: 'create_routine', payload: { name: 'Push', exercises: [] }, summary: 'Add Push', status: 'applied', target_routine_id: null, created_at: '2026-09-22' }}

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Coach } from './coach/Coach';
 import { useCoachController } from './coach/useCoachController';
+import { authHeaders, setGoogleIdToken } from './auth';
+import { profileFromSession } from './profile';
+import type { UserProfile } from './profile';
 import './App.css';
 import './routine.css';
 import './logger.css';
@@ -93,6 +96,7 @@ type Dash = {
 };
 type Page = 'dashboard' | 'routines' | 'workout' | 'coach' | 'calendar' | 'history';
 const API = import.meta.env.VITE_API_URL ?? '/api/v1';
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const ACTIVE_WORKOUT_KEY = 'workout-active-session';
 const today = () => new Date().toISOString().slice(0, 10);
 const fieldValue = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
@@ -136,7 +140,8 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     if (optimisticWorkoutDelete) window.dispatchEvent(new CustomEvent('optimistic-workout-delete', { detail: { id: Number(optimisticWorkoutDelete), deleted: true } }));
     let failed = false;
     try {
-        const response = await fetch(API + path, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...opts });
+        const response = await fetch(API + path, { ...opts, cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
+        if (response.status === 401) window.dispatchEvent(new Event('google-auth-expired'));
         if (!response.ok) throw Error('Could not reach the tracker server');
         const payload = await response.json();
         // A successful HTTP response is sufficient for older API versions that
@@ -203,7 +208,7 @@ catch {
 } setPage('workout'); }; const chooseWorkout = () => { setEditingHistory(false); setWorkout(null); setPage('workout'); }; const startAdHoc = async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setEditingHistory(false); setWorkout(draft); setPage('workout'); }; const editHistory = (x: Workout) => { setEditingHistory(Boolean(x.completed)); setWorkout(x); setPage('workout'); }; return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={p => { if (p === 'workout')
     setWorkout(null); setEditingHistory(false); setPage(p); }} dark={dark} setDark={setDark}/><main className="workspace">{error && <div className="error">{error} — start the FastAPI server to save data.</div>}{message && <div className="toast">{message}</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} log={chooseWorkout} saveWeight={async (weight, recordedOn) => { await api('/bodyweight', { method: 'POST', body: JSON.stringify({ recorded_on: recordedOn ?? today(), weight }) }); await load(); note('Bodyweight saved'); }}/>}{page === 'routines' && <Routines folders={folders} refresh={load} start={start} note={note}/>} {page === 'workout' && <Logger workout={workout} folders={folders} active={active} start={start} startAdHoc={startAdHoc} setWorkout={setWorkout} editing={editingHistory} finish={async (x) => { const completed = await api<Workout>(`/workouts/${x.id}`, { method: 'PUT', body: JSON.stringify(x) }); await load(); note(`Workout finished · ${duration(completed.duration_seconds)}`); setWorkout(null); setEditingHistory(false); setPage('dashboard'); }} saveEdit={async (x) => { await api(`/workouts/${x.id}`, { method: 'PATCH', body: JSON.stringify(x) }); await load(); note('Workout updated'); setWorkout(null); setEditingHistory(false); setPage('history'); }}/>}{page === 'history' && <History data={history} edit={editHistory} refresh={load} note={note}/>}</main><div className="mobile">{(['dashboard', 'routines', 'workout', 'history'] as Page[]).map(x => <button key={x} onClick={() => { if (x === 'workout')
     setWorkout(null); setPage(x); }}>{x === 'dashboard' ? '⌂' : x === 'routines' ? '▤' : x === 'workout' ? '＋' : '◷'}<small>{x}</small></button>)}</div></div>; }
-export default function App() {
+export function WorkoutApp({ user }: { user: UserProfile }) {
     const [initialWorkout] = useState<Workout | null>(storedWorkout);
     const [page, setPage] = useState<Page>(() => initialWorkout ? 'workout' : 'dashboard'), [dash, setDash] = useState<Dash | null>(null), [folders, setFolders] = useState<Folder[]>([]), [history, setHistory] = useState<Workout[]>([]), [historyLoaded, setHistoryLoaded] = useState(false), [active, setActive] = useState<Workout[]>([]), [calendarMonths, setCalendarMonths] = useState<Record<string, CalendarMonth>>({}), [loadErrors, setLoadErrors] = useState<Partial<Record<'dashboard' | 'folders' | 'history' | 'active' | 'calendar', string>>>({}), [workout, setWorkout] = useState<Workout | null>(initialWorkout), [editing, setEditing] = useState(false), [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light');
     const optimisticWeights = useRef(new Map<string, number>());
@@ -232,7 +237,7 @@ export default function App() {
     const finish = async (entry: Workout) => { const wasEditing = editing; setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const cancelWorkout = async (entry: Workout) => { if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage('dashboard'); if (entry.id) void api(`/workouts/${entry.id}`, { method: 'DELETE' }).then(async () => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(entry.performed_on); }).catch(() => { setActive(current => current.some(item => item.id === entry.id) ? current : [...current, entry]); localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const pageError = page === 'coach' ? undefined : page === 'dashboard' ? loadErrors.dashboard : page === 'routines' ? loadErrors.folders : page === 'history' ? loadErrors.history : page === 'calendar' ? loadErrors.calendar : loadErrors.active || loadErrors.folders;
-    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} log={() => setPage('workout')} saveWeight={async (weight, recordedOn) => {
+    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Side page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)} user={user}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} log={() => setPage('workout')} saveWeight={async (weight, recordedOn) => {
         const date = recordedOn ?? today();
         const previousWeight = dash?.weight_series.find(entry => entry.recorded_on === date)?.weight;
         optimisticWeights.current.set(date, weight);
@@ -252,9 +257,93 @@ export default function App() {
         }
     }}/>} {page === 'coach' && <Coach coach={coach} folders={folders} plan={calendarMonths[currentCalendarKey]?.plan ?? null}/>} {page === 'routines' && <Routines folders={folders} refresh={loadFolders} start={start} note={() => undefined}/>} {page === 'calendar' && <Calendar folders={folders} history={history} months={calendarMonths} loadMonth={loadCalendar} onWorkoutSaved={date => refreshWorkoutData(date)} start={start}/>} {page === 'workout' && <Logger workout={workout} folders={folders} active={active} start={start} startAdHoc={async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setWorkout(draft); setEditing(false); }} setWorkout={setWorkout} editing={editing} finish={finish} saveEdit={finish} cancel={cancelWorkout}/>} {page === 'history' && <History data={history} edit={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} refresh={loadHistory} note={() => undefined}/>}</main><div className="mobile">{(['dashboard', 'routines', 'workout', 'coach'] as Page[]).map(item => <button key={item} className={page === item ? 'active' : ''} onClick={() => { if (item !== 'workout') { setWorkout(null); setEditing(false); } setMoreOpen(false); setPage(item); }}>{item === 'dashboard' ? '⌂' : item === 'routines' ? '▤' : item === 'workout' ? '＋' : '✦'}<small>{item === 'workout' ? 'Log' : item}</small>{item === 'coach' && Object.values(coach.streaming).some(Boolean) && <i className="coach-dot"/>}</button>)}<button className={moreOpen || page === 'calendar' || page === 'history' ? 'active' : ''} onClick={() => setMoreOpen(value => !value)}>•••<small>More</small></button></div>{moreOpen && <div className="more-wrap"><button className="more-backdrop" aria-label="Close More menu" onClick={() => setMoreOpen(false)}/><div className="more-sheet" role="dialog" aria-label="More"><button onClick={() => { setPage('calendar'); setMoreOpen(false); }}>□ Calendar</button><button onClick={() => { setPage('history'); setMoreOpen(false); }}>◷ History</button><label className="switch"><input type="checkbox" checked={dark} onChange={event => setDark(event.target.checked)}/><span/>Dark mode</label></div></div>}</div>;
 }
-function Side({ page, setPage, dark, setDark, coachActive = false }: { page: Page; setPage: (page: Page) => void; dark: boolean; setDark: (value: boolean) => void; coachActive?: boolean }) {
+
+export default function App() {
+    const [token, setToken] = useState('');
+    const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [googleReady, setGoogleReady] = useState(false);
+    const [checking, setChecking] = useState(false);
+    const [authError, setAuthError] = useState('');
+    const googleButton = useRef<HTMLDivElement>(null);
+    const signOut = useCallback(() => {
+        window.google?.accounts.id.disableAutoSelect();
+        setGoogleIdToken('');
+        setToken('');
+        setProfile(null);
+        setChecking(false);
+    }, []);
+
+    useEffect(() => {
+        window.addEventListener('google-auth-expired', signOut);
+        window.addEventListener('google-sign-out', signOut);
+        return () => {
+            window.removeEventListener('google-auth-expired', signOut);
+            window.removeEventListener('google-sign-out', signOut);
+        };
+    }, [signOut]);
+
+    useEffect(() => {
+        if (token) return;
+        if (!GOOGLE_CLIENT_ID) {
+            setAuthError('Google sign-in is not configured. Add VITE_GOOGLE_CLIENT_ID to your environment.');
+            return;
+        }
+        const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+        const script = existing ?? document.createElement('script');
+        const initialize = () => {
+            if (!window.google) return;
+            window.google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: async response => {
+                    setChecking(true);
+                    setAuthError('');
+                    setGoogleIdToken(response.credential);
+                    try {
+                        const validation = await fetch(`${API}/session`, { headers: authHeaders() });
+                        const body = await validation.json().catch(() => null) as { detail?: string; email?: string; name?: string; given_name?: string } | null;
+                        if (!validation.ok) throw new Error(body?.detail ?? 'This Google account cannot access the workout tracker.');
+                        const authenticatedProfile = profileFromSession(body ?? {});
+                        if (!authenticatedProfile.email) throw new Error('Google did not return an email address for this account.');
+                        setProfile(authenticatedProfile);
+                        setToken(response.credential);
+                    } catch (error) {
+                        setGoogleIdToken('');
+                        setAuthError(error instanceof Error ? error.message : 'Google sign-in failed.');
+                    } finally {
+                        setChecking(false);
+                    }
+                },
+            });
+            setGoogleReady(true);
+        };
+        script.addEventListener('load', initialize);
+        script.addEventListener('error', () => setAuthError('Could not load Google sign-in. Check your connection.'));
+        if (!existing) {
+            script.src = 'https://accounts.google.com/gsi/client';
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+        } else initialize();
+        return () => script.removeEventListener('load', initialize);
+    }, [token]);
+
+    useEffect(() => {
+        if (token || !googleReady || checking || !window.google || !googleButton.current) return;
+        googleButton.current.replaceChildren();
+        window.google.accounts.id.renderButton(googleButton.current, {
+            type: 'standard', theme: 'filled_black', size: 'large', text: 'continue_with',
+            shape: 'rectangular', logo_alignment: 'left', width: Math.min(360, Math.max(280, googleButton.current.clientWidth || 360)),
+        });
+    }, [checking, googleReady, token]);
+
+    if (token && profile) return <WorkoutApp user={profile}/>;
+    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <p className="auth-error" role="alert">{authError}</p>}</section></main>;
+}
+
+function Side({ page, setPage, dark, setDark, user, coachActive = false }: { page: Page; setPage: (page: Page) => void; dark: boolean; setDark: (value: boolean) => void; user?: UserProfile; coachActive?: boolean }) {
     const links: [Page, string, string][] = [['dashboard', '▦', 'Dashboard'], ['routines', '▤', 'Routines'], ['workout', '＋', 'Log workout'], ['coach', '✦', 'Coach'], ['calendar', '□', 'Calendar'], ['history', '◷', 'History']];
-    return <aside className="sidebar"><div className="brand"><b>W</b><span>workout<br />tracker</span></div><div className="person"><i>F</i><div><b>My training</b><small>Personal workspace</small></div></div><nav className="side-nav">{links.map(([id, icon, label]) => <button key={id} className={`side-link ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}><i>{icon}</i><span>{label}</span>{id === "coach" && coachActive && <span className="coach-dot"/>}</button>)}</nav><footer><label className="switch"><input type="checkbox" checked={dark} onChange={event => setDark(event.target.checked)}/><span />Dark mode</label><small>Built for the work.</small></footer></aside>;
+    const label = user?.name || user?.firstName || 'My training';
+    return <aside className="sidebar"><div className="brand"><b>W</b><span>workout<br />tracker</span></div><div className="person"><i>{(user?.firstName || 'M').charAt(0).toLocaleUpperCase()}</i><div><b>{label}</b><small>Personal workspace</small></div></div><nav className="side-nav">{links.map(([id, icon, linkLabel]) => <button key={id} className={`side-link ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}><i>{icon}</i><span>{linkLabel}</span>{id === "coach" && coachActive && <span className="coach-dot"/>}</button>)}</nav><footer><label className="switch"><input type="checkbox" checked={dark} onChange={event => setDark(event.target.checked)}/><span />Dark mode</label><button className="sign-out" type="button" onClick={() => window.dispatchEvent(new Event('google-sign-out'))}>Sign out</button><small>Built for the work.</small></footer></aside>;
 }
 export function LegacySide({ page, setPage, dark, setDark }: {
     page: Page;
@@ -278,14 +367,14 @@ function Head({ children, action }: {
     children: React.ReactNode;
     action?: React.ReactNode;
 }) { return <header className="head"><div>{children}</div>{action}</header>; }
-function DashboardGreeting({ dash, history, historyLoaded, calendar }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth }) {
-    const greeting = 'Hello Felix.';
+function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth; firstName: string }) {
+    const greeting = `Hello ${firstName}.`;
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const todayPlan = calendar?.days.find(day => day.date === date);
     const completedWorkouts = history.filter(entry => entry.completed);
     const calendarMessage = (() => {
-        if (todayPlan === undefined) return 'Hello Felix.';
+        if (todayPlan === undefined) return greeting;
         if (todayPlan === null) return 'Enjoy the rest day.';
         if (todayPlan.status === 'completed') return `Today’s ${todayPlan.workout_name ?? todayPlan.routine_name ?? 'workout'} is complete. Great work!`;
         return todayPlan.routine_name ? `Ready for today’s ${todayPlan.routine_name} workout?` : 'Enjoy the rest day.';
@@ -342,11 +431,12 @@ function DashboardGreeting({ dash, history, historyLoaded, calendar }: { dash: D
     }, [backendReady, factKey, greeting]);
     return <p className="dashboard-greeting" aria-live="polite">{backendReady && <><span>{text}</span><i aria-hidden="true" /></>}</p>;
 }
-function LegacyDashboard({ dash, history, historyLoaded, calendar, log, saveWeight }: {
+function LegacyDashboard({ dash, history, historyLoaded, calendar, firstName, log, saveWeight }: {
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
     calendar?: CalendarMonth;
+    firstName: string;
     log: () => void;
     saveWeight: (n: number, recordedOn?: string) => Promise<void>;
 }) {
@@ -400,16 +490,16 @@ function LegacyDashboard({ dash, history, historyLoaded, calendar, log, saveWeig
         ? volumeGroups.map(group => ({ name: group.name, current: group.current_week_volume, previous: group.last_week_volume }))
         : muscleSets.map(muscle => ({ name: muscle.name, current: muscle.current_week_sets, previous: muscle.last_week_sets }));
     const max = Math.max(1, ...rows.flatMap(row => [row.current, row.previous]));
-    return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">DASHBOARD</p><h1>Training overview</h1></Head><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar}/><div className="dash-tabs" role="tablist"><button className={panel === 'overview' ? 'active' : ''} onClick={() => setPanel('overview')}>Overview</button><button className={panel === 'weight' ? 'active' : ''} onClick={() => setPanel('weight')}>Weight</button><button className={panel === 'volume' ? 'active' : ''} onClick={() => setPanel('volume')}>Volume</button></div><div className={`dashboard-panels panel-${panel}`}><section className="stats dashboard-overview"><Stat label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={dash?.latest_weight ? 'Latest tracked entry' : 'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume ?? 0)} kg`} sub={dash?.total_previous_volume ? `${Math.round(((dash.total_current_volume - dash.total_previous_volume) / dash.total_previous_volume) * 100)}% vs last week` : 'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume ?? 0)} kg`} sub="Completed load volume"/></section><section className="grid"><BodyweightCard dash={dash} saveWeight={saveWeight}/><article className="card dashboard-volume"><div className="muscle-card-head"><Title n="02" text={muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}/><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} onClick={() => setMuscleMetric('sets')}>Sets</button></div></div><div className="legend"><span><i />This week</span><span><i />Last week</span></div>{rows.length ? rows.map(row => <div className="bar" key={`${muscleMetric}-${row.name}`}><div><b>{row.name}</b><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${row.current} sets`}</span></div><div><i style={{ width: `${row.current / max * 100}%` }}/><i style={{ width: `${row.previous / max * 100}%` }}/></div></div>) : <div className="empty">Complete a workout to see sets by muscle.</div>}</article></section></div></>;
+    return <><Head action={<button className="primary" onClick={log}>Log a workout <b>→</b></button>}><p className="overline">DASHBOARD</p><h1>Training overview</h1></Head><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/><div className="dash-tabs" role="tablist"><button className={panel === 'overview' ? 'active' : ''} onClick={() => setPanel('overview')}>Overview</button><button className={panel === 'weight' ? 'active' : ''} onClick={() => setPanel('weight')}>Weight</button><button className={panel === 'volume' ? 'active' : ''} onClick={() => setPanel('volume')}>Volume</button></div><div className={`dashboard-panels panel-${panel}`}><section className="stats dashboard-overview"><Stat label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={dash?.latest_weight ? 'Latest tracked entry' : 'Add your first entry'}/><Stat label="This week’s volume" value={`${vol(dash?.total_current_volume ?? 0)} kg`} sub={dash?.total_previous_volume ? `${Math.round(((dash.total_current_volume - dash.total_previous_volume) / dash.total_previous_volume) * 100)}% vs last week` : 'No completed sessions yet'}/><Stat label="Last week’s volume" value={`${vol(dash?.total_previous_volume ?? 0)} kg`} sub="Completed load volume"/></section><section className="grid"><BodyweightCard dash={dash} saveWeight={saveWeight}/><article className="card dashboard-volume"><div className="muscle-card-head"><Title n="02" text={muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}/><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} onClick={() => setMuscleMetric('sets')}>Sets</button></div></div><div className="legend"><span><i />This week</span><span><i />Last week</span></div>{rows.length ? rows.map(row => <div className="bar" key={`${muscleMetric}-${row.name}`}><div><b>{row.name}</b><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${row.current} sets`}</span></div><div><i style={{ width: `${row.current / max * 100}%` }}/><i style={{ width: `${row.previous / max * 100}%` }}/></div></div>) : <div className="empty">Complete a workout to see sets by muscle.</div>}</article></section></div></>;
 }
-function Dashboard({ dash, history, historyLoaded = false, calendar, log, saveWeight }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; log: () => void; saveWeight: (n: number, recordedOn?: string) => Promise<void> }) {
+function Dashboard({ dash, history, historyLoaded = false, calendar, firstName = 'Athlete', log, saveWeight }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; firstName?: string; log: () => void; saveWeight: (n: number, recordedOn?: string) => Promise<void> }) {
     const dashboardRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const workspace = dashboardRef.current?.closest('main');
         workspace?.classList.add('dashboard-workspace');
         return () => workspace?.classList.remove('dashboard-workspace');
     }, []);
-    return <div className="dashboard-shell" ref={dashboardRef}><LegacyDashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} log={log} saveWeight={saveWeight}/></div>;
+    return <div className="dashboard-shell" ref={dashboardRef}><LegacyDashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName} log={log} saveWeight={saveWeight}/></div>;
 }
 type BodyMapMuscle = { id: number; name: string; volume: number; intensity: number; is_front: boolean; image_url: string; role?: 'primary' | 'secondary' | 'tertiary' };
 const WGER_BODY_BASE = {
@@ -583,7 +673,7 @@ function Logger({ workout, folders, active, start, startAdHoc, setWorkout, editi
             const current = latestWorkout.current;
             if (!current?.id || current.completed) return;
             localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(current));
-            void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(current), keepalive: true }).catch(() => undefined);
+            void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(current), keepalive: true }).catch(() => undefined);
         };
         const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); };
         document.addEventListener('visibilitychange', onVisibilityChange);

@@ -44,11 +44,11 @@ def _proposal(db, conversation_id: int, message_id: int | None, operation: str, 
     return {"proposal_id": item.id, "operation": operation, "summary": item.summary, "reasoning": item.reasoning, "status": item.status}
 
 
-def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_id: int | None, owner_scope: str = "local") -> dict:
+def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_id: int | None, owner_email: str) -> dict:
     from . import main
-    with main.SessionLocal() as db:
+    with main.SessionLocal(info={"owner_email": owner_email}) as db:
         conversation = db.get(main.AIConversation, conversation_id)
-        if not conversation or conversation.owner_scope != owner_scope:
+        if not conversation:
             return {"error": "Conversation not found"}
         try:
             if name == "list_routines":

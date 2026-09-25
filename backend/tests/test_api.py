@@ -14,7 +14,7 @@ from app.main import Base, app, group_for
 _test_database = tempfile.TemporaryDirectory(prefix="w-tracker-api-tests-")
 engine = create_engine(f"sqlite:///{Path(_test_database.name) / 'workout_tracker.db'}", connect_args={"check_same_thread": False})
 main_module.engine = engine
-main_module.SessionLocal = sessionmaker(bind=engine, autoflush=False)
+main_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -24,6 +24,7 @@ def _close_test_database():
     _test_database.cleanup()
 
 app.state.disable_catalogue_refresh = True
+app.state.disable_auth = True
 client = TestClient(app)
 
 
@@ -40,6 +41,7 @@ def test_all_wger_muscles_map_to_dashboard_groups():
 
 
 def reset_db():
+    main_module.RATE_LIMIT_BUCKETS.clear()
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     app.router.on_startup[0]()
@@ -158,7 +160,7 @@ def test_background_catalogue_refresh_uses_its_own_session_and_starts_once(monke
             calls.append("rollback")
 
     fake_session = FakeSession()
-    monkeypatch.setattr(main_module, "SessionLocal", lambda: fake_session)
+    monkeypatch.setattr(main_module, "SessionLocal", lambda **_kwargs: fake_session)
     def refresh(db):
         calls.append(db)
         started.set()
@@ -186,7 +188,7 @@ def test_background_catalogue_failure_is_contained(monkeypatch):
         def rollback(self): self.rolled_back = True
 
     session = FailingSession()
-    monkeypatch.setattr(main_module, "SessionLocal", lambda: session)
+    monkeypatch.setattr(main_module, "SessionLocal", lambda **_kwargs: session)
     monkeypatch.setattr(main_module, "sync_wger_catalogue", lambda _db: (_ for _ in ()).throw(ValueError("bad catalogue")))
 
     main_module.refresh_wger_catalogue_background()
@@ -261,13 +263,72 @@ def test_ai_retry_reuses_latest_user_message(monkeypatch):
     del app.state.gemini_client_factory
 
 
+def test_authentication_fails_closed(monkeypatch):
+    reset_db()
+    app.state.disable_auth = False
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "client.apps.googleusercontent.com")
+    monkeypatch.setenv("ALLOWED_EMAILS", "allowed@example.com")
+    try:
+        assert client.get("/api/v1/session").status_code == 401
+
+        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: (_ for _ in ()).throw(ValueError("bad audience")))
+        assert client.get("/api/v1/session", headers={"Authorization": "Bearer invalid"}).status_code == 401
+
+        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "allowed@example.com", "email_verified": False})
+        assert client.get("/api/v1/session", headers={"Authorization": "Bearer token"}).status_code == 403
+
+        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "other@example.com", "email_verified": True})
+        assert client.get("/api/v1/session", headers={"Authorization": "Bearer token"}).status_code == 403
+
+        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "allowed@example.com", "email_verified": True, "name": "Allowed Person", "given_name": "Allowed"})
+        response = client.get("/api/v1/session", headers={"Authorization": "Bearer token"})
+        assert response.status_code == 200
+        assert response.json() == {"email": "allowed@example.com", "name": "Allowed Person", "given_name": "Allowed"}
+
+        monkeypatch.delenv("GOOGLE_CLIENT_ID")
+        assert client.get("/api/v1/session", headers={"Authorization": "Bearer token"}).status_code == 503
+    finally:
+        app.state.disable_auth = True
+
+
+def test_personal_data_is_isolated_between_allowlisted_users():
+    reset_db()
+    app.state.test_user_email = "alice@example.com"
+    folder = client.post("/api/v1/folders", json={"name": "Alice"}).json()
+    conversation = client.post("/api/v1/ai/conversations", json={"title": "Private"}).json()
+    client.post("/api/v1/bodyweight", json={"recorded_on": str(main_module.date.today()), "weight": 70})
+
+    app.state.test_user_email = "bob@example.com"
+    try:
+        assert client.get("/api/v1/folders").json() == []
+        assert client.get("/api/v1/bodyweight").json() == []
+        assert client.get("/api/v1/ai/conversations").json() == []
+        assert client.delete(f"/api/v1/folders/{folder['id']}").status_code == 404
+        assert client.get(f"/api/v1/ai/conversations/{conversation['id']}").status_code == 404
+    finally:
+        app.state.test_user_email = "test@example.com"
+
+
+def test_request_size_and_rate_limit_responses_include_expected_metadata(monkeypatch):
+    reset_db()
+    too_large = client.post("/api/v1/folders", content=b"{}", headers={"Content-Length": "1048577"})
+    assert too_large.status_code == 413
+
+    monkeypatch.setattr(main_module, "_rate_limit", lambda *_args, **_kwargs: 17)
+    limited = client.get("/api/v1/folders")
+    assert limited.status_code == 429
+    assert limited.headers["Retry-After"] == "17"
+
+
 def test_ai_routine_proposal_requires_confirmation():
     reset_db()
     from app.tools import execute_tool
     conversation = client.post("/api/v1/ai/conversations", json={"title": "Plan changes"}).json()
     exercise = client.get("/api/v1/exercises").json()[0]
-    result = execute_tool("propose_create_routine", {"routine": {"name": "AI Push", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3, "target_reps_min": 8, "target_reps_max": 12, "rest_seconds": 90}]}, "summary": "Create a push routine"}, conversation["id"], None)
+    result = execute_tool("propose_create_routine", {"routine": {"name": "AI Push", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3, "target_reps_min": 8, "target_reps_max": 12, "rest_seconds": 90}]}, "summary": "Create a push routine"}, conversation["id"], None, "test@example.com")
     assert result["status"] == "pending"
+    detail = client.get(f"/api/v1/ai/conversations/{conversation['id']}").json()
+    assert detail["proposals"][0]["exercise_names_by_id"][str(exercise["id"])] == exercise["name"]
     assert all(routine["name"] != "AI Push" for folder in client.get("/api/v1/folders").json() for routine in folder["routines"])
     applied = client.post(f"/api/v1/ai/proposals/{result['proposal_id']}/confirm")
     assert applied.status_code == 200
@@ -284,9 +345,9 @@ def test_ai_reject_and_stale_routine_proposal():
     routine = client.post("/api/v1/routines", json={"name": "Original", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3}]}).json()
     conversation = client.post("/api/v1/ai/conversations", json={"title": "Changes"}).json()
     args = {"routine_id": routine["id"], "routine": {"name": "Revised", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 4}]}, "summary": "Increase volume"}
-    rejected = execute_tool("propose_update_routine", args, conversation["id"], None)
+    rejected = execute_tool("propose_update_routine", args, conversation["id"], None, "test@example.com")
     assert client.post(f"/api/v1/ai/proposals/{rejected['proposal_id']}/reject").json()["status"] == "rejected"
-    stale = execute_tool("propose_update_routine", args, conversation["id"], None)
+    stale = execute_tool("propose_update_routine", args, conversation["id"], None, "test@example.com")
     client.put(f"/api/v1/routines/{routine['id']}", json={"name": "Manual edit", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 2}]})
     response = client.post(f"/api/v1/ai/proposals/{stale['proposal_id']}/confirm")
     assert response.status_code == 409

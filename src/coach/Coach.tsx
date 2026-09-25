@@ -6,6 +6,7 @@ import type { CoachController } from './useCoachController';
 import type { Proposal } from './types';
 import { exerciseChange, exerciseId, exerciseRemoved, prescriptionChanged } from './proposal';
 import { proposalsForMessage } from './timeline';
+import { authHeaders } from '../auth';
 import './coach.css';
 
 type Folder = { id: number; name: string; routines: { id: number; name: string; folder_id?: number | null; exercises: { exercise_id?: number; exercise?: { id: number; name: string }; planned_sets?: number; target_reps_min?: number; target_reps_max?: number; target_weight?: number; rest_seconds?: number }[] }[] };
@@ -65,7 +66,7 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     const unresolved = exercises.some(item => typeof item.exercise_id === 'number' && !known.has(item.exercise_id) && !catalogue[item.exercise_id]);
     if (!unresolved) return;
     let alive = true;
-    void fetch(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/exercises`).then(response => response.json()).then((items: { id: number; name: string }[]) => {
+    void fetch(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/exercises`, { headers: authHeaders() }).then(response => response.json()).then((items: { id: number; name: string }[]) => {
       if (alive) setCatalogue(Object.fromEntries(items.map(item => [item.id, item.name])));
     }).catch(() => undefined);
     return () => { alive = false; };
@@ -76,7 +77,7 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     const id = exerciseId(item);
     const reps = item.target_reps_min === item.target_reps_max ? item.target_reps_min : `${item.target_reps_min ?? '—'}–${item.target_reps_max ?? '—'}`;
     const nested = item.exercise as { name?: string } | undefined;
-    const name = nested?.name ?? (id === null ? 'Unknown exercise' : known.get(id) ?? catalogue[id] ?? `Exercise #${id}`);
+    const name = nested?.name ?? (id === null ? 'Unknown exercise' : known.get(id) ?? proposal.exercise_names_by_id?.[String(id)] ?? catalogue[id] ?? `Exercise #${id}`);
     return `${name} · ${item.planned_sets ?? '—'} sets × ${reps} reps${item.target_weight ? ` · ${item.target_weight} kg` : ''} · ${item.rest_seconds ?? 90}s rest`;
   };
   const proposedFolderId = data.folder_id === null && data._folder_id_explicit !== true && target ? target.folder_id : data.folder_id;
