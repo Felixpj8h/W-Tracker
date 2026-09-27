@@ -162,6 +162,7 @@ class WeeklyPlanDay(Base):
 
 
 class CalendarAssignment(OwnedRecord, Base):
+    workout_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     __tablename__ = "calendar_assignments"
     id: Mapped[int] = mapped_column(primary_key=True)
     day: Mapped[date] = mapped_column(Date)
@@ -629,6 +630,9 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN target_reps_max INTEGER")
         if "rest_seconds" not in columns:
             connection.exec_driver_sql("ALTER TABLE routine_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
+        assignment_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(calendar_assignments)")}
+        if "workout_override" not in assignment_columns:
+            connection.exec_driver_sql("ALTER TABLE calendar_assignments ADD COLUMN workout_override TEXT")
         routine_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(routines)")}
         if "version" not in routine_columns:
             connection.exec_driver_sql("ALTER TABLE routines ADD COLUMN version INTEGER DEFAULT 1")
@@ -1055,10 +1059,17 @@ def delete_routine(routine_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/v1/routines/{routine_id}/start")
-def start_routine(routine_id: int, db: Session = Depends(get_db)):
+def start_routine(routine_id: int, day: Optional[date] = None, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
-    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=date.today(), started_at=datetime.utcnow())
+    assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day)) if day else None
+    if assignment and assignment.routine_id == routine_id and assignment.workout_override:
+        payload = RoutineIn.model_validate_json(assignment.workout_override)
+        routine = Routine(id=routine_id)
+        populate_routine(routine, payload, db)
+        for item in routine.exercises:
+            item.exercise = db.get(Exercise, item.exercise_id)
+    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=day or date.today(), started_at=datetime.utcnow())
     for pos, item in enumerate(routine.exercises):
         workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos, rest_seconds=item.rest_seconds)
         workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
@@ -1171,6 +1182,31 @@ def save_weekly_plan(payload: WeeklyPlanIn, db: Session = Depends(get_db)):
     return saved_response(weekly_plan_out(plan))
 
 
+@app.put("/api/v1/calendar/{day}/routine/{routine_id}")
+def save_planned_workout(day: date, routine_id: int, payload: RoutineIn, db: Session = Depends(get_db)):
+    if not db.get(Routine, routine_id):
+        raise HTTPException(404, "Routine not found")
+    populate_routine(Routine(), payload, db)
+    assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
+    if not assignment:
+        assignment = CalendarAssignment(day=day, routine_id=routine_id)
+        db.add(assignment)
+    assignment.routine_id = routine_id
+    assignment.workout_override = payload.model_dump_json()
+    db.commit()
+    return {"saved": True}
+
+
+def planned_override(assignment, db):
+    if not isinstance(assignment, CalendarAssignment) or not assignment.workout_override:
+        return None
+    payload = json.loads(assignment.workout_override)
+    return {**payload, "id": assignment.routine_id, "exercises": [
+        {**item, "exercise": exercise_out(db.get(Exercise, item["exercise_id"]))}
+        for item in payload["exercises"]
+    ]}
+
+
 @app.get("/api/v1/calendar")
 def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(get_db)):
     from calendar import monthrange
@@ -1184,7 +1220,7 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
         day = first + timedelta(days=offset)
         scheduled = assignments.get(day) or (planned.get(day.weekday()) if plan and day >= plan.starts_on else None)
         workout = completed.get(day)
-        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": scheduled.routine.name if scheduled else None, "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
+        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
 
 

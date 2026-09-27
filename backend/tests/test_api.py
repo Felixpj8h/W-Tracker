@@ -378,3 +378,30 @@ def test_ai_message_rejects_missing_configuration_and_concurrent_turn(monkeypatc
     with main_module.SessionLocal() as db:
         item = db.get(main_module.AIConversation, conversation["id"]); item.status = "generating"; item.updated_at = main_module.datetime.utcnow(); db.commit()
     assert client.post(f"/api/v1/ai/conversations/{conversation['id']}/messages", json={"content": "Review my plan"}).status_code == 409
+
+
+def test_planned_workout_override_is_date_specific_and_does_not_start_session():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    original = {"name": "Original", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3, "target_reps": 8}]}
+    routine = client.post("/api/v1/routines", json=original).json()
+    changed = {"name": "Lighter day", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 2, "target_reps_min": 5, "target_reps_max": 7, "rest_seconds": 120, "target_weight": 20}]}
+    url = f"/api/v1/calendar/2026-09-30/routine/{routine['id']}"
+    assert client.put(url, json=changed).status_code == 200
+    assert client.get("/api/v1/workouts/active").json() == []
+    days = client.get("/api/v1/calendar?year=2026&month=9").json()["days"]
+    selected = next(day for day in days if day["date"] == "2026-09-30")
+    assert selected["routine_name"] == "Lighter day"
+    assert selected["routine_override"]["exercises"][0]["rest_seconds"] == 120
+    assert all(day["routine_override"] is None for day in days if day["date"] != "2026-09-30")
+    started = client.post(f"/api/v1/routines/{routine['id']}/start?day=2026-09-30").json()
+    assert started["name"] == "Lighter day"
+    assert started["performed_on"] == "2026-09-30"
+    assert len(started["exercises"][0]["sets"]) == 2
+    assert started["exercises"][0]["sets"][0]["weight"] == 20
+    normal = client.post(f"/api/v1/routines/{routine['id']}/start?day=2026-10-07").json()
+    assert normal["name"] == "Original"
+    assert len(normal["exercises"][0]["sets"]) == 3
+    changed["exercises"] = []
+    assert client.put(url, json=changed).status_code == 200
+    assert client.post(f"/api/v1/routines/{routine['id']}/start?day=2026-09-30").json()["exercises"] == []
