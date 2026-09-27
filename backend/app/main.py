@@ -104,6 +104,7 @@ class Workout(OwnedRecord, Base):
     name: Mapped[str] = mapped_column(String(120))
     performed_on: Mapped[date] = mapped_column(Date, default=date.today)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -281,7 +282,7 @@ class WorkoutExerciseIn(BaseModel):
 
 
 class WorkoutIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120); performed_on: date; exercises: list[WorkoutExerciseIn] = Field(max_length=100)
+    name: str = Field(min_length=1, max_length=120); performed_on: date; note: Optional[str] = Field(None, max_length=1000); exercises: list[WorkoutExerciseIn] = Field(max_length=100)
 
 
 class WorkoutDraftIn(BaseModel):
@@ -647,6 +648,8 @@ def startup():
         if "exertion" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
         workout_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
+        if "note" not in workout_columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN note VARCHAR(1000)")
         if "started_at" not in workout_columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN started_at DATETIME")
         if "completed_at" not in workout_columns:
@@ -1079,11 +1082,11 @@ def workout_out(workout: Workout) -> dict:
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
         return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
-    return {"id": workout.id, "name": workout.name, "performed_on": workout.performed_on, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
+    return {"id": workout.id, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
 def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
-    workout.name, workout.performed_on = payload.name, payload.performed_on; workout.exercises.clear()
+    workout.name, workout.performed_on, workout.note = payload.name, payload.performed_on, payload.note; workout.exercises.clear()
     for pos, item in enumerate(payload.exercises):
         cached = db.get(Exercise, item.exercise_id) if item.exercise_id else None
         if item.exercise_id and not cached: raise HTTPException(404, "Exercise not found")

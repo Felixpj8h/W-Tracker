@@ -74,6 +74,21 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     assert groups["Chest"] == 1440
 
 
+def test_completed_workout_note_can_be_saved_and_read():
+    reset_db()
+    created = client.post("/api/v1/workouts", json={
+        "name": "Full body", "performed_on": "2026-09-25", "exercises": [],
+    }).json()
+    updated = client.patch(f"/api/v1/workouts/{created['id']}", json={
+        "name": "Full body", "performed_on": "2026-09-25",
+        "note": "Felt strong today", "exercises": [],
+    })
+    assert updated.status_code == 200
+    assert updated.json()["note"] == "Felt strong today"
+    workouts = client.get("/api/v1/workouts").json()
+    assert next(item for item in workouts if item["id"] == created["id"])["note"] == "Felt strong today"
+
+
 def test_dashboard_counts_sets_for_each_individual_muscle_worked():
     reset_db()
     with main_module.SessionLocal() as db:
