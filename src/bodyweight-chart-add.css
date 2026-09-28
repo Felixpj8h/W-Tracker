@@ -1,0 +1,9 @@
+.dashboard-weight .chart svg { cursor: crosshair; }
+.dashboard-weight .weight-new-point.below { transform: translate(-50%, 12px); }
+.dashboard-weight .weight-new-point.at-start.below { transform: translate(0, 12px); }
+.dashboard-weight .weight-new-point.at-end.below { transform: translate(-100%, 12px); }
+.dashboard-weight .weight-new-point button:disabled { opacity: .6; cursor: wait; }
+.dashboard-weight .weight-new-error { color: #c98b93; font-size: 10px; line-height: 1.3; }
+@media (max-width: 760px) {
+  .dashboard-workspace .dashboard-weight-actions > form:not(.adding) { display: none; }
+}
