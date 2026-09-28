@@ -7,6 +7,8 @@ services:
       DATABASE_URL: sqlite:////data/workout_tracker.db
       ENABLE_API_DOCS: "false"
       ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the HTTPS site origin}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the HTTPS site origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to a random secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID}
       ALLOWED_EMAILS: ${ALLOWED_EMAILS:?Set ALLOWED_EMAILS}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY}

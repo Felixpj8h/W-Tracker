@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections import deque
+import base64
 from datetime import date, datetime, timedelta, timezone
+import hashlib
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
 import re
+import secrets
 import threading
 import time
 from typing import Optional
@@ -40,6 +44,33 @@ CATALOGUE_REFRESH_THREAD: threading.Thread | None = None
 GOOGLE_REQUEST = google_requests.Request()
 RATE_LIMIT_LOCK = threading.Lock()
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+SESSION_COOKIE = "w_tracker_session"
+SESSION_LIFETIME_SECONDS = 24 * 60 * 60
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").encode() or secrets.token_bytes(32)
+
+
+def _session_value(identity: dict[str, str]) -> str:
+    payload = json.dumps({**identity, "expires": int(time.time()) + SESSION_LIFETIME_SECONDS}, separators=(",", ":")).encode()
+    encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    signature = hmac.new(SESSION_SECRET, encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def _session_identity(value: str) -> dict[str, str] | None:
+    try:
+        encoded, signature = value.split(".", 1)
+        expected = hmac.new(SESSION_SECRET, encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        if int(payload["expires"]) <= time.time():
+            return None
+        allowed = {email.strip().lower() for email in os.getenv("ALLOWED_EMAILS", "").split(",") if email.strip()}
+        if payload["email"] not in allowed:
+            return None
+        return {key: str(payload.get(key, "")) for key in ("email", "name", "given_name")}
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return None
 
 
 class Base(DeclarativeBase):
@@ -422,6 +453,17 @@ def authenticate_request(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google sign-in is not configured on the server.")
     authorization = request.headers.get("Authorization", "")
     if not authorization.startswith("Bearer "):
+        identity = _session_identity(request.cookies.get(SESSION_COOKIE, ""))
+        if identity:
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+                origin = request.headers.get("origin", "")
+                public_origin = os.getenv("PUBLIC_ORIGIN", "").rstrip("/")
+                request_origin = f"{request.url.scheme}://{request.url.netloc}"
+                trusted_origins = {public_origin, request_origin, *configured_origins}
+                is_development_origin = bool(development_origin_regex and re.fullmatch(development_origin_regex, origin))
+                if origin not in trusted_origins and not is_development_origin:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid request origin.")
+            return identity
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to use the workout tracker.")
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
@@ -556,7 +598,7 @@ def _rate_limit(email: str, bucket: str, limit: int, window_seconds: int = 60) -
 @app.middleware("http")
 async def require_google_auth(request: Request, call_next):
     is_api = request.url.path.startswith("/api/v1/")
-    is_public = request.url.path == "/api/v1/health" or request.method == "OPTIONS"
+    is_public = request.url.path in {"/api/v1/health", "/api/v1/session/logout"} or request.method == "OPTIONS"
     content_length = request.headers.get("content-length")
     if is_api and content_length and content_length.isdigit() and int(content_length) > 1_048_576:
         return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"detail": "Request body is too large."})
@@ -595,7 +637,10 @@ async def require_google_auth(request: Request, call_next):
                 content={"detail": "Rate limit exceeded."},
                 headers={"Retry-After": str(retry_after)},
             )
-    return await call_next(request)
+    response = await call_next(request)
+    if is_api and request.url.path == "/api/v1/session" and request.headers.get("Authorization", "").startswith("Bearer ") and not getattr(request.app.state, "disable_auth", False):
+        response.set_cookie(SESSION_COOKIE, _session_value(identity), httponly=True, secure=APP_ENV == "production", samesite="lax", path="/api/v1")
+    return response
 
 
 configured_origins = [value.strip().rstrip("/") for value in os.getenv("ALLOWED_ORIGINS", "").split(",") if value.strip()]
@@ -608,7 +653,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_origins,
     allow_origin_regex=development_origin_regex,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
@@ -752,6 +797,13 @@ def session(request: Request):
         "name": getattr(request.state, "user_name", ""),
         "given_name": getattr(request.state, "user_given_name", ""),
     }
+
+
+@app.post("/api/v1/session/logout")
+def logout():
+    response = JSONResponse({"saved": True})
+    response.delete_cookie(SESSION_COOKIE, path="/api/v1")
+    return response
 
 
 def ai_proposal_out(item: AIChangeProposal) -> dict:

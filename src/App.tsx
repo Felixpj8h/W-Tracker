@@ -148,7 +148,7 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     if (optimisticWorkoutDelete) window.dispatchEvent(new CustomEvent('optimistic-workout-delete', { detail: { id: Number(optimisticWorkoutDelete), deleted: true } }));
     let failed = false;
     try {
-        const response = await fetch(API + path, { ...opts, cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
+        const response = await fetch(API + path, { ...opts, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
         if (response.status === 401) window.dispatchEvent(new Event('google-auth-expired'));
         if (!response.ok) throw Error('Could not reach the tracker server');
         const payload = await response.json();
@@ -303,6 +303,7 @@ export default function App() {
     const [googleReady, setGoogleReady] = useState(false);
     const [checking, setChecking] = useState(false);
     const [authError, setAuthError] = useState('');
+    const [restoring, setRestoring] = useState(true);
     const googleButton = useRef<HTMLDivElement>(null);
     const signOut = useCallback(() => {
         window.google?.accounts.id.disableAutoSelect();
@@ -310,6 +311,20 @@ export default function App() {
         setToken('');
         setProfile(null);
         setChecking(false);
+        void fetch(`${API}/session/logout`, { method: 'POST', credentials: 'include' });
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        void fetch(`${API}/session`, { credentials: 'include' }).then(async response => {
+            if (!response.ok) return;
+            const body = await response.json() as { email?: string; name?: string; given_name?: string };
+            if (!cancelled && body.email) {
+                setProfile(profileFromSession(body));
+                setToken('session');
+            }
+        }).catch(() => undefined).finally(() => { if (!cancelled) setRestoring(false); });
+        return () => { cancelled = true; };
     }, []);
 
     useEffect(() => {
@@ -322,7 +337,7 @@ export default function App() {
     }, [signOut]);
 
     useEffect(() => {
-        if (token) return;
+        if (token || restoring) return;
         if (!GOOGLE_CLIENT_ID) {
             setAuthError('Google sign-in is not configured. Add VITE_GOOGLE_CLIENT_ID to your environment.');
             return;
@@ -338,13 +353,14 @@ export default function App() {
                     setAuthError('');
                     setGoogleIdToken(response.credential);
                     try {
-                        const validation = await fetch(`${API}/session`, { headers: authHeaders() });
+                        const validation = await fetch(`${API}/session`, { credentials: 'include', headers: authHeaders() });
                         const body = await validation.json().catch(() => null) as { detail?: string; email?: string; name?: string; given_name?: string } | null;
                         if (!validation.ok) throw new Error(body?.detail ?? 'This Google account cannot access the workout tracker.');
                         const authenticatedProfile = profileFromSession(body ?? {});
                         if (!authenticatedProfile.email) throw new Error('Google did not return an email address for this account.');
                         setProfile(authenticatedProfile);
-                        setToken(response.credential);
+                        setGoogleIdToken('');
+                        setToken('session');
                     } catch (error) {
                         setGoogleIdToken('');
                         setAuthError(error instanceof Error ? error.message : 'Google sign-in failed.');
@@ -364,19 +380,19 @@ export default function App() {
             document.head.appendChild(script);
         } else initialize();
         return () => script.removeEventListener('load', initialize);
-    }, [token]);
+    }, [token, restoring]);
 
     useEffect(() => {
-        if (token || !googleReady || checking || !window.google || !googleButton.current) return;
+        if (token || restoring || !googleReady || checking || !window.google || !googleButton.current) return;
         googleButton.current.replaceChildren();
         window.google.accounts.id.renderButton(googleButton.current, {
             type: 'standard', theme: 'filled_black', size: 'large', text: 'continue_with',
             shape: 'rectangular', logo_alignment: 'left', width: Math.min(360, Math.max(280, googleButton.current.clientWidth || 360)),
         });
-    }, [checking, googleReady, token]);
+    }, [checking, googleReady, restoring, token]);
 
     if (token && profile) return <WorkoutApp user={profile}/>;
-    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <p className="auth-error" role="alert">{authError}</p>}</section></main>;
+    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <p className="auth-error" role="alert">{authError}</p>}</section></main>;
 }
 
 function Side({ page, setPage, dark, setDark, user, coachActive = false }: { page: Page; setPage: (page: Page) => void; dark: boolean; setDark: (value: boolean) => void; user?: UserProfile; coachActive?: boolean }) {
@@ -806,7 +822,7 @@ function Logger({ workout, folders, active, start, startAdHoc, setWorkout, editi
             const current = latestWorkout.current;
             if (!current?.id || current.completed) return;
             localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(current));
-            void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(current), keepalive: true }).catch(() => undefined);
+            void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(current), keepalive: true }).catch(() => undefined);
         };
         const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); };
         document.addEventListener('visibilitychange', onVisibilityChange);

@@ -306,6 +306,32 @@ def test_authentication_fails_closed(monkeypatch):
         app.state.disable_auth = True
 
 
+def test_browser_session_survives_google_token_expiry_and_logout(monkeypatch):
+    reset_db()
+    app.state.disable_auth = False
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "client.apps.googleusercontent.com")
+    monkeypatch.setenv("ALLOWED_EMAILS", "allowed@example.com")
+    verify = lambda *_args: {"email": "allowed@example.com", "email_verified": True, "name": "Allowed Person"}
+    monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", verify)
+    try:
+        with TestClient(app) as browser:
+            response = browser.get("/api/v1/session", headers={"Authorization": "Bearer google-token"})
+            assert response.status_code == 200
+            assert "httponly" in response.headers["set-cookie"].lower()
+            assert "max-age" not in response.headers["set-cookie"].lower()
+
+            monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: (_ for _ in ()).throw(ValueError("expired")))
+            assert browser.get("/api/v1/session").status_code == 200
+            assert browser.get("/api/v1/dashboard").status_code == 200
+            entry = {"recorded_on": "2026-09-28", "weight": 80}
+            assert browser.post("/api/v1/bodyweight", json=entry, headers={"Origin": "https://attacker.example"}).status_code == 403
+            assert browser.post("/api/v1/bodyweight", json=entry, headers={"Origin": "http://testserver"}).status_code == 200
+            assert browser.post("/api/v1/session/logout").status_code == 200
+            assert browser.get("/api/v1/session").status_code == 401
+    finally:
+        app.state.disable_auth = True
+
+
 def test_personal_data_is_isolated_between_allowlisted_users():
     reset_db()
     app.state.test_user_email = "alice@example.com"

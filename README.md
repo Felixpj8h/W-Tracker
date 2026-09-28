@@ -40,11 +40,16 @@ backend:
 VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 ALLOWED_EMAILS=you@example.com
+SESSION_SECRET=your_long_random_secret
 ```
 
 `ALLOWED_EMAILS` accepts a comma-separated list. The API verifies every Google
 ID token and rejects accounts outside this allowlist. `/api/v1/health` remains
 public for deployment health checks.
+
+`SESSION_SECRET` signs browser-session cookies. Use a unique random value and
+keep it stable across backend restarts. The cookie is shared by app tabs and
+expires when the browser session ends or after 24 hours, whichever comes first.
 
 The backend reads these settings from its process environment. Before starting
 it directly with Uvicorn, load them from the project-level `.env` file:

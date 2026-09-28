@@ -66,7 +66,7 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     const unresolved = exercises.some(item => typeof item.exercise_id === 'number' && !known.has(item.exercise_id) && !catalogue[item.exercise_id]);
     if (!unresolved) return;
     let alive = true;
-    void fetch(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/exercises`, { headers: authHeaders() }).then(response => response.json()).then((items: { id: number; name: string }[]) => {
+    void fetch(`${import.meta.env.VITE_API_URL ?? '/api/v1'}/exercises`, { credentials: 'include', headers: authHeaders() }).then(response => response.json()).then((items: { id: number; name: string }[]) => {
       if (alive) setCatalogue(Object.fromEntries(items.map(item => [item.id, item.name])));
     }).catch(() => undefined);
     return () => { alive = false; };
