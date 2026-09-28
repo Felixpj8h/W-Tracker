@@ -109,3 +109,14 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .training-detail{display:flex;flex-direction:column;min-height:0;overflow:hidden}
   .training-detail-actions{margin-top:auto}
 }
+
+@media(min-width:1101px){
+  main.workspace:has(.training-calendar){
+    width:calc(100% - 224px)!important;
+    max-width:none!important;
+    margin-left:224px!important;
+    padding-right:var(--dashboard-inline-gutter,28px)!important;
+    padding-left:var(--dashboard-inline-gutter,28px)!important;
+  }
+  .training-calendar-layout{flex:none;height:calc(100dvh - 140px)}
+}
