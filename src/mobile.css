@@ -1,4 +1,4 @@
-@media(max-width:760px){html,body{width:100%;max-width:100%;overflow-x:hidden}.app{display:block;min-width:0}.workspace,main.workspace{width:100%!important;max-width:100%!important;margin:0!important;padding:24px 16px calc(108px + env(safe-area-inset-bottom))!important}.head{gap:16px;margin-bottom:24px}.head h1{font-size:clamp(34px,11vw,46px);line-height:1.02;letter-spacing:-.06em}.head>div>p:last-child{font-size:16px;line-height:1.45}.head .primary{min-height:48px;padding:13px 16px;font-size:15px}.stats,.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.stats article,.card,.prompt,.routine-folder,.logger article,.history article{width:100%;border-radius:15px}.stats article{padding:20px}.stats strong{font-size:30px}.stats span,.stats small{font-size:14px}.grid .card{padding:20px}.prompt{padding:22px 20px;min-height:0}.prompt h2{font-size:24px}.prompt span{font-size:15px;line-height:1.45}.prompt .primary{width:100%;min-height:48px;font-size:15px}.weight{align-items:flex-start;flex-direction:column;gap:14px}.weight form{width:100%;height:48px}.weight input{flex:1;width:auto;font-size:16px}.weight form button{font-size:14px;padding-inline:16px}.mobile{height:76px!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom));align-items:center;gap:2px;z-index:30;box-shadow:0 -10px 24px rgba(0,0,0,.12)}.mobile button{flex:1;min-width:0;min-height:58px;padding:5px 2px!important;font-size:22px!important;border-radius:10px}.mobile small{font-size:12px!important;font-weight:700;text-transform:capitalize!important;line-height:1.1}.routine-intro,.folder-heading,.routine{gap:14px}.routine-intro{padding:18px}.folder-heading,.routine{align-items:stretch}.routine p{max-width:none;white-space:normal;overflow:visible}.folder-actions{width:100%;gap:6px}.folder-actions>button{min-height:40px}.routine>div:last-child{display:grid;grid-template-columns:1fr 1fr;gap:7px;width:100%}.routine>div:last-child button{margin:0;min-height:42px}.routine>div:last-child .primary{grid-column:1/-1}.routine-picker,.picker-folder-group{width:100%}.picker-folder-group{padding:16px}.routine-picker .picker-folder-group button{padding:14px}.routine-picker .picker-folder-group strong{font-size:16px}.routine-picker .picker-folder-group small{font-size:12px}.session-name{font-size:32px}.exercise-tab strong{font-size:18px}.exercise-tab small,.exercise-body .log-head p{font-size:13px}.exercise-body .log-head button,.addset,.next-exercise{font-size:13px;min-height:38px}.setlabels{font-size:10px!important}.set input{min-height:44px;font-size:16px}.exercise-note textarea,.addexercise input{font-size:16px}.addexercise{padding:16px}.chart{padding-right:62px}.chart svg{width:calc(100% - 62px)}.chart-axis{width:58px;font-size:11px}.chart-dates{right:62px;font-size:11px}.back{padding:12px;align-items:end}.modal{max-height:88dvh;border-radius:16px 16px 0 0;padding:20px 16px}.modal input,.modal select{min-height:46px;font-size:16px}.builder-list{overflow-x:auto}.builder-list-head,.builder-item{min-width:560px}.error,.toast{left:14px;right:14px;top:12px;font-size:14px}}
+@media(max-width:760px){html,body{width:100%;max-width:100%;overflow-x:hidden}.app{display:block;min-width:0}.workspace,main.workspace{width:100%!important;max-width:100%!important;margin:0!important;padding:24px 16px calc(108px + env(safe-area-inset-bottom))!important}.head{gap:16px;margin-bottom:24px}.head h1{font-size:clamp(34px,11vw,46px);line-height:1.02;letter-spacing:-.06em}.head>div>p:last-child{font-size:16px;line-height:1.45}.head .primary{min-height:48px;padding:13px 16px;font-size:15px}.stats,.grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.stats article,.card,.prompt,.routine-folder,.logger article{width:100%;border-radius:15px}.stats article{padding:20px}.stats strong{font-size:30px}.stats span,.stats small{font-size:14px}.grid .card{padding:20px}.prompt{padding:22px 20px;min-height:0}.prompt h2{font-size:24px}.prompt span{font-size:15px;line-height:1.45}.prompt .primary{width:100%;min-height:48px;font-size:15px}.weight{align-items:flex-start;flex-direction:column;gap:14px}.weight form{width:100%;height:48px}.weight input{flex:1;width:auto;font-size:16px}.weight form button{font-size:14px;padding-inline:16px}.mobile{height:76px!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom));align-items:center;gap:2px;z-index:30;box-shadow:0 -10px 24px rgba(0,0,0,.12)}.mobile button{flex:1;min-width:0;min-height:58px;padding:5px 2px!important;font-size:22px!important;border-radius:10px}.mobile small{font-size:12px!important;font-weight:700;text-transform:capitalize!important;line-height:1.1}.routine-intro,.folder-heading,.routine{gap:14px}.routine-intro{padding:18px}.folder-heading,.routine{align-items:stretch}.routine p{max-width:none;white-space:normal;overflow:visible}.folder-actions{width:100%;gap:6px}.folder-actions>button{min-height:40px}.routine>div:last-child{display:grid;grid-template-columns:1fr 1fr;gap:7px;width:100%}.routine>div:last-child button{margin:0;min-height:42px}.routine>div:last-child .primary{grid-column:1/-1}.routine-picker,.picker-folder-group{width:100%}.picker-folder-group{padding:16px}.routine-picker .picker-folder-group button{padding:14px}.routine-picker .picker-folder-group strong{font-size:16px}.routine-picker .picker-folder-group small{font-size:12px}.session-name{font-size:32px}.exercise-tab strong{font-size:18px}.exercise-tab small,.exercise-body .log-head p{font-size:13px}.exercise-body .log-head button,.addset,.next-exercise{font-size:13px;min-height:38px}.setlabels{font-size:10px!important}.set input{min-height:44px;font-size:16px}.exercise-note textarea,.addexercise input{font-size:16px}.addexercise{padding:16px}.chart{padding-right:62px}.chart svg{width:calc(100% - 62px)}.chart-axis{width:58px;font-size:11px}.chart-dates{right:62px;font-size:11px}.back{padding:12px;align-items:end}.modal{max-height:88dvh;border-radius:16px 16px 0 0;padding:20px 16px}.modal input,.modal select{min-height:46px;font-size:16px}.builder-list{overflow-x:auto}.builder-list-head,.builder-item{min-width:560px}.error,.toast{left:14px;right:14px;top:12px;font-size:14px}}
 
 @media(max-width:760px){
   .desktop-rest-builder{display:none}
@@ -133,48 +133,6 @@
   .logger .exercise-note textarea{min-height:46px;padding:8px}
 }
 
-/* Let workout history use the page scroll on phones instead of squeezing the
-   session list into the small space left below the filters. */
-@media(max-width:760px){
-  main.workspace:has(.history-layout){
-    display:block;
-    height:auto;
-    min-height:100dvh;
-    padding:18px 16px calc(96px + env(safe-area-inset-bottom))!important;
-    overflow:visible;
-  }
-  .workspace:has(.history-layout)>.head{margin-bottom:16px}
-  .workspace:has(.history-layout)>.head h1{font-size:clamp(38px,11vw,44px)}
-  .workspace:has(.history-layout)>.head>div>p:last-child{margin-top:9px;font-size:15px;line-height:1.4}
-  .workspace:has(.history-layout)>.history-tabs{width:100%;margin-bottom:12px}
-  .workspace:has(.history-layout)>.history-tabs button{flex:1}
-  .workspace:has(.history-layout)>.history-overview{margin-bottom:12px}
-  .workspace:has(.history-layout) .history-overview article{min-width:0;padding:12px}
-  .workspace:has(.history-layout) .history-overview b{font-size:20px;overflow-wrap:anywhere}
-  .workspace:has(.history-layout)>.history-toolbar{
-    display:grid;
-    grid-template-columns:minmax(0,1fr);
-    gap:10px;
-    padding:2px 0 14px;
-  }
-  .workspace:has(.history-layout) .history-toolbar label,
-  .workspace:has(.history-layout) .history-toolbar input,
-  .workspace:has(.history-layout) .history-toolbar select{width:100%;min-width:0}
-  .workspace:has(.history-layout) .history-toolbar input,
-  .workspace:has(.history-layout) .history-toolbar select{min-height:46px;font-size:16px}
-  .workspace:has(.history-layout) .history-toolbar p{grid-column:auto;margin:0}
-  .workspace:has(.history-layout)>.history-layout{display:block;min-height:0;overflow:visible}
-  .workspace:has(.history-layout) .history-list{
-    position:static;
-    width:100%;
-    height:auto!important;
-    max-height:none;
-    overflow:visible;
-  }
-  .workspace:has(.history-layout) .history-group button{grid-template-columns:45px minmax(0,1fr) 14px}
-  .workspace:has(.history-layout) .history-group small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-}
-
 /* Fit the monthly calendar between the page header and fixed mobile nav. */
 @media(max-width:760px){
   main.workspace:has(.month-grid):not(:has(.week-planner)){
@@ -247,11 +205,8 @@
   .head:has(+.logger) .workout-head-actions>.cancel-workout::after{content:'Cancel';font-size:12px;font-weight:800}
   .head:has(+.logger) .workout-head-actions>.primary{width:68px;min-width:68px;height:38px;min-height:38px;padding:0 8px;font-size:0}
   .head:has(+.logger) .workout-head-actions>.primary::after{content:'Finish';font-size:13px;font-weight:900}
-  .workspace:has(.history-layout) .history-row>.history-row-delete{display:flex;align-items:center;justify-content:center;width:58px;height:42px;min-height:42px;padding:0 5px;transform:none;background:color-mix(in srgb,#f8e9e9 75%,transparent);color:#a14552;font-size:10px}
 }
 @media(max-width:760px){.dashboard-volume .muscle-card-head{align-items:center}.dashboard-volume .metric-toggle button{min-height:34px;padding-inline:9px}}
-
-@media(max-width:760px){.workspace:has(.history-layout) .history-group .history-row{grid-template-columns:minmax(0,1fr) 34px;gap:2px}.workspace:has(.history-layout) .history-row>.history-row-delete{display:flex;width:30px;height:30px;min-height:30px;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--muted);font-size:0;opacity:.5}.workspace:has(.history-layout) .history-row>.history-row-delete::before{content:'×';font-size:20px;font-weight:500;line-height:1}}
 
 /* Set counts show the current total only; the volume view retains its comparison legend. */
 .dashboard-volume:has(.metric-toggle button:nth-child(2).active) .legend span:last-child{display:none}
