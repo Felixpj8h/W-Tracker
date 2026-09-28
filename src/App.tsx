@@ -16,6 +16,7 @@ import './workout-chooser.css';
 import './mobile-dashboard.css';
 import './calendar.css';
 import './history-page.css';
+import { HistoryAnalysis } from './HistoryAnalysis';
 type Exercise = {
     id: number;
     name: string;
@@ -861,7 +862,7 @@ function TrainingCalendar({ folders, history, months, loadMonth, start, repeatWo
     </section>;
 }
 function History({ data, edit, refresh, note, repeat }: { data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void> }) {
-    const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [analysisExercises, setAnalysisExercises] = useState<string[]>(['', '', '']), [analysisOpen, setAnalysisOpen] = useState<number | null>(null), [timeRange, setTimeRange] = useState<'30' | '90' | '365' | 'all'>('30'), [graphFullscreen, setGraphFullscreen] = useState(false), [analysisSelectionsOpen, setAnalysisSelectionsOpen] = useState(false), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
+    const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
     const lastSelectedId = useRef<number | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const [showSetDetails, setShowSetDetails] = useState(false);
@@ -879,32 +880,6 @@ function History({ data, edit, refresh, note, repeat }: { data: Workout[]; edit:
     const volume = (workout: Workout) => workout.exercises.reduce((total, item) => total + (item.sets ?? []).reduce((sets, set) => sets + set.weight * set.reps, 0), 0);
     const formatMonth = (key: string) => new Date(`${key}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const select = (workout: Workout) => { lastSelectedId.current = workout.id ?? null; setSelectedId(workout.id ?? null); setDetailOpen(true); setMenuOpen(false); setShowSetDetails(false); };
-    const exerciseOptions = [...new Map(completed.flatMap(workout => workout.exercises.map(item => {
-        const key = String(item.exercise_id ?? item.cached_exercise_id ?? item.name.trim().toLocaleLowerCase());
-        return [key, { key, name: item.name }];
-    }))).values()].sort((a, b) => completed.flatMap(workout => workout.exercises).filter(item => String(item.exercise_id ?? item.cached_exercise_id ?? item.name.trim().toLocaleLowerCase()) === b.key).length - completed.flatMap(workout => workout.exercises).filter(item => String(item.exercise_id ?? item.cached_exercise_id ?? item.name.trim().toLocaleLowerCase()) === a.key).length || a.name.localeCompare(b.name));
-    const selectedExercises = analysisExercises.filter(Boolean);
-    const allTrendData = [...completed].sort((a, b) => a.performed_on.localeCompare(b.performed_on)).map(workout => ({ key: String(workout.id ?? workout.performed_on), date: workout.performed_on, values: Object.fromEntries(selectedExercises.map(exerciseKey => [exerciseKey, workout.exercises.filter(item => String(item.exercise_id ?? item.cached_exercise_id ?? item.name.trim().toLocaleLowerCase()) === exerciseKey).reduce((total, item) => total + (item.sets ?? []).reduce((setTotal, set) => setTotal + set.weight * set.reps, 0), 0)])) }));
-    const latestTrendTime = new Date(`${allTrendData.at(-1)?.date ?? today()}T12:00:00`).getTime();
-    const timeRangeDays = timeRange === 'all' ? null : Number(timeRange);
-    const rangeStartTime = timeRangeDays === null ? new Date(`${allTrendData[0]?.date ?? today()}T12:00:00`).getTime() : latestTrendTime - (timeRangeDays - 1) * 24 * 60 * 60 * 1000;
-    const trendData = allTrendData.filter(item => new Date(`${item.date}T12:00:00`).getTime() >= rangeStartTime);
-    const trendMax = Math.max(1, ...trendData.flatMap(item => Object.values(item.values) as number[]));
-    const trendStart = rangeStartTime;
-    const trendEnd = latestTrendTime;
-    const trendX = (date: string) => trendStart === trendEnd ? 50 : (new Date(`${date}T12:00:00`).getTime() - trendStart) / (trendEnd - trendStart) * 100;
-    const colors = ['#76ad82', '#79b5d9', '#d5a56f'];
-    const chooseAnalysisExercise = (slot: number, key: string) => { setAnalysisExercises(current => current.map((value, index) => index === slot ? key : value)); setAnalysisOpen(null); };
-    const analysisPicker = <div className="analysis-picker" aria-label="Choose exercises to compare">{[0, 1, 2].map(slot => {
-        const selectedOption = exerciseOptions.find(option => option.key === analysisExercises[slot]);
-        return <div className="analysis-select" key={slot}><span>Exercise {slot + 1}</span><button type="button" className={analysisOpen === slot ? 'open' : ''} onClick={() => setAnalysisOpen(current => current === slot ? null : slot)}>{selectedOption?.name ?? 'Choose an exercise'}<i>⌄</i></button>{analysisOpen === slot && <div className="analysis-options" role="listbox"><button type="button" className={!analysisExercises[slot] ? 'selected' : ''} onClick={() => chooseAnalysisExercise(slot, '')}>Choose an exercise</button>{exerciseOptions.map(option => <button type="button" key={option.key} className={analysisExercises[slot] === option.key ? 'selected' : ''} disabled={analysisExercises.some((value, index) => index !== slot && value === option.key)} onClick={() => chooseAnalysisExercise(slot, option.key)}><small>{completed.flatMap(workout => workout.exercises).filter(item => String(item.exercise_id ?? item.cached_exercise_id ?? item.name.trim().toLocaleLowerCase()) === option.key).length} sessions</small>{option.name}</button>)}</div>}</div>;
-    })}</div>;
-    const timeRangeLabel = timeRange === 'all' ? 'ALL TIME' : `LAST ${timeRange === '365' ? 'YEAR' : `${timeRange} DAYS`}`;
-    const timePicker = <div className="analysis-range" role="tablist" aria-label="Graph time range">{([['30', '30 days'], ['90', '90 days'], ['365', '1 year'], ['all', 'All time']] as const).map(([key, label]) => <button key={key} className={timeRange === key ? 'active' : ''} onClick={() => setTimeRange(key)}>{label}</button>)}</div>;
-    const trendLines = selectedExercises.map(key => { const index = analysisExercises.indexOf(key); const exerciseTrend = trendData.filter(item => (item.values[key] as number) > 0); const points = exerciseTrend.map(item => `${trendX(item.date)},${56 - ((item.values[key] as number) / trendMax * 48)}`).join(' '); return <g key={key}>{exerciseTrend.length > 1 && <polyline points={points} style={{ stroke: colors[index] }} />} {exerciseTrend.map(item => <circle key={item.key} cx={trendX(item.date)} cy={56 - ((item.values[key] as number) / trendMax * 48)} r="1.5" style={{ fill: colors[index] }}/>)}</g>; });
-    const trendChart = () => <div key={timeRange} className="analysis-chart-wrap"><span className="analysis-max">{trendMax.toLocaleString()} kg</span><svg className="analysis-chart" viewBox="0 0 100 64" preserveAspectRatio="none" aria-label="Exercise volume comparison by workout">{trendLines}</svg><div className="analysis-dates"><span>{new Date(trendStart).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span><span>{new Date(trendEnd).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div></div>;
-    const analysisCard = (expanded = false) => <section className={`history-analysis ${expanded ? 'analysis-expanded' : ''}`}><div className="analysis-head"><div><p className="overline">VOLUME BY WORKOUT · {timeRangeLabel}</p><h2>Exercise analysis</h2><p>Each line includes only workouts where that exercise was logged.</p></div><div className="analysis-head-actions"><span>{selectedExercises.length}/3 selected</span><button className="graph-expand" onClick={() => setGraphFullscreen(!expanded)}>{expanded ? '× Close' : 'Expand ↗'}</button></div></div>{timePicker}<button className={`analysis-selection-toggle ${analysisSelectionsOpen ? 'open' : ''}`} onClick={() => { setAnalysisSelectionsOpen(current => !current); setAnalysisOpen(null); }}>Exercises <span>{selectedExercises.length}/3</span><i>{analysisSelectionsOpen ? '−' : '+'}</i></button><div className={`analysis-selection-panel ${analysisSelectionsOpen ? 'open' : ''}`}>{analysisPicker}</div>{selectedExercises.length ? <><div className="analysis-legend">{selectedExercises.map(key => { const index = analysisExercises.indexOf(key); return <span key={key}><i style={{ background: colors[index] }} />{exerciseOptions.find(option => option.key === key)?.name}</span>; })}</div>{trendChart()}</> : <div className="analysis-empty">Choose an exercise to start comparing volume across every workout.</div>}</section>;
-    const analysis = <>{analysisCard()}{graphFullscreen && <div className="graph-fullscreen" role="dialog" aria-modal="true" aria-label="Full screen exercise analysis"><div className="graph-fullscreen-card">{analysisCard(true)}</div></div>}</>;
     const formatDate = (value: string, options: Intl.DateTimeFormatOptions) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, options);
     const deleteSelected = async (workout: Workout) => {
         if (!window.confirm(`Delete “${workout.name}”? This cannot be undone.`)) return;
@@ -933,7 +908,7 @@ function History({ data, edit, refresh, note, repeat }: { data: Workout[]; edit:
             <button type="button" role="tab" aria-selected={view === 'sessions'} className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>Sessions</button>
             <button type="button" role="tab" aria-selected={view === 'analysis'} className={view === 'analysis' ? 'active' : ''} onClick={() => setView('analysis')}>Analysis</button>
         </div>
-        {view === 'analysis' ? analysis : <>
+        {view === 'analysis' ? <HistoryAnalysis completed={completed}/> : <>
             <section className="history-toolbar" aria-label="Filter sessions">
                 <label className="history-search"><span className="visually-hidden">Search workouts or exercises</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search workouts or exercises"/></label>
                 <label className="history-period"><span className="visually-hidden">Time period</span><select value={month} onChange={event => setMonth(event.target.value)}><option value="all">All time</option>{months.map(key => <option key={key} value={key}>{formatMonth(key)}</option>)}</select></label>
