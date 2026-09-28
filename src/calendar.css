@@ -120,3 +120,7 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   }
   .training-calendar-layout{flex:none;height:calc(100dvh - 140px)}
 }
+
+.training-day.filtered-out:not(.selected){background:var(--surface)}
+.training-day.filtered-out .training-event,.training-day.filtered-out .training-note-indicator{opacity:.25}
+.training-day.filtered-out:hover .training-event,.training-day.filtered-out:focus-visible .training-event,.training-day.filtered-out:hover .training-note-indicator,.training-day.filtered-out:focus-visible .training-note-indicator{opacity:.65}
