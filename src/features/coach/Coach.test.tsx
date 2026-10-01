@@ -1,11 +1,34 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Coach, ProposalCard } from './Coach';
 import type { CoachController } from './useCoachController';
 
 describe('Coach proposal card', () => {
+  it('grows the composer to three lines before scrolling', () => {
+    const height = vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) {
+      return this.value.split('\n').length * 24;
+    });
+    try {
+      render(<Coach coach={{
+        selectedId: null, details: {}, conversations: [], loading: false, drafts: {}, optimistic: {}, streaming: {},
+        proposalNotice: {}, activity: {}, errors: {}, outdated: {}, pending: {},
+        load: async () => undefined, refresh: async () => undefined, send: async () => true,
+        cancel: async () => undefined, create: async () => 1, resolve: async () => undefined,
+      } as unknown as CoachController} folders={[]} plan={null}/>);
+      const field = screen.getByRole('textbox', { name: 'Message your coach' }) as HTMLTextAreaElement;
+      fireEvent.change(field, { target: { value: 'one\ntwo\nthree' } });
+      expect(field.style.height).toBe('72px');
+      expect(field.style.overflowY).toBe('hidden');
+      fireEvent.change(field, { target: { value: 'one\ntwo\nthree\nfour' } });
+      expect(field.style.height).toBe('72px');
+      expect(field.style.overflowY).toBe('auto');
+    } finally {
+      height.mockRestore();
+    }
+  });
+
   it('shows the user-facing explanation separately from the change summary', () => {
     const html = renderToStaticMarkup(<ProposalCard
       proposal={{ id: 1, operation: 'create_routine', payload: { name: 'Upper', exercises: [] }, summary: 'Add Upper routine', reasoning: 'This splits the weekly work across two sessions.', status: 'pending', target_routine_id: null, created_at: '2026-09-22' }}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,15 +6,38 @@ import type { CoachController } from './useCoachController';
 import type { Proposal } from './types';
 import { exerciseChange, exerciseId, exerciseRemoved, prescriptionChanged } from './proposal';
 import { proposalsForMessage } from './timeline';
-import { authHeaders } from '../auth';
+import { authHeaders } from '../auth/auth';
 import './coach.css';
 
 type Folder = { id: number; name: string; routines: { id: number; name: string; folder_id?: number | null; exercises: { exercise_id?: number; exercise?: { id: number; name: string }; planned_sets?: number; target_reps_min?: number; target_reps_max?: number; target_weight?: number; rest_seconds?: number }[] }[] };
 type WeeklyPlan = { name: string; days: { weekday: number; routine_id: number; routine_name: string }[] } | null;
 type Props = { coach: CoachController; folders: Folder[]; plan: WeeklyPlan };
-const prompts = ['Review my current training volume.', 'Why has my bench press stalled?', 'Suggest improvements to my weekly plan.'];
+const prompts = [
+  { label: 'Review training volume', text: 'Review my current training volume.', icon: 'chart' },
+  { label: 'Bench press stalled', text: 'Why has my bench press stalled?', icon: 'dumbbell' },
+  { label: 'Improve weekly plan', text: 'Suggest improvements to my weekly plan.', icon: 'calendar' },
+] as const;
 const label = (operation: string) => operation.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
-const dateLabel = (date: string) => new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const dateLabel = (date: string) => {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 86400000));
+  if (!Number.isFinite(days)) return '';
+  if (days === 0) return 'Today';
+  if (days === 1) return '1d ago';
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+function CoachIcon({ name }: { name: 'chat' | 'chart' | 'dumbbell' | 'calendar' | 'arrow' | 'plus' }) {
+  const paths = {
+    chat: <><path d="M20 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-3.6-.8L4 20l.8-3.9A8.5 8.5 0 1 1 20 11.5Z"/><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"/></>,
+    chart: <><path d="M5 20v-6M10 20V9M15 20V4M20 20v-9"/></>,
+    dumbbell: <><path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12"/></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></>,
+    arrow: <path d="M12 20V4m0 0-6 6m6-6 6 6"/>,
+    plus: <path d="M12 4v16M4 12h16"/>,
+  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
 const progressLabel = (activity: string | undefined, hasDraft: boolean, hasProposal: boolean) => {
   if (activity === 'stopping') return 'Stopping response…';
   if (activity === 'saving_response') return 'Finishing response…';
@@ -115,28 +138,50 @@ export function Coach({ coach, folders, plan }: Props) {
   const detail = id ? coach.details[id] : null;
   const messages = detail?.messages ?? [];
   const proposals = detail?.proposals ?? [];
+  const hasConversation = messages.length > 0 || Boolean(coach.optimistic[id ?? -1]) || Boolean(id && (coach.drafts[id] || coach.streaming[id]));
   const isWorking = Boolean(id && coach.streaming[id] && !coach.errors[id]);
   const draft = id ? coach.drafts[id] : '';
   const workingLabel = id ? progressLabel(coach.activity[id], Boolean(draft), Boolean(coach.proposalNotice[id])) : '';
   useEffect(() => { void coach.load(); }, [coach.load]);
   useEffect(() => { if (id && !detail) void coach.refresh(id); }, [id, detail, coach.refresh]);
   useEffect(() => { if (nearBottom && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; }, [id, messages.length, id && coach.drafts[id], nearBottom]);
+  useLayoutEffect(() => {
+    const resizeComposer = () => {
+      const field = composer.current;
+      if (!field) return;
+      field.style.height = 'auto';
+      field.style.overflowY = 'hidden';
+      const style = getComputedStyle(field);
+      const lineHeight = Number.parseFloat(style.lineHeight) || 24;
+      const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+      const maxHeight = lineHeight * 3 + padding;
+      field.style.height = `${Math.min(field.scrollHeight, maxHeight)}px`;
+      field.style.overflowY = field.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    };
+    resizeComposer();
+    window.addEventListener('resize', resizeComposer);
+    return () => window.removeEventListener('resize', resizeComposer);
+  }, [input, hasConversation]);
   const submit = async (value = input) => {
     const text = value.trim(); if (!text || text.length > 4000 || (id && coach.streaming[id])) return;
     setInput('');
     try { await coach.send(text, id); composer.current?.focus(); } catch (error) { setInput(text); window.alert((error as Error).message); }
   };
-  const list = <div className="coach-list"><div className="coach-list-head"><span>CONVERSATIONS</span><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}>＋ New chat</button></div>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><b>{item.title}</b><small>{dateLabel(item.updated_at)} {coach.streaming[item.id] && <span className="coach-thread-state"><span className="coach-dot"/> Working</span>}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div>;
-  return <section className="coach-page"><aside className="coach-desktop-list">{list}</aside><div className="coach-chat"><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><div><span className="overline">AI TRAINING COACH</span><h1>{detail?.title ?? 'Your training coach'}</h1></div><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}>＋</button></header>
+  const composerForm = <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <textarea ref={composer} rows={1} aria-label="Message your coach" placeholder="Ask your training question..." maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/>
+    {id && coach.streaming[id] ? <button type="button" className="coach-send coach-stop" aria-label="Stop response" onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}>{coach.activity[id] === 'stopping' ? '…' : <span aria-hidden="true">■</span>}<span className="coach-button-label">{coach.activity[id] === 'stopping' ? 'Stopping…' : 'Stop ■'}</span></button> : <button type="submit" className="coach-send" aria-label="Send message" disabled={!input.trim()}><CoachIcon name="arrow"/></button>}
+  </form>;
+  const list = <div className="coach-list"><div className="coach-list-head"><h2>Coach</h2><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}><CoachIcon name="plus"/> New chat</button></div><div className="coach-list-body"><span className="coach-recent">Recent</span>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><CoachIcon name="chat"/><b>{item.title}</b><small>{coach.streaming[item.id] ? 'Working' : dateLabel(item.updated_at)}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div></div>;
+  return <section className="coach-page"><aside className="coach-desktop-list">{list}</aside><div className={`coach-chat ${hasConversation ? 'has-conversation' : 'is-empty'}`}><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><h1>{hasConversation ? detail?.title ?? 'Coach' : 'Coach'}</h1><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}><CoachIcon name="plus"/></button></header>
     <div className="coach-timeline" ref={timeline} onScroll={event => { const node = event.currentTarget; setNearBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 110); }}>
-      {!messages.length && !coach.optimistic[id ?? -1] && <div className="coach-welcome"><span>✦</span><h2>Let's talk training.</h2><p>Ask about your workouts, progress, routines, or weekly plan.</p><div>{prompts.map(prompt => <button key={prompt} onClick={() => { setInput(prompt); composer.current?.focus(); }}>{prompt}</button>)}</div></div>}
+      {!hasConversation && <div className="coach-welcome"><h2>Training coach</h2><p>Ask anything about your training.</p>{composerForm}<div className="coach-prompts">{prompts.map(prompt => <button key={prompt.label} onClick={() => { setInput(prompt.text); composer.current?.focus(); }}><CoachIcon name={prompt.icon}/>{prompt.label}</button>)}</div></div>}
       {messages.map((message, index) => <div key={message.id} className={`coach-message ${message.role} ${message.status}`}><div className="coach-bubble">{message.role === 'assistant' ? <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => /^https?:\/\//i.test(url) ? url : ''} components={{ a: props => <a {...props} target="_blank" rel="noreferrer noopener"/> }}>{message.content}</ReactMarkdown> : message.content}</div>{message.status !== 'completed' && <small>{message.status} {message.role === 'assistant' && (message.status === 'failed' || message.status === 'interrupted') && !messages.slice(index + 1).some(item => item.role === 'assistant' || item.role === 'user') && <button className="coach-retry" onClick={() => { const previous = messages.slice(0, index).reverse().find(item => item.role === 'user'); if (previous && id && previous.id === [...messages].reverse().find(item => item.role === 'user')?.id) void coach.send(previous.content, id, previous.id); }}>Retry</button>}</small>}{message.role === 'assistant' && proposalsForMessage(proposals, messages, message.id).map(proposal => <ProposalCard key={proposal.id} proposal={proposal} coach={coach} id={id!} folders={folders} plan={plan}/>)}</div>)}
       {id && coach.optimistic[id] && <div className="coach-message user"><div className="coach-bubble">{coach.optimistic[id]}</div></div>}
       {id && (draft || isWorking) && <div className="coach-message assistant coach-streaming-message">{draft && <div className="coach-bubble"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={url => /^https?:\/\//i.test(url) ? url : ''}>{draft}</ReactMarkdown></div>}{isWorking && <div className="coach-progress" role="status" aria-live="polite"><span className="coach-progress-mark" aria-hidden="true"><i/><i/><i/></span><span>{workingLabel}</span></div>}</div>}
       {coach.errors[id ?? 0] && <div className="coach-error" role="alert">{coach.errors[id ?? 0]}{id && <button onClick={() => { const last = [...messages].reverse().find(message => message.role === 'user'); if (last) void coach.send(last.content, id, last.id); }}>Retry</button>}</div>}
     </div>
     {!nearBottom && (messages.length > 0 || Boolean(draft) || isWorking) && <button className="coach-jump" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; setNearBottom(true); }}>Jump to latest ↓</button>}
-    <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}><textarea ref={composer} aria-label="Message your coach" placeholder="Ask about your training…" maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/><div><small>{input.length}/4000</small>{id && coach.streaming[id] ? <button type="button" className="primary" onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}>{coach.activity[id] === 'stopping' ? 'Stopping…' : 'Stop ■'}</button> : <button type="submit" className="primary" disabled={!input.trim()}>Send ↗</button>}</div></form></div>
+    {hasConversation && composerForm}</div>
     {drawer && <div className="coach-drawer-wrap"><button className="coach-drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)}/><aside className="coach-drawer" aria-label="Conversations"><div className="coach-drawer-top"><strong>Chats</strong><button className="coach-drawer-close" aria-label="Close conversations" onClick={() => setDrawer(false)}>×</button></div>{list}</aside></div>}
   </section>;
 }

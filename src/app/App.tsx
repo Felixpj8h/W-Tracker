@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Coach } from './coach/Coach';
-import { useCoachController } from './coach/useCoachController';
-import { authHeaders, setGoogleIdToken } from './auth';
-import { profileFromSession } from './profile';
-import type { UserProfile } from './profile';
+import { Coach } from '../features/coach/Coach';
+import { useCoachController } from '../features/coach/useCoachController';
+import { authHeaders, setGoogleIdToken } from '../features/auth/auth';
+import { profileFromSession } from '../features/auth/profile';
+import type { UserProfile } from '../features/auth/profile';
 import './App.css';
-import './routine.css';
-import './logger.css';
-import './motion.css';
-import './mobile.css';
-import './typography.css';
-import './routine-manager.css';
-import './workout-chooser.css';
-import './mobile-dashboard.css';
-import './bodyweight-chart-add.css';
-import './calendar.css';
-import './history-page.css';
-import { HistoryAnalysis } from './HistoryAnalysis';
+import '../styles/routine.css';
+import '../styles/logger.css';
+import '../styles/motion.css';
+import '../styles/mobile.css';
+import '../styles/typography.css';
+import '../styles/routine-manager.css';
+import '../styles/workout-chooser.css';
+import '../styles/mobile-dashboard.css';
+import '../styles/bodyweight-chart-add.css';
+import '../styles/calendar.css';
+import '../styles/history-page.css';
+import { HistoryAnalysis } from '../features/history/HistoryAnalysis';
 type Exercise = {
     id: number;
     name: string;
@@ -391,7 +391,7 @@ export default function App() {
 function Side({ page, setPage, dark, setDark, user, coachActive = false }: { page: Page; setPage: (page: Page) => void; dark: boolean; setDark: (value: boolean) => void; user?: UserProfile; coachActive?: boolean }) {
     const links: [Page, string, string][] = [['dashboard', '▦', 'Dashboard'], ['routines', '▤', 'Routines'], ['workout', '＋', 'Log workout'], ['coach', '✦', 'Coach'], ['calendar', '□', 'Calendar'], ['history', '◷', 'History']];
     const label = user?.name || user?.firstName || 'My training';
-    return <aside className="sidebar"><div className="brand"><b>W</b><span>workout<br />tracker</span></div><div className="person"><i>{(user?.firstName || 'M').charAt(0).toLocaleUpperCase()}</i><div><b>{label}</b><small>Personal workspace</small></div></div><nav className="side-nav">{links.map(([id, icon, linkLabel]) => <button key={id} className={`side-link ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}><i>{icon}</i><span>{linkLabel}</span>{id === "coach" && coachActive && <span className="coach-dot"/>}</button>)}</nav><footer><label className="switch"><input type="checkbox" checked={dark} onChange={event => setDark(event.target.checked)}/><span />Dark mode</label><button className="sign-out" type="button" onClick={() => window.dispatchEvent(new Event('google-sign-out'))}>Sign out</button><small>Built for the work.</small></footer></aside>;
+    return <aside className="sidebar"><div className="brand"><b>W</b><span>workout<br />tracker</span></div><div className="person"><i>{(user?.firstName || 'M').charAt(0).toLocaleUpperCase()}</i><div><b>{label}</b><small>Personal workspace</small></div></div><nav className="side-nav">{links.map(([id, icon, linkLabel]) => <button key={id} className={`side-link ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}><i>{icon}</i><span>{linkLabel}</span>{id === "coach" && coachActive && <span className="coach-dot"/>}</button>)}</nav><footer><label className="switch"><input type="checkbox" checked={dark} onChange={event => setDark(event.target.checked)}/><span />Dark mode</label><button className="sign-out" type="button" onClick={() => window.dispatchEvent(new Event('google-sign-out'))}>Sign out</button></footer></aside>;
 }
 function SavingIndicator() {
     const [state, setState] = useState<BackendWriteState>({ pending: pendingBackendWrites, failed: backendWriteFailed });

@@ -1,5 +1,5 @@
 import type { CoachEvent } from './types';
-import { authHeaders } from '../auth';
+import { authHeaders } from '../auth/auth';
 
 export const base = import.meta.env.VITE_API_URL ?? '/api/v1';
 
