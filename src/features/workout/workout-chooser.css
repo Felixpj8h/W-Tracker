@@ -5,7 +5,12 @@ main.workspace:has(.workout-chooser){height:auto;min-height:100dvh;overflow:visi
 .workout-chooser .head>div>p:last-child{margin-top:7px;font-size:16px}
 .chooser-empty-action{padding:9px 0;background:transparent;color:var(--accent-dark);font-size:14px;font-weight:750}
 .chooser-empty-action:hover{text-decoration:underline}
-.chooser-tabs{display:flex;gap:0;overflow-x:auto;padding:0 0 10px;border-bottom:1px solid var(--border);scrollbar-width:thin}
+.chooser-tabs{display:flex;gap:0;overflow-x:auto;padding:0 0 10px;border-bottom:1px solid var(--border);scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--accent) 72%,var(--border)) transparent}
+.chooser-tabs::-webkit-scrollbar{height:8px}
+.chooser-tabs::-webkit-scrollbar-track{background:transparent}
+.chooser-tabs::-webkit-scrollbar-thumb{min-width:42px;background:color-mix(in srgb,var(--accent) 68%,var(--border));border:2px solid var(--surface);border-radius:999px}
+.chooser-tabs::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+.chooser-tabs::-webkit-scrollbar-button{display:none;width:0;height:0}
 .chooser-tabs button{position:relative;display:grid;align-content:center;gap:3px;flex:0 0 auto;min-width:210px;max-width:300px;min-height:74px;padding:12px 24px;border:1px solid var(--border);border-radius:0;background:color-mix(in srgb,var(--surface) 24%,transparent);color:var(--muted);text-align:center;box-shadow:none;transition:background-color .15s ease,color .15s ease}
 .chooser-tabs button:first-child{border-radius:7px 0 0 7px}
 .chooser-tabs button:last-child{border-radius:0 7px 7px 0}
