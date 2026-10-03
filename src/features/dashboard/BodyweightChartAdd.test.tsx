@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BodyweightCard } from './App';
+import { BodyweightCard } from './BodyweightCard';
 
 afterEach(cleanup);
 

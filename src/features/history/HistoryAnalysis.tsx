@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import './history-analysis.css';
 
 type LoggedWorkout = {
   id?: number;
