@@ -55,7 +55,7 @@ export function History({ data, edit, refresh, note, repeat }: { data: Workout[]
         </div>
         {view === 'analysis' ? <HistoryAnalysis completed={completed}/> : <>
             <section className="history-toolbar" aria-label="Filter sessions">
-                <label className="history-search"><span className="visually-hidden">Search workouts or exercises</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search workouts or exercises"/></label>
+                <label className="history-search"><span className="visually-hidden">Search workouts or exercises</span><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search workouts or exercises"/></label>
                 <label className="history-period"><span className="visually-hidden">Time period</span><select value={month} onChange={event => setMonth(event.target.value)}><option value="all">All time</option>{months.map(key => <option key={key} value={key}>{formatMonth(key)}</option>)}</select></label>
                 <p>{filtered.length} {filtered.length === 1 ? 'session' : 'sessions'}</p>
             </section>

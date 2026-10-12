@@ -14,7 +14,7 @@
 
   .workspace:has(.history-layout) > .head,
   .workspace:has(.history-layout) > .history-tabs,
-  .workspace:has(.history-layout) > .history-toolbar {
+  .workspace:has(.history-page-title) > .history-toolbar {
     flex: none;
   }
 
@@ -50,7 +50,7 @@
 
   .workspace:has(.history-layout) > .head,
   .workspace:has(.history-layout) > .history-tabs,
-  .workspace:has(.history-layout) > .history-toolbar {
+  .workspace:has(.history-page-title) > .history-toolbar {
     flex: none;
   }
 
@@ -138,7 +138,7 @@
   box-shadow: none;
 }
 
-.workspace:has(.history-layout) > .history-toolbar {
+.workspace:has(.history-page-title) > .history-toolbar {
   display: grid;
   grid-template-columns: minmax(260px, 470px) 165px 1fr;
   align-items: center;
@@ -150,9 +150,9 @@
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.workspace:has(.history-layout) .history-toolbar label { position: relative; display: block; }
-.workspace:has(.history-layout) .history-toolbar input,
-.workspace:has(.history-layout) .history-toolbar select {
+.workspace:has(.history-page-title) .history-toolbar label { position: relative; display: block; }
+.workspace:has(.history-page-title) .history-toolbar input,
+.workspace:has(.history-page-title) .history-toolbar select {
   width: 100%;
   height: 46px;
   min-height: 46px;
@@ -163,7 +163,7 @@
   color: var(--text);
   font-size: 14px;
 }
-.workspace:has(.history-layout) .history-search svg {
+.workspace:has(.history-page-title) .history-search svg {
   position: absolute;
   top: 50%;
   left: 15px;
@@ -174,8 +174,8 @@
   height: 19px;
   pointer-events: none;
 }
-.workspace:has(.history-layout) .history-search input { padding-left: 47px; }
-.workspace:has(.history-layout) .history-toolbar p {
+.workspace:has(.history-page-title) .history-search input { padding-left: 47px; }
+.workspace:has(.history-page-title) .history-toolbar p {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
@@ -412,8 +412,8 @@
 }
 
 @media (max-width: 1000px) and (min-width: 761px) {
-  .workspace:has(.history-layout) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 135px; }
-  .workspace:has(.history-layout) .history-toolbar p { grid-column: 1 / -1; text-align: right; }
+  .workspace:has(.history-page-title) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 135px; }
+  .workspace:has(.history-page-title) .history-toolbar p { grid-column: 1 / -1; text-align: right; }
   .workspace:has(.history-layout) > .history-layout { grid-template-columns: minmax(250px, .43fr) minmax(0, .57fr); }
   .workspace:has(.history-layout) .history-list { padding-right: 10px; }
   .workspace:has(.history-layout) .history-session { padding-left: 17px; }
@@ -427,10 +427,10 @@
   .workspace:has(.history-page-title) .history-page-title { font-size: clamp(35px, 9vw, 44px); }
   .workspace:has(.history-page-title) > .history-tabs { width: 100%; margin-bottom: 14px; }
   .workspace:has(.history-page-title) > .history-tabs button { flex: 1; }
-  .workspace:has(.history-layout) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; margin-bottom: 11px; padding: 10px 0; }
-  .workspace:has(.history-layout) .history-toolbar input,
-  .workspace:has(.history-layout) .history-toolbar select { min-height: 43px; height: 43px; font-size: 13px; }
-  .workspace:has(.history-layout) .history-toolbar p { grid-column: 1 / -1; text-align: left; }
+  .workspace:has(.history-page-title) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; margin-bottom: 11px; padding: 10px 0; }
+  .workspace:has(.history-page-title) .history-toolbar input,
+  .workspace:has(.history-page-title) .history-toolbar select { min-height: 43px; height: 43px; font-size: 13px; }
+  .workspace:has(.history-page-title) .history-toolbar p { grid-column: 1 / -1; text-align: left; }
   .workspace:has(.history-layout) .history-list { padding-right: 0; }
   .workspace:has(.history-layout) .history-group > .history-row-main { min-height: 70px; padding: 9px 12px; }
   .workspace:has(.history-layout) .history-session { display: none; padding: 18px 14px 8px !important; }
