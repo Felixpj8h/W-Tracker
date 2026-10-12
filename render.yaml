@@ -1,0 +1,63 @@
+# Two paid services; the SQLite disk requires a paid backend plan.
+services:
+  - type: pserv
+    name: w-tracker-backend
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    numInstances: 1
+    disk:
+      name: workout-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        value: sqlite:////data/workout_tracker.db
+      - key: ENABLE_API_DOCS
+        value: "false"
+      - key: PUBLIC_ORIGIN
+        value: https://workout.felixjohannessen.no
+      - key: ALLOWED_ORIGINS
+        value: https://workout.felixjohannessen.no
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ALLOWED_EMAILS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+
+  - type: web
+    name: w-tracker-web
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    domains:
+      - workout.felixjohannessen.no
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: VITE_API_URL
+        value: /api/v1
+      - key: VITE_GOOGLE_CLIENT_ID
+        fromService:
+          name: w-tracker-backend
+          type: pserv
+          envVarKey: GOOGLE_CLIENT_ID
+      - key: BACKEND_ADDRESS
+        fromService:
+          name: w-tracker-backend
+          type: pserv
+          property: hostport

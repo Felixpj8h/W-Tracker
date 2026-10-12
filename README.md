@@ -124,6 +124,11 @@ Open the Network address Vite prints on your phone. The app will now automatical
 
 ## Production deployment (Docker/VPS)
 
+For Render hosting at `workout.felixjohannessen.no`, follow
+[the Render deployment guide](docs/render-deployment.md) instead. The root
+`render.yaml` provisions the frontend, private backend, and persistent SQLite
+disk. Local Docker Compose remains supported.
+
 The production stack serves the frontend and API from one HTTPS origin. Nginx
 serves the Vite build on `127.0.0.1:8080` and proxies `/api/v1` to a single
 FastAPI worker. Put a TLS terminator such as Caddy, Traefik, or Cloudflare in
