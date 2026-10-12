@@ -1,4 +1,4 @@
-import type { Routine } from './types';
+import type { Folder, Routine } from './types';
 
 export const WORKOUT_LINK_KEY = 'workout';
 const MAX_PAYLOAD_LENGTH = 40000;
@@ -15,6 +15,41 @@ export type SharedExercise = {
     target_weight?: number;
 };
 export type SharedWorkout = { version: 1; name: string; exercises: SharedExercise[] };
+export type SharedFolder = { version: 1; kind: 'folder'; name: string; routines: SharedWorkout[] };
+
+export function createFolderLink(folder: Folder, base = window.location.href): string {
+    const payload: SharedFolder = { version: 1, kind: 'folder', name: folder.name,
+        routines: folder.routines.map(routine => parseWorkoutLink(createWorkoutLink(routine, base))) };
+    const url = new URL(base);
+    url.search = '';
+    url.hash = new URLSearchParams({ [WORKOUT_LINK_KEY]: encodePayload(payload) }).toString();
+    parseSharedLink(url.href);
+    return url.href;
+}
+
+function encodePayload(payload: unknown): string {
+    return btoa(Array.from(new TextEncoder().encode(JSON.stringify(payload)), byte => String.fromCharCode(byte)).join(''))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function parseSharedLink(link: string): SharedWorkout | SharedFolder {
+    try {
+        const url = new URL(link.trim());
+        if (!['http:', 'https:'].includes(url.protocol)) throw invalidLink();
+        const encoded = new URLSearchParams(url.hash.slice(1)).get(WORKOUT_LINK_KEY);
+        if (!encoded || encoded.length > MAX_PAYLOAD_LENGTH || !/^[\w-]+$/.test(encoded)) throw invalidLink();
+        const bytes = Uint8Array.from(atob(encoded.replace(/-/g, '+').replace(/_/g, '/')), char => char.charCodeAt(0));
+        const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        if (value?.kind !== 'folder') return parseWorkoutLink(link);
+        if (value.version !== 1 || !validText(value.name, 100) || !Array.isArray(value.routines) || value.routines.length > 30) throw invalidLink();
+        const routines = value.routines.map((routine: unknown) => {
+            const nested = new URL(url);
+            nested.hash = new URLSearchParams({ [WORKOUT_LINK_KEY]: encodePayload(routine) }).toString();
+            return parseWorkoutLink(nested.href);
+        });
+        return { version: 1, kind: 'folder', name: value.name.trim(), routines };
+    } catch { throw invalidLink(); }
+}
 
 function validText(value: unknown, max: number): value is string {
     return typeof value === 'string' && value.trim().length > 0 && value.length <= max;

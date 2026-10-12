@@ -5,6 +5,7 @@ from collections import deque
 import base64
 from datetime import date, datetime, timedelta, timezone
 import hashlib
+import ipaddress
 import hmac
 import json
 import logging
@@ -14,6 +15,7 @@ import re
 import secrets
 import threading
 import time
+from urllib.parse import urlsplit
 from typing import Literal, Optional
 
 import httpx
@@ -323,11 +325,23 @@ class SharedExerciseIn(BaseModel):
         return self
 
 
-class SharedWorkoutImportIn(BaseModel):
+class SharedWorkoutContentIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     version: Literal[1]
     name: str = Field(min_length=1, max_length=120)
     exercises: list[SharedExerciseIn] = Field(max_length=50)
+
+
+class SharedFolderImportIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    version: Literal[1]
+    kind: Literal["folder"]
+    name: str = Field(min_length=1, max_length=100)
+    folder_name: str = Field(min_length=1, max_length=100)
+    routines: list[SharedWorkoutContentIn] = Field(max_length=30)
+
+
+class SharedWorkoutImportIn(SharedWorkoutContentIn):
     folder_id: Optional[int] = Field(default=None, gt=0)
     folder_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
@@ -478,8 +492,35 @@ def get_db(request: Request):
     finally: db.close()
 
 
+def is_local_development_request(request: Request) -> bool:
+    if APP_ENV != "development":
+        return False
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    if request.url.hostname not in local_hosts or not request.client:
+        return False
+    try:
+        peer = ipaddress.ip_address(request.client.host)
+        if isinstance(peer, ipaddress.IPv6Address) and peer.ipv4_mapped:
+            peer = peer.ipv4_mapped
+        if not peer.is_loopback:
+            return False
+    except ValueError:
+        return False
+    # Reject cross-origin writes from public pages targeting a local server.
+    origin = request.headers.get("origin")
+    if origin:
+        try:
+            if urlsplit(origin).hostname not in local_hosts:
+                return False
+        except ValueError:
+            return False
+    return True
+
+
 def authenticate_request(request: Request) -> dict[str, str]:
     """Verify a Google ID token and enforce the configured account allowlist."""
+    if is_local_development_request(request):
+        return {"email": "local@workout.local", "name": "Local User", "given_name": "Local"}
     google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     allowed_emails = {email.strip().lower() for email in os.getenv("ALLOWED_EMAILS", "").split(",") if email.strip()}
     if not google_client_id or not allowed_emails:
@@ -1123,8 +1164,7 @@ def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
         routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps_min or choice.target_reps, target_reps_min=choice.target_reps_min or choice.target_reps, target_reps_max=choice.target_reps_max or choice.target_reps, target_weight=choice.target_weight, rest_seconds=choice.rest_seconds))
 
 
-@app.post("/api/v1/routines/import")
-def import_routine(payload: SharedWorkoutImportIn, db: Session = Depends(get_db)):
+def import_routine_copy(payload: SharedWorkoutImportIn, db: Session):
     # Resolve portable exercise names locally. Never trust IDs from another tracker.
     folder = db.get(RoutineFolder, payload.folder_id) if payload.folder_id else None
     if payload.folder_id and not folder:
@@ -1149,10 +1189,30 @@ def import_routine(payload: SharedWorkoutImportIn, db: Session = Depends(get_db)
     routine = Routine()
     populate_routine(routine, RoutineIn(name=payload.name, folder_id=folder.id, exercises=choices), db)
     db.add(routine)
+    db.flush()
+    return routine
+
+
+@app.post("/api/v1/routines/import")
+def import_routine(payload: SharedWorkoutImportIn, db: Session = Depends(get_db)):
+    routine = import_routine_copy(payload, db)
     # The folder, custom exercises, and workout are saved together or rolled back.
     db.commit()
     db.refresh(routine)
     return saved_response(routine_out(routine))
+
+
+@app.post("/api/v1/folders/import")
+def import_shared_folder(payload: SharedFolderImportIn, db: Session = Depends(get_db)):
+    folder = RoutineFolder(name=payload.folder_name)
+    db.add(folder)
+    db.flush()
+    for workout in payload.routines:
+        import_routine_copy(SharedWorkoutImportIn(**workout.model_dump(), folder_id=folder.id), db)
+    # Save the entire folder atomically, including exercise resolution.
+    db.commit()
+    return saved_response({"name": folder.name, "folder_id": folder.id,
+                           "routines": [routine_out(routine) for routine in folder.routines]})
 
 
 @app.post("/api/v1/routines")

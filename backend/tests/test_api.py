@@ -498,3 +498,48 @@ def test_planned_workout_override_is_date_specific_and_does_not_start_session():
     changed["exercises"] = []
     assert client.put(url, json=changed).status_code == 200
     assert client.post(f"/api/v1/routines/{routine['id']}/start?day=2026-09-30").json()["exercises"] == []
+
+
+def test_import_shared_folder_preserves_all_days_and_rejects_partial_invalid_input():
+    reset_db()
+    day = {"version": 1, "name": "Push", "exercises": [{
+        "name": "Bench press", "equipment": "Barbell", "planned_sets": 4,
+        "target_reps_min": 6, "target_reps_max": 10, "rest_seconds": 120,
+        "target_weight": 50,
+    }]}
+    payload = {"version": 1, "kind": "folder", "name": "Shared plan",
+               "folder_name": "My plan", "routines": [day, {**day, "name": "Pull"}]}
+    response = client.post("/api/v1/folders/import", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["saved"] is True
+    folders = client.get("/api/v1/folders").json()
+    folder = next(item for item in folders if item["id"] == body["folder_id"])
+    assert folder["name"] == "My plan"
+    assert [item["name"] for item in folder["routines"]] == ["Push", "Pull"]
+    assert folder["routines"][0]["exercises"][0]["target_weight"] == 50
+    invalid = {**day, "exercises": [{**day["exercises"][0], "planned_sets": -1}]}
+    response = client.post("/api/v1/folders/import", json={**payload, "routines": [day, invalid]})
+    assert response.status_code == 422
+    assert len(client.get("/api/v1/folders").json()) == len(folders)
+
+
+@pytest.mark.parametrize("environment,host,peer,origin,expected", [
+    ("development", "localhost", "127.0.0.1", None, True),
+    ("development", "127.0.0.1", "127.0.0.1", "http://localhost:5173", True),
+    ("production", "localhost", "127.0.0.1", None, False),
+    ("development", "workout.felixjohannessen.no", "127.0.0.1", None, False),
+    ("development", "localhost", "192.168.1.20", None, False),
+    ("development", "localhost", "127.0.0.1", "https://external.example", False),
+])
+def test_local_auth_bypass_is_limited_to_loopback_development(monkeypatch, environment, host, peer, origin, expected):
+    monkeypatch.setattr(main_module, "APP_ENV", environment)
+    headers = [(b"host", host.encode())]
+    if origin:
+        headers.append((b"origin", origin.encode()))
+    request = main_module.Request({"type": "http", "method": "GET", "path": "/api/v1/session",
+                                   "scheme": "http", "server": (host, 8000),
+                                   "client": (peer, 12345), "headers": headers, "query_string": b""})
+    assert main_module.is_local_development_request(request) is expected
+    if expected:
+        assert main_module.authenticate_request(request)["email"] == "local@workout.local"

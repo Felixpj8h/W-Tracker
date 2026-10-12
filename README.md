@@ -77,6 +77,19 @@ npm run dev
 
 The Vite interface is available at `http://localhost:5173`.
 
+### Local development without Google sign-in
+
+With `APP_ENV=development`, requests to `localhost` or a loopback IP from a
+loopback connection automatically use the separate `local@workout.local`
+workspace. The frontend restores this local session without loading Google
+sign-in. Restart the backend after changing this setting; ensure its process
+environment does not override it with `APP_ENV=production`.
+
+Public hostnames, LAN clients, and production deployments still require Google
+authentication. Docker Compose and the Render Blueprint explicitly set
+`APP_ENV=production`, so their login remains enabled even when accessed locally.
+Local development data is separate from your Google account's data.
+
 Coach failures are written to `backend/logs/coach.log`. The chat shows an error
 reference that you can search for in this file. Logs rotate at 2 MB and keep
 three older files. The log folder is ignored by Git.

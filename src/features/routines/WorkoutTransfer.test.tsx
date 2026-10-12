@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkoutTransfer } from './WorkoutTransfer';
-import { createWorkoutLink } from './sharing';
+import { createWorkoutLink, createFolderLink } from './sharing';
 import { api } from '../../shared/api/client';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn() }));
@@ -11,6 +11,21 @@ const routine = { id: 7, name: 'Push', exercises: [{ name: 'Bench press', planne
 const link = createWorkoutLink(routine, 'https://tracker.example');
 
 describe('workout transfer', () => {
+    it('previews every day and imports the complete folder in one request', async () => {
+        const folderLink = createFolderLink({ id: 10, name: 'Weekly plan', routines: [routine, { ...routine, id: 8, name: 'Pull' }] }, 'https://tracker.example');
+        const imported = vi.fn();
+        vi.mocked(api).mockResolvedValue({ name: 'Weekly plan', folder_id: 9 });
+        render(<WorkoutTransfer initialLink={folderLink} folders={[]} close={vi.fn()} imported={imported}/>);
+        expect(screen.getByText('Push')).toBeTruthy();
+        expect(screen.getByText('Pull')).toBeTruthy();
+        expect(api).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Import folder and workouts' }));
+        await waitFor(() => expect(imported).toHaveBeenCalled());
+        expect(api).toHaveBeenCalledWith('/folders/import', expect.objectContaining({ method: 'POST' }));
+        const body = JSON.parse(vi.mocked(api).mock.calls[0][1]!.body as string);
+        expect(body.folder_name).toBe('Weekly plan');
+        expect(body.routines).toHaveLength(2);
+    });
     it('previews a pasted link before importing a copy into the chosen folder', async () => {
         const imported = vi.fn();
         vi.mocked(api).mockResolvedValue({ ...routine, folder_id: 4 });
