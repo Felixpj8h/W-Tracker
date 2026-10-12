@@ -131,7 +131,7 @@
   .analysis-compare { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 760px) {
-  .workspace:has(.history-analysis) { padding-bottom: calc(100px + env(safe-area-inset-bottom)) !important; }
+  .workspace:has(.history-analysis) { padding-bottom: var(--mobile-nav-height) !important; }
   .history-analysis { padding-top: 18px; }
   .analysis-toolbar h2 { font-size: 25px; }
   .analysis-toolbar select { width: 118px; }

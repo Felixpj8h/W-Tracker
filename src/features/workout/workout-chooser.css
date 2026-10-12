@@ -37,7 +37,7 @@ main.workspace:has(.workout-chooser){height:auto;min-height:100dvh;overflow:visi
 .chooser-day:hover .chooser-start span{transform:translateX(2px)}
 .chooser-empty{padding:26px 10px;color:var(--muted);font-size:14px}
 @media(max-width:760px){
-main.workspace:has(.workout-chooser){padding:24px 16px calc(108px + env(safe-area-inset-bottom))!important}
+main.workspace:has(.workout-chooser){padding:calc(var(--safe-area-top) + 24px) 16px var(--mobile-nav-height)!important}
 .workout-chooser{width:100%;min-width:0}
 .workout-chooser .head{align-items:flex-start;gap:6px;margin-bottom:16px;padding-right:38px;text-align:left}
 .workout-chooser .head h1{font-size:clamp(31px,8vw,38px);line-height:1.08}

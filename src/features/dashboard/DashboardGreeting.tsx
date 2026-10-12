@@ -1,7 +1,7 @@
 import type { Dash } from './types';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth } from '../calendar/types';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 export function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth; firstName: string }) {
     const greeting = `Hello ${firstName}.`;
@@ -33,6 +33,24 @@ export function DashboardGreeting({ dash, history, historyLoaded, calendar, firs
     const messages = [calendarMessage, ...facts];
     const factKey = messages.join('|');
     const [text, setText] = useState('');
+    const greetingRef = useRef<HTMLParagraphElement>(null);
+    const lineRef = useRef<HTMLSpanElement>(null);
+    useLayoutEffect(() => {
+        const container = greetingRef.current;
+        const line = lineRef.current;
+        if (!container || !line) return;
+        const fit = () => {
+            const scale = window.matchMedia('(max-width: 760px)').matches && line.offsetWidth > 0
+                ? Math.min(1, container.clientWidth / line.offsetWidth)
+                : 1;
+            container.style.setProperty('--greeting-scale', String(scale));
+        };
+        fit();
+        const observer = new ResizeObserver(fit);
+        observer.observe(container);
+        observer.observe(line);
+        return () => observer.disconnect();
+    }, [text]);
     const backendReady = dash !== null && historyLoaded && calendar !== undefined;
     useEffect(() => {
         if (!backendReady) return;
@@ -65,5 +83,5 @@ export function DashboardGreeting({ dash, history, historyLoaded, calendar, firs
         timer = setTimeout(() => type(greeting), 280);
         return () => clearTimeout(timer);
     }, [backendReady, factKey, greeting]);
-    return <p className="dashboard-greeting" aria-live="polite">{backendReady && <><span>{text}</span><i aria-hidden="true" /></>}</p>;
+    return <p className="dashboard-greeting" ref={greetingRef} aria-live="polite">{backendReady && <span className="dashboard-greeting-line" ref={lineRef}><span>{text}</span><i aria-hidden="true" /></span>}</p>;
 }

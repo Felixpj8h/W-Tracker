@@ -42,9 +42,9 @@
   main.workspace:has(.history-layout) {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - 76px - env(safe-area-inset-bottom));
+    height: calc(100dvh - var(--mobile-nav-height));
     min-height: 0 !important;
-    padding: 18px 16px 12px !important;
+    padding: calc(var(--safe-area-top) + 18px) 16px 12px !important;
     overflow: hidden;
   }
 
@@ -422,17 +422,17 @@
 }
 
 @media (max-width: 760px) {
-  main.workspace:has(.history-page-title) { padding: 17px 16px 10px !important; }
+  main.workspace:has(.history-page-title) { padding: calc(var(--safe-area-top) + 17px) 16px 10px !important; }
   .workspace:has(.history-page-title) > .head { margin-bottom: 14px; }
   .workspace:has(.history-page-title) .history-page-title { font-size: clamp(35px, 9vw, 44px); }
   .workspace:has(.history-page-title) > .history-tabs { width: 100%; margin-bottom: 14px; }
   .workspace:has(.history-page-title) > .history-tabs button { flex: 1; }
-  .workspace:has(.history-page-title) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; margin-bottom: 11px; padding: 10px 0; }
+  .workspace:has(.history-page-title) > .history-toolbar { grid-template-columns: minmax(0, 1fr) 130px; gap: 8px; margin-bottom: 11px; padding: 10px 0 10px 0; }
   .workspace:has(.history-page-title) .history-toolbar input,
   .workspace:has(.history-page-title) .history-toolbar select { min-height: 43px; height: 43px; font-size: 13px; }
   .workspace:has(.history-page-title) .history-toolbar p { grid-column: 1 / -1; text-align: left; }
   .workspace:has(.history-layout) .history-list { padding-right: 0; }
-  .workspace:has(.history-layout) .history-group > .history-row-main { min-height: 70px; padding: 9px 12px; }
+  .workspace:has(.history-layout) .history-group > .history-row-main { min-height: 70px; padding: 9px 12px 9px 12px; }
   .workspace:has(.history-layout) .history-session { display: none; padding: 18px 14px 8px !important; }
   .workspace:has(.history-layout) .history-session-head { padding-right: 42px !important; }
   .history-session-head h2 { font-size: 25px !important; }
@@ -444,7 +444,7 @@
   body.history-session-open .app::after {
     content: '';
     position: fixed;
-    inset: 0 0 76px;
+    inset: var(--safe-area-top) var(--safe-area-right) var(--mobile-nav-height) var(--safe-area-left);
     z-index: 31;
     background: rgba(6, 12, 8, .58);
   }
@@ -453,7 +453,7 @@
     z-index: 32;
     top: 14px;
     right: 12px;
-    bottom: calc(86px + env(safe-area-inset-bottom));
+    bottom: calc(var(--mobile-nav-height) + 10px);
     left: 12px;
     display: flex;
     width: auto;
