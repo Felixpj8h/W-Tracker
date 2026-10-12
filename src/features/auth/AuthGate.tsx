@@ -12,6 +12,7 @@ export function AuthGate({ children }: { children: (user: UserProfile) => React.
     const [checking, setChecking] = useState(false);
     const [authError, setAuthError] = useState('');
     const [restoring, setRestoring] = useState(true);
+    const [restoreAttempt, setRestoreAttempt] = useState(0);
     const googleButton = useRef<HTMLDivElement>(null);
     const signOut = useCallback(() => {
         window.google?.accounts.id.disableAutoSelect();
@@ -24,11 +25,22 @@ export function AuthGate({ children }: { children: (user: UserProfile) => React.
 
     useEffect(() => {
         let cancelled = false;
-        void fetch(`${API}/session`, { credentials: 'include' }).then(async response => {
+        const controller = new AbortController();
+        setRestoring(true);
+        setAuthError('');
+        const timeout = window.setTimeout(() => {
+            cancelled = true;
+            controller.abort();
+            setRestoring(false);
+            setAuthError('The tracker server took too long to respond. Retry your connection.');
+        }, 10000);
+        void fetch(`${API}/session`, { credentials: 'include', signal: controller.signal }).then(async response => {
+            if (cancelled) return;
             if (!response.ok) {
                 if (localDevelopment) setAuthError(response.status === 401 || response.status === 503
                     ? 'The backend still requires Google login. Restart it with APP_ENV=development.'
                     : `The local backend returned HTTP ${response.status}. Check its terminal output.`);
+                else if (response.status !== 401) setAuthError('Cannot restore your session. Retry your connection.');
                 return;
             }
             const body = await response.json() as { email?: string; name?: string; given_name?: string };
@@ -36,9 +48,9 @@ export function AuthGate({ children }: { children: (user: UserProfile) => React.
                 setProfile(profileFromSession(body));
                 setToken('session');
             }
-        }).catch(() => { if (!cancelled && localDevelopment) setAuthError('Cannot reach the local backend. Start it on port 8000, then retry.'); }).finally(() => { if (!cancelled) setRestoring(false); });
-        return () => { cancelled = true; };
-    }, []);
+        }).catch(() => { if (!cancelled) setAuthError(localDevelopment ? 'Cannot reach the local backend. Start it on port 8000, then retry.' : 'Cannot reach the tracker server. Retry your connection.'); }).finally(() => { window.clearTimeout(timeout); if (!cancelled) setRestoring(false); });
+        return () => { cancelled = true; window.clearTimeout(timeout); controller.abort(); };
+    }, [restoreAttempt, localDevelopment]);
 
     useEffect(() => {
         window.addEventListener('google-auth-expired', signOut);
@@ -106,7 +118,7 @@ export function AuthGate({ children }: { children: (user: UserProfile) => React.
 
     if (token && profile) return children(profile);
     if (localDevelopment) return <main className="auth-shell"><section className="auth-card"><div className="auth-brand">W</div><h1>Local workspace</h1><p>{restoring ? 'Connecting to the local backend…' : authError || 'The backend did not return a local user. Restart it in development mode.'}</p>{!restoring && <button type="button" className="primary" onClick={() => window.location.reload()}>Retry connection</button>}</section></main>;
-    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <p className="auth-error" role="alert">{authError}</p>}</section></main>;
+    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <><p className="auth-error" role="alert">{authError}</p>{!restoring && !checking && <button type="button" className="primary" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button>}</>}</section></main>;
 }
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
