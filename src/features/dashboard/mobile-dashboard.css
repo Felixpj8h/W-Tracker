@@ -1,5 +1,12 @@
 .mobile-swipe-title,.dashboard-page-indicator,.mobile-add-weight{display:none}
 @media(max-width:760px){
+  .dashboard-workspace .dashboard-shell{overflow-x:hidden!important;scroll-snap-type:none;scroll-behavior:auto;touch-action:pan-y pinch-zoom}
+  .dashboard-overview-page,.dashboard-workspace .dashboard-analytics,.dashboard-workspace .dashboard-lower{scroll-snap-align:none;transform:translateX(var(--dashboard-page-offset,0%));transition:transform 360ms cubic-bezier(.22,.8,.25,1);will-change:transform}
+}
+@media(max-width:760px) and (prefers-reduced-motion:reduce){
+  .dashboard-overview-page,.dashboard-workspace .dashboard-analytics,.dashboard-workspace .dashboard-lower{transition:none}
+}
+@media(max-width:760px){
   .app:has(main.dashboard-workspace){background:#101a13}
   main.workspace.dashboard-workspace{height:calc(100dvh - 76px - env(safe-area-inset-bottom))!important}
   .dashboard-workspace .dashboard-shell{height:100%!important}

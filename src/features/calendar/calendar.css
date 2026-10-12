@@ -124,3 +124,32 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
 .training-day.filtered-out:not(.selected){background:var(--surface)}
 .training-day.filtered-out .training-event,.training-day.filtered-out .training-note-indicator{opacity:.25}
 .training-day.filtered-out:hover .training-event,.training-day.filtered-out:focus-visible .training-event,.training-day.filtered-out:hover .training-note-indicator,.training-day.filtered-out:focus-visible .training-note-indicator{opacity:.65}
+
+/* Let compact screens scroll instead of stretching or clipping the day card. */
+@media(max-width:760px){
+  main.workspace:has(.training-calendar){height:auto;min-height:100dvh!important;overflow:visible!important;padding:18px 14px calc(100px + env(safe-area-inset-bottom))!important}
+  .training-calendar{height:auto;position:relative}
+  .training-calendar-header{position:relative;margin-bottom:14px}
+  .training-calendar-header h1{padding-right:52px;margin-bottom:16px;font-size:clamp(27px,7vw,32px)}
+  .training-calendar-tools{grid-template-columns:44px minmax(0,1fr) 44px;gap:8px}
+  .training-calendar-tools button,.training-calendar-tools select{height:44px}
+  .training-calendar-tools .calendar-icon-button{width:44px}
+  .training-calendar-tools .previous{grid-column:1;grid-row:1}
+  .training-calendar-tools select{grid-column:2;grid-row:1;width:100%;min-width:0;font-size:16px}
+  .training-calendar-tools .next{grid-column:3;grid-row:1}
+  .training-calendar-tools .calendar-plan-button{grid-column:1/-1;grid-row:2;font-size:14px}
+  .training-calendar-tools .calendar-menu-wrap{top:0;right:0}
+  .training-calendar-layout{flex:none;grid-template-rows:auto auto;gap:14px;align-items:start}
+  .training-days{grid-auto-rows:clamp(48px,7dvh,64px)}
+  .training-day{padding:5px 3px}
+  .training-date{width:23px;height:23px;font-size:13px}
+  .training-event-short{overflow:hidden;text-overflow:ellipsis}
+  .training-detail{display:block;overflow:visible;padding:16px}
+  .training-detail-workout{margin:12px 0;padding:12px 0}
+  .training-detail-primary{min-height:48px;font-size:16px}
+  .training-detail-actions{margin-top:12px;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .training-detail-actions:empty{display:none}
+  .training-detail-actions button{min-height:44px;white-space:normal}
+  .training-detail-actions button:only-child{grid-column:1/-1;font-size:13px}
+  .training-calendar .week-planner{position:static;max-height:none;margin-bottom:14px;box-shadow:none}
+}
