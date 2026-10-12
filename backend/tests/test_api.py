@@ -74,6 +74,73 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     assert groups["Chest"] == 1440
 
 
+def shared_workout_payload():
+    return {"version": 1, "name": "Shared push 💪", "folder_name": "Imported workouts", "exercises": [
+        {"name": "Bench press", "equipment": "Barbell", "primary_muscle": "Chest", "planned_sets": 4,
+         "target_reps_min": 6, "target_reps_max": 10, "rest_seconds": 120, "target_weight": 60},
+        {"name": "Custom café press", "equipment": "Dumbbell", "primary_muscle": "Shoulders", "planned_sets": 2,
+         "target_reps_min": 8, "target_reps_max": 12, "rest_seconds": 0},
+    ]}
+
+
+def test_shared_workout_import_preserves_targets_and_resolves_local_exercises():
+    reset_db()
+    with main_module.SessionLocal() as db:
+        original = db.scalar(main_module.select(main_module.Exercise).where(main_module.Exercise.name == "Bench press"))
+        original_id, original_muscle = original.id, original.primary_muscle
+    response = client.post("/api/v1/routines/import", json=shared_workout_payload())
+    assert response.status_code == 200
+    imported = response.json()
+    assert imported["saved"] is True
+    assert imported["name"] == "Shared push 💪"
+    assert imported["exercises"][0]["exercise"]["id"] == original_id
+    assert imported["exercises"][0]["target_weight"] == 60
+    assert imported["exercises"][0]["target_reps_max"] == 10
+    assert imported["exercises"][1]["rest_seconds"] == 0
+    with main_module.SessionLocal() as db:
+        assert db.get(main_module.Exercise, original_id).primary_muscle == original_muscle
+    folders = client.get("/api/v1/folders").json()
+    assert folders[0]["name"] == "Imported workouts"
+    assert folders[0]["routines"][0]["id"] == imported["id"]
+    draft = client.post(f"/api/v1/routines/{imported['id']}/start").json()
+    assert len(draft["exercises"]) == 2
+
+
+def test_shared_workout_import_rejects_invalid_payloads_without_partial_folders():
+    reset_db()
+    payload = shared_workout_payload()
+    payload["exercises"][1]["target_reps_max"] = 2
+    assert client.post("/api/v1/routines/import", json=payload).status_code == 422
+    assert client.get("/api/v1/folders").json() == []
+    payload = shared_workout_payload()
+    payload["version"] = 2
+    assert client.post("/api/v1/routines/import", json=payload).status_code == 422
+    payload = shared_workout_payload()
+    payload["folder_id"] = 999999
+    del payload["folder_name"]
+    assert client.post("/api/v1/routines/import", json=payload).status_code == 404
+    assert client.get("/api/v1/folders").json() == []
+
+
+def test_shared_workout_import_respects_folder_ownership_and_creates_independent_copies():
+    reset_db()
+    app.state.test_user_email = "alice@example.com"
+    try:
+        folder = client.post("/api/v1/folders", json={"name": "Alice"}).json()
+        payload = shared_workout_payload()
+        del payload["folder_name"]
+        payload["folder_id"] = folder["id"]
+        alice = client.post("/api/v1/routines/import", json=payload).json()
+        app.state.test_user_email = "bob@example.com"
+        assert client.post("/api/v1/routines/import", json=payload).status_code == 404
+        bob = client.post("/api/v1/routines/import", json=shared_workout_payload()).json()
+        assert bob["id"] != alice["id"]
+        assert bob["folder_id"] != alice["folder_id"]
+        assert [r["id"] for f in client.get("/api/v1/folders").json() for r in f["routines"]] == [bob["id"]]
+    finally:
+        app.state.test_user_email = "test@example.com"
+
+
 def test_completed_workout_note_can_be_saved_and_read():
     reset_db()
     created = client.post("/api/v1/workouts", json={

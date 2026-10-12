@@ -14,7 +14,7 @@ import re
 import secrets
 import threading
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -24,8 +24,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, select, or_
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, func, select, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria
 
@@ -303,6 +303,39 @@ class RoutineIn(BaseModel):
 
 class FolderIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class SharedExerciseIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=180)
+    equipment: str = Field(min_length=1, max_length=100)
+    primary_muscle: Optional[str] = Field(default=None, max_length=80)
+    planned_sets: int = Field(ge=1, le=20)
+    target_reps_min: int = Field(ge=1, le=100)
+    target_reps_max: int = Field(ge=1, le=100)
+    rest_seconds: int = Field(ge=0, le=1800)
+    target_weight: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def check_rep_range(self):
+        if self.target_reps_min > self.target_reps_max:
+            raise ValueError("Minimum reps cannot be greater than maximum reps")
+        return self
+
+
+class SharedWorkoutImportIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    version: Literal[1]
+    name: str = Field(min_length=1, max_length=120)
+    exercises: list[SharedExerciseIn] = Field(max_length=50)
+    folder_id: Optional[int] = Field(default=None, gt=0)
+    folder_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def check_destination(self):
+        if (self.folder_id is None) == (self.folder_name is None):
+            raise ValueError("Choose an existing folder or a new folder name")
+        return self
 
 
 class LoggedSetIn(BaseModel):
@@ -1088,6 +1121,38 @@ def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
         if choice.target_reps_min and choice.target_reps_max and choice.target_reps_min > choice.target_reps_max:
             raise HTTPException(422, "Minimum reps cannot be greater than maximum reps")
         routine.exercises.append(RoutineExercise(exercise_id=choice.exercise_id, position=pos, planned_sets=choice.planned_sets, target_reps=choice.target_reps_min or choice.target_reps, target_reps_min=choice.target_reps_min or choice.target_reps, target_reps_max=choice.target_reps_max or choice.target_reps, target_weight=choice.target_weight, rest_seconds=choice.rest_seconds))
+
+
+@app.post("/api/v1/routines/import")
+def import_routine(payload: SharedWorkoutImportIn, db: Session = Depends(get_db)):
+    # Resolve portable exercise names locally. Never trust IDs from another tracker.
+    folder = db.get(RoutineFolder, payload.folder_id) if payload.folder_id else None
+    if payload.folder_id and not folder:
+        raise HTTPException(404, "Folder not found")
+    if folder is None:
+        folder = RoutineFolder(name=payload.folder_name)
+        db.add(folder)
+        db.flush()
+    choices = []
+    for item in payload.exercises:
+        exercise = db.scalar(select(Exercise).where(
+            func.lower(Exercise.name) == item.name.lower(), func.lower(Exercise.equipment) == item.equipment.lower()
+        ).order_by(Exercise.id))
+        if exercise is None:
+            # Do not update existing catalogue metadata from a shared link.
+            muscle = canonical_muscle(item.primary_muscle)
+            exercise = Exercise(name=item.name, equipment=item.equipment,
+                                primary_muscle=muscle, muscle_group=group_for(muscle))
+            db.add(exercise)
+            db.flush()
+        choices.append(ExerciseChoice(exercise_id=exercise.id, **item.model_dump(exclude={"name", "equipment", "primary_muscle"})))
+    routine = Routine()
+    populate_routine(routine, RoutineIn(name=payload.name, folder_id=folder.id, exercises=choices), db)
+    db.add(routine)
+    # The folder, custom exercises, and workout are saved together or rolled back.
+    db.commit()
+    db.refresh(routine)
+    return saved_response(routine_out(routine))
 
 
 @app.post("/api/v1/routines")

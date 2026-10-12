@@ -15,13 +15,19 @@ import { Sidebar } from './Sidebar';
 import { Dashboard } from '../features/dashboard/Dashboard';
 import { Coach } from '../features/coach/Coach';
 import { Routines } from '../features/routines/Routines';
+import { hasWorkoutLink } from '../features/routines/sharing';
 import { Calendar } from '../features/calendar/Calendar';
 import { WorkoutLogger } from '../features/workout/WorkoutLogger';
 import { History } from '../features/history/History';
 
 export function WorkoutApp({ user }: { user: UserProfile }) {
     const [initialWorkout] = useState<Workout | null>(storedWorkout);
-    const [page, setPage] = useState<Page>(() => initialWorkout ? 'workout' : 'dashboard'), [dash, setDash] = useState<Dash | null>(null), [folders, setFolders] = useState<Folder[]>([]), [history, setHistory] = useState<Workout[]>([]), [historyLoaded, setHistoryLoaded] = useState(false), [active, setActive] = useState<Workout[]>([]), [calendarMonths, setCalendarMonths] = useState<Record<string, CalendarMonth>>({}), [loadErrors, setLoadErrors] = useState<Partial<Record<'dashboard' | 'folders' | 'history' | 'active' | 'calendar', string>>>({}), [workout, setWorkout] = useState<Workout | null>(initialWorkout), [editing, setEditing] = useState(false), [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light');
+    const [page, setPage] = useState<Page>(() => hasWorkoutLink() ? 'routines' : initialWorkout ? 'workout' : 'dashboard'), [dash, setDash] = useState<Dash | null>(null), [folders, setFolders] = useState<Folder[]>([]), [history, setHistory] = useState<Workout[]>([]), [historyLoaded, setHistoryLoaded] = useState(false), [active, setActive] = useState<Workout[]>([]), [calendarMonths, setCalendarMonths] = useState<Record<string, CalendarMonth>>({}), [loadErrors, setLoadErrors] = useState<Partial<Record<'dashboard' | 'folders' | 'history' | 'active' | 'calendar', string>>>({}), [workout, setWorkout] = useState<Workout | null>(initialWorkout), [editing, setEditing] = useState(false), [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light');
+    useEffect(() => {
+        const openLink = () => { if (hasWorkoutLink()) setPage('routines'); };
+        window.addEventListener('hashchange', openLink);
+        return () => window.removeEventListener('hashchange', openLink);
+    }, []);
     const optimisticWeights = useRef(new Map<string, number>());
     const pendingWorkoutStart = useRef<Promise<Workout> | null>(null);
     const pendingDashboardLog = useRef(false);
