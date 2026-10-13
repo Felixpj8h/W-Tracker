@@ -295,7 +295,7 @@
   border-radius: 8px;
   font-size: 13px;
 }
-.workspace:has(.history-layout) .history-actions .history-edit { background: var(--accent); color: #0d1d13; }
+.workspace:has(.history-layout) .history-actions .history-edit { background: var(--accent); color: var(--on-accent); }
 .history-menu-wrap { position: relative; }
 .workspace:has(.history-layout) .history-actions .history-menu-trigger {
   width: 41px;

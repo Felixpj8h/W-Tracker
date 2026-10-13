@@ -22,7 +22,7 @@
 .routine-manager .head{align-items:center;margin-bottom:22px}
 .routine-manager .head h1{font-size:clamp(42px,4.5vw,62px)}
 .routine-manager .head>div>p:last-child{font-size:16px}
-.routine-manager .head .primary,.routine-create button,.routine-add-day,.routine-start{border-radius:8px;background:var(--accent);color:#102016;box-shadow:none;font-size:14px;font-weight:750}
+.routine-manager .head .primary,.routine-create button,.routine-add-day,.routine-start{border-radius:8px;background:var(--accent);color:var(--on-accent);box-shadow:none;font-size:14px;font-weight:750}
 .app:not(.dark) .routine-manager .head .primary,.app:not(.dark) .routine-create button{color:#f7faf5}
 .routine-manager .head .primary{padding:13px 18px}
 .routine-manager .head .primary:hover,.routine-create button:hover,.routine-add-day:hover,.routine-start:hover{background:color-mix(in srgb,var(--accent) 82%,white);transform:none}

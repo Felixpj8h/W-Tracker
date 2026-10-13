@@ -10,7 +10,7 @@
   .dashboard-overview-page .head{margin-bottom:20px;display:flex;flex-direction:column;align-items:stretch;gap:14px;margin:0 0 18px}
   .mobile-dashboard-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
   .mobile-dashboard-topbar>span{display:flex;align-items:center;gap:9px}
-  .mobile-dashboard-topbar>span>b{display:grid;place-items:center;border-radius:10px;background:var(--accent);color:#102016;font-size:18px;width:40px;height:40px}
+  .mobile-dashboard-topbar>span>b{display:grid;place-items:center;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:18px;width:40px;height:40px}
   .mobile-dashboard-topbar em{color:var(--text-primary);font-style:normal;font-weight:750;line-height:1.15;font-size:13px;letter-spacing:.03em}
   .mobile-dashboard-topbar>span:nth-child(2){gap:2px;padding-left:13px;border-left:1px solid var(--border-subtle);display:none}
   .mobile-dashboard-topbar small{color:var(--text-primary);font-size:11px;font-weight:700}
@@ -30,13 +30,13 @@
   .mobile-today-card h3{margin:20px 0 5px;color:var(--text-primary);font-size:25px;letter-spacing:-.04em}
   .mobile-today-card>p{margin:0;color:var(--text-secondary);font-size:13px}
   .mobile-today-stats{display:flex;gap:18px;margin:18px 0;color:var(--text-secondary);font-size:12px}
-  .mobile-start-workout{display:flex;width:100%;min-height:44px;align-items:center;justify-content:center;gap:12px;border-radius:9px;background:var(--accent);color:#102016;font-size:13px;font-weight:800}
+  .mobile-start-workout{display:flex;width:100%;min-height:44px;align-items:center;justify-content:center;gap:12px;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:13px;font-weight:800}
   .mobile-start-workout b{font-size:20px;line-height:1}
   .mobile-week-content{display:grid;grid-template-columns:minmax(0,1fr) 64px;align-items:center;gap:12px;margin-top:16px}
   .mobile-week-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-top:8px;padding:12px;border:1px solid var(--border-subtle);border-radius:11px;background:var(--bg-surface)}
   .mobile-week-days span{display:grid;justify-items:center;gap:10px}
   .mobile-week-days i{display:grid;place-items:center;border:1px solid var(--border-subtle);background:var(--field);color:var(--text-muted);font-style:normal;width:28px;height:28px;border-radius:50%;font-size:15px}
-  .mobile-week-days .complete i{background:var(--accent);color:#102016}
+  .mobile-week-days .complete i{background:var(--accent);color:var(--on-accent)}
   .mobile-week-days small{color:var(--text-secondary);font-size:12px}
   .mobile-week-ring{display:grid;width:60px;height:60px;place-content:center;border-radius:50%;box-shadow:inset 0 0 0 8px transparent;text-align:center;position:relative}
   .mobile-week-ring::after{content:'';position:absolute;inset:8px;border-radius:50%;background:var(--bg-main)}
@@ -100,7 +100,7 @@
   .dashboard-workspace .recent-row>span:nth-of-type(2){grid-column:3!important;grid-row:1!important;max-width:88px;white-space:normal;text-align:right;font-size:11px}
   .dashboard-workspace .recent-row>i{grid-column:4;font-size:20px}
   .dashboard-workspace .week-row>span{font-size:13px}
-  .dashboard-workspace .week-row i{width:22px;height:22px;color:#102016;font-size:12px}
+  .dashboard-workspace .week-row i{width:22px;height:22px;color:var(--on-accent);font-size:12px}
   .dashboard-page-indicator{position:fixed;right:0;bottom:calc(var(--mobile-nav-height) + 2px);left:0;z-index:28;display:flex;justify-content:center;gap:4px;height:23px;pointer-events:none}
   .dashboard-page-indicator button{width:22px;height:22px;padding:0;background:transparent;color:var(--text-muted);font-size:17px;pointer-events:auto}
   .dashboard-page-indicator button[aria-current='page']{color:var(--accent-bright)}
@@ -110,7 +110,7 @@
   .dashboard-workspace :is(.recent-row-copy b,.recent-row-copy small,.muscle-row>b,.muscle-card-head h2){white-space:normal;overflow:visible;text-overflow:clip}
   .dashboard-workspace :is(.dashboard-metrics small,.recent-row-copy small,.muscle-row>span,.muscle-row>small){font-size:13px;line-height:1.4}
   .dashboard-workspace :is(.dashboard-weight,.dashboard-volume,.dashboard-lower>article){min-height:0!important}
-  .dashboard-workspace .dashboard-volume.sets-mode .muscle-rows{height:auto;overflow:visible;gap:12px;padding:0 0 0 0}
+  .dashboard-workspace .dashboard-volume.sets-mode .muscle-rows{height:240px;flex:none;overflow-x:hidden;overflow-y:auto;gap:12px;padding:2px 14px 2px 2px}
   .dashboard-workspace .dashboard-volume.sets-mode .muscle-row{min-height:0;padding:12px 12px 12px 12px}}
 @media(max-width:760px) and (prefers-reduced-motion:reduce){
   .dashboard-overview-page,.dashboard-workspace .dashboard-analytics,.dashboard-workspace .dashboard-lower{transition:none}
