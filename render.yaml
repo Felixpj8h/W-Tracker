@@ -21,6 +21,10 @@ services:
         value: sqlite:////data/workout_tracker.db
       - key: ENABLE_API_DOCS
         value: "false"
+      - key: DEMO_ENABLED
+        value: "false"
+      - key: DEMO_OWNER_EMAIL
+        sync: false
       - key: PUBLIC_ORIGIN
         value: https://workout.felixjohannessen.no
       - key: ALLOWED_ORIGINS

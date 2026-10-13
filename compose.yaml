@@ -6,6 +6,8 @@ services:
       APP_ENV: production
       DATABASE_URL: sqlite:////data/workout_tracker.db
       ENABLE_API_DOCS: "false"
+      DEMO_ENABLED: ${DEMO_ENABLED:-false}
+      DEMO_OWNER_EMAIL: ${DEMO_OWNER_EMAIL:-}
       ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the HTTPS site origin}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the HTTPS site origin}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to a random secret}

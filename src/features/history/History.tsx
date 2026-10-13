@@ -6,7 +6,7 @@ import { HistoryAnalysis } from './HistoryAnalysis';
 import { duration } from '../../shared/lib/format';
 import { DashboardIcon } from '../dashboard/DashboardIcon';
 
-export function History({ data, edit, refresh, note, repeat }: { data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void> }) {
+export function History({ data, edit, refresh, note, repeat, readOnly = false }: { data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void>; readOnly?: boolean }) {
     const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
     const lastSelectedId = useRef<number | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -27,7 +27,7 @@ export function History({ data, edit, refresh, note, repeat }: { data: Workout[]
     const select = (workout: Workout) => { lastSelectedId.current = workout.id ?? null; setSelectedId(workout.id ?? null); setDetailOpen(true); setMenuOpen(false); setShowSetDetails(false); };
     const formatDate = (value: string, options: Intl.DateTimeFormatOptions) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, options);
     const deleteSelected = async (workout: Workout) => {
-        if (!window.confirm(`Delete “${workout.name}”? This cannot be undone.`)) return;
+        if (readOnly || !window.confirm(`Delete “${workout.name}”? This cannot be undone.`)) return;
         setMenuOpen(false);
         await api(`/workouts/${workout.id}`, { method: 'DELETE' });
         setSelectedId(null);
@@ -36,7 +36,7 @@ export function History({ data, edit, refresh, note, repeat }: { data: Workout[]
         note('Workout deleted');
     };
     const saveSelectedNote = async () => {
-        if (!selected) return;
+        if (readOnly || !selected) return;
         setNoteSaving(true);
         try {
             await api(`/workouts/${selected.id}`, { method: 'PATCH', body: JSON.stringify({ ...selected, note: noteDraft.trim() }) });
@@ -74,11 +74,11 @@ export function History({ data, edit, refresh, note, repeat }: { data: Workout[]
                     <button className="history-session-close" type="button" aria-label="Close workout details" onClick={() => setDetailOpen(false)}>×</button>
                     <header className="history-session-head">
                         <div><h2>{selected.name}</h2><p>{formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p></div>
-                        <div className="history-actions"><button type="button" className="history-edit" onClick={() => edit(selected)}>Edit session</button><div className="history-menu-wrap"><button type="button" className="history-menu-trigger" aria-label="More session actions" aria-expanded={menuOpen} onClick={() => setMenuOpen(current => !current)}>⋯</button>{menuOpen && <div className="history-menu"><button type="button" onClick={() => void deleteSelected(selected)}>Delete session</button></div>}</div></div>
+                        {!readOnly && <div className="history-actions"><button type="button" className="history-edit" onClick={() => edit(selected)}>Edit session</button><div className="history-menu-wrap"><button type="button" className="history-menu-trigger" aria-label="More session actions" aria-expanded={menuOpen} onClick={() => setMenuOpen(current => !current)}>⋯</button>{menuOpen && <div className="history-menu"><button type="button" onClick={() => void deleteSelected(selected)}>Delete session</button></div>}</div></div>}
                     </header>
                     <div className="history-session-stats"><span><DashboardIcon name="session"/>{selected.exercises.length} exercises</span><span><DashboardIcon name="scale"/>{volume(selected).toLocaleString()} kg</span><span><DashboardIcon name="clock"/>{duration(selected.duration_seconds)}</span></div>
                     {selected.note && <p className="history-session-note">{selected.note}</p>}
-                    <div className="history-section-title"><h3>Exercises</h3><div className="history-utilities"><button type="button" onClick={() => setShowSetDetails(current => !current)} aria-pressed={showSetDetails}>☷ <span>{showSetDetails ? 'Hide details' : 'View details'}</span></button>{repeat && <button type="button" onClick={() => void repeat(selected)}>↻ <span>Log again</span></button>}<button type="button" onClick={() => { setNoteDraft(selected.note ?? ''); setNoteOpen(true); }}>▤ <span>{selected.note ? 'Edit note' : 'Add note'}</span></button></div></div>
+                    <div className="history-section-title"><h3>Exercises</h3><div className="history-utilities"><button type="button" onClick={() => setShowSetDetails(current => !current)} aria-pressed={showSetDetails}>☷ <span>{showSetDetails ? 'Hide details' : 'View details'}</span></button>{!readOnly && repeat && <button type="button" onClick={() => void repeat(selected)}>↻ <span>Log again</span></button>}{!readOnly && <button type="button" onClick={() => { setNoteDraft(selected.note ?? ''); setNoteOpen(true); }}>▤ <span>{selected.note ? 'Edit note' : 'Add note'}</span></button>}</div></div>
                     <div className="history-exercises">
                         {selected.exercises.map((item, i) => <div className="history-exercise" key={`${item.name}-${i}`}><span className="history-exercise-index">{i + 1}</span><div><b>{item.name}</b><small>{(item.sets ?? []).map(set => `${set.weight} kg × ${set.reps}`).join(' · ') || 'No completed sets'}</small>{showSetDetails && <div className="history-set-details">{(item.sets ?? []).map((set, index) => <span key={index}>Set {index + 1}: {set.weight} kg × {set.reps}{set.exertion ? ` · RPE ${set.exertion}` : ''}</span>)}{item.note && <p>{item.note}</p>}</div>}</div></div>)}
                     </div>

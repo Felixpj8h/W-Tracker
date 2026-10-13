@@ -112,6 +112,40 @@ Stop-Process -Id <OwningProcess>
 
 ## Notes
 
+### Public live demo
+
+The login screen offers **Explore demo**, also available directly at `/demo`.
+The backend keeps demo publication disabled by default. To publish it, set
+`DEMO_ENABLED=true` and `DEMO_OWNER_EMAIL=felixpj8h@gmail.com` on the backend,
+then restart it. For Render, set these backend environment variables; for
+Compose, set them in `.env`. No Google session is created for demo visitors.
+
+The demo publishes current routines, completed workouts, training dates,
+exercise names, loads/reps/RPE, workout durations, calendar plans and training
+progress. It refreshes on navigation or reload. **Future training changes are
+automatically public**, including personal information entered into training
+names. Bodyweight, workout/exercise notes, email, unfinished workouts and coach
+conversations are excluded by explicit public response models.
+
+The public `/api/v1/demo` API uses a separate SQLite connection pool with
+`query_only=ON`, owner-scoped queries and ORM write guards. Only declared read
+routes exist; private API routes retain Google authentication. Visitors cannot
+change stored data, but can copy/download any published training data and
+alter their own browser display. `no-store` reduces caching; it cannot revoke
+copies visitors already made. Disable `DEMO_ENABLED` and restart to stop new
+reads. Demo responses never fall back to another account. This implementation
+requires SQLite; another database needs independently enforced read-only access.
+
+Public reads have a separate per-peer rate limit, in addition to Nginx's API
+limit. Keep the backend private and preserve Uvicorn's trusted proxy settings;
+never enable trust for arbitrary forwarded IP headers. A shared proxy peer can
+share the application limit. Body maps use cached catalogue metadata or local
+artwork; demo requests do not call Gemini or refresh the external catalogue.
+
+Security regression tests cover anonymous private-access rejection, demo
+mutation rejection, two-account isolation, nested private-field exclusion,
+ID tampering, live refresh and read-only database enforcement.
+
 - SQLite stores one local user’s routines, workout history, and bodyweight entries.
 - Weekly volume is weight × reps, using Monday–Sunday weeks.
 - Volume is counted once against each exercise’s primary mapped muscle group: legs, back, core, chest, shoulders, or arms.

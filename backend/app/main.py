@@ -671,6 +671,20 @@ def _rate_limit(email: str, bucket: str, limit: int, window_seconds: int = 60) -
 
 @app.middleware("http")
 async def require_google_auth(request: Request, call_next):
+    if request.url.path == "/api/v1/demo" or request.url.path.startswith("/api/v1/demo/"):
+        from .demo import demo_enabled
+        if not demo_enabled():
+            return JSONResponse(status_code=404, content={"detail": "Demo unavailable."}, headers={"Cache-Control": "no-store"})
+        retry_after = _rate_limit(request.client.host if request.client else "unknown", "demo-read", 120)
+        if retry_after is not None:
+            return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded."}, headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"})
+        try:
+            response = await call_next(request)
+        except (SQLAlchemyError, ValueError, KeyError, TypeError, PermissionError):
+            LOGGER.exception("Demo read failed")
+            response = JSONResponse(status_code=503, content={"detail": "Demo unavailable."})
+        response.headers["Cache-Control"] = "no-store"
+        return response
     is_api = request.url.path.startswith("/api/v1/")
     is_public = request.url.path in {"/api/v1/health", "/api/v1/session/logout"} or request.method == "OPTIONS"
     content_length = request.headers.get("content-length")
@@ -1463,6 +1477,10 @@ def list_weights(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/dashboard")
 def dashboard(db: Session = Depends(get_db)):
+    return training_dashboard(db, include_bodyweight=True)
+
+
+def training_dashboard(db: Session, *, include_bodyweight: bool):
     today = date.today(); week_start = today - timedelta(days=today.weekday()); previous_start = week_start - timedelta(days=7)
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
@@ -1483,7 +1501,7 @@ def dashboard(db: Session = Depends(get_db)):
         # The demo is meant to illustrate a stable training block: same work,
         # with a small 4% progression in this week rather than a huge swing.
         previous = {group: current[group] / 1.04 for group in GROUPS}
-    weights = list_weights(db)
+    weights = list_weights(db) if include_bodyweight else []
     # Demo mode deliberately uses a fixed 14-point window so older real or
     # earlier demo entries cannot distort the sample trend line.
     if has_demo:
@@ -1494,6 +1512,10 @@ def dashboard(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/dashboard/body-map")
 def dashboard_body_map(db: Session = Depends(get_db)):
+    return training_body_map(db, allow_remote=True)
+
+
+def training_body_map(db: Session, *, allow_remote: bool):
     """Return this week's Wger overlays from every completed exercise involvement."""
     global WGER_MUSCLES
     today = date.today()
@@ -1536,7 +1558,7 @@ def dashboard_body_map(db: Session = Depends(get_db)):
                 for muscle in targets:
                     if muscle != primary and muscle not in secondary:
                         involvement["tertiary"][muscle.casefold()] += activation * 0.20 / len(targets)
-    if WGER_MUSCLES is None:
+    if WGER_MUSCLES is None and allow_remote:
         try:
             with httpx.Client(timeout=10) as client:
                 response = client.get("https://wger.de/api/v2/muscle/", params={"limit": 100})
@@ -1546,7 +1568,7 @@ def dashboard_body_map(db: Session = Depends(get_db)):
         except httpx.HTTPError:
             WGER_MUSCLES = []
     muscles = []
-    for muscle in WGER_MUSCLES:
+    for muscle in WGER_MUSCLES or []:
         name = muscle.get("name_en") or muscle.get("name")
         canonical_name = canonical_muscle(name)
         key = canonical_name.casefold()
@@ -1654,3 +1676,7 @@ def create_demo_data(db: Session = Depends(get_db)):
         db.add(workout)
     db.commit()
     return {"created": len(sessions), "message": "Two weeks of demo training added", "saved": True}
+
+# Register public training projections after model and calculation definitions.
+from .demo import router as demo_router
+app.include_router(demo_router)
