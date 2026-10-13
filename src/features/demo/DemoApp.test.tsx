@@ -8,7 +8,7 @@ import { setGoogleIdToken } from '../auth/auth';
 const workout = { id: 1, name: 'Public workout', completed: true, performed_on: '2026-10-13', duration_seconds: 300,
   exercises: [{ name: 'Bench', cached_exercise_id: 1, sets: [{ weight: 60, reps: 8 }] }] };
 const routine = { id: 1, name: 'Public routine', exercises: [{ exercise: { id: 1, name: 'Bench' }, planned_sets: 3, target_reps: 8, rest_seconds: 90 }] };
-const dash = { total_current_volume: 480, total_previous_volume: 400, volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 480, last_week_volume: 400 }], sets_by_muscle: [] };
+const dash = { latest_weight: { recorded_on: '2026-10-13', weight: 80 }, weight_series: [{ recorded_on: '2026-10-12', weight: 79.5 }, { recorded_on: '2026-10-13', weight: 80 }], total_current_volume: 480, total_previous_volume: 400, volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 480, last_week_volume: 400 }], sets_by_muscle: [] };
 const responseFor = (url: string) => {
   if (url.includes('/dashboard/body-map')) return { muscles: [] };
   if (url.includes('/dashboard')) return dash;
@@ -76,6 +76,8 @@ describe('Public demo workspace', () => {
     await screen.findByText('Weekly volume');
     expect(screen.getByText('Current weight')).toBeTruthy();
     expect(screen.getByText('Bodyweight')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /80 kilograms/ })).toBeTruthy();
+    expect(screen.queryByText('Private data')).toBeNull();
     expect(document.querySelector('.dashboard-weight')).toBeTruthy();
     expect(document.querySelector('.demo-banner')).toBeNull();
     expect(document.querySelector('.demo-body-map')).toBeNull();

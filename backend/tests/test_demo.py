@@ -45,7 +45,7 @@ def public_demo(tmp_path, monkeypatch):
                     primary_muscle="Chest", muscle_group="Chest", note="PRIVATE_EXERCISE_NOTE",
                     sets=[m.WorkoutSet(position=0, weight=60, reps=8)])])
             draft = m.Workout(owner_email=owner, name="PRIVATE_DRAFT", completed=False)
-            weight = m.BodyweightEntry(owner_email=owner, recorded_on=date.today(), weight=12345.6)
+            weight = m.BodyweightEntry(owner_email=owner, recorded_on=date.today(), weight=80 if owner == OWNER else 12345.6)
             conversation = m.AIConversation(owner_email=owner, title="PRIVATE_COACH")
             db.add_all([folder, routine, done, draft, weight, conversation]); db.flush()
             ids[owner] = {"routine": routine.id, "workout": done.id, "draft": draft.id}
@@ -73,6 +73,37 @@ def routes(ids):
         f"/exercises/{ids['exercise']}/progress", f"/workouts/{ids[OWNER]['workout']}/exercise-progress"]
 
 
+def test_public_bodyweight_is_scoped_live_and_read_only(public_demo):
+    client, engine, _ids = public_demo
+    earlier = date.today() - timedelta(days=2)
+    with Session(engine) as db:
+        db.add(m.BodyweightEntry(owner_email=OWNER, recorded_on=earlier, weight=79.5))
+        db.commit()
+    response = client.get("/api/v1/demo/dashboard")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["weight_series"] == [
+        {"recorded_on": str(earlier), "weight": 79.5},
+        {"recorded_on": str(date.today()), "weight": 80},
+    ]
+    assert data["latest_weight"] == data["weight_series"][-1]
+    with Session(engine) as db:
+        entry = db.scalar(select(m.BodyweightEntry).where(m.BodyweightEntry.owner_email == OWNER,
+            m.BodyweightEntry.recorded_on == date.today()))
+        entry.weight = 81
+        db.commit()
+    assert client.get("/api/v1/demo/dashboard").json()["latest_weight"]["weight"] == 81
+    assert client.post("/api/v1/demo/dashboard", json={"weight": 99}).status_code == 405
+    assert client.post("/api/v1/bodyweight", json={"weight": 99, "recorded_on": str(date.today())}).status_code == 401
+    with Session(engine) as db:
+        for entry in db.scalars(select(m.BodyweightEntry).where(m.BodyweightEntry.owner_email == OWNER)):
+            db.delete(entry)
+        db.commit()
+    data = client.get("/api/v1/demo/dashboard").json()
+    assert data["latest_weight"] is None
+    assert data["weight_series"] == []
+
+
 def test_public_projection_is_scoped_private_field_free_and_no_side_effects(public_demo, monkeypatch):
     client, engine, ids = public_demo
     monkeypatch.setattr(m.httpx, "Client", lambda *_a, **_k: pytest.fail("Demo made an upstream request"))
@@ -88,9 +119,10 @@ def test_public_projection_is_scoped_private_field_free_and_no_side_effects(publ
             assert response.status_code == 200, response.text
             assert response.headers["cache-control"] == "no-store"
             assert "set-cookie" not in response.headers
-            for secret in (OWNER, OTHER, "OTHER_PRIVATE", "PRIVATE_", "12345.6", '"note"', '"owner_email"', '"weight_series"', '"latest_weight"'):
+            for secret in (OWNER, OTHER, "OTHER_PRIVATE", "PRIVATE_", "12345.6", '"note"', '"owner_email"'):
                 assert secret not in response.text
-        assert not any("bodyweight_entries" in sql or "ai_conversations" in sql for sql in reads)
+        assert any("bodyweight_entries" in sql for sql in reads)
+        assert not any("ai_conversations" in sql for sql in reads)
         assert not any(sql.lstrip().startswith(("insert", "update", "delete")) for sql in reads)
     finally:
         event.remove(readonly, "before_cursor_execute", capture)

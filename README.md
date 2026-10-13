@@ -146,8 +146,9 @@ The demo publishes current routines, completed workouts, training dates,
 exercise names, loads/reps/RPE, workout durations, calendar plans and training
 progress. It refreshes on navigation or reload. **Future training changes are
 automatically public**, including personal information entered into training
-names. Bodyweight, workout/exercise notes, email, unfinished workouts and coach
-conversations are excluded by explicit public response models.
+names. Bodyweight dates and values are also public. Workout/exercise notes,
+email, unfinished workouts and coach conversations are excluded by explicit
+public response models.
 
 The public `/api/v1/demo` API uses a separate SQLite connection pool with
 `query_only=ON`, owner-scoped queries and ORM write guards. Only declared read

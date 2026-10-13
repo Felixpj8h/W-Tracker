@@ -68,9 +68,9 @@ test that verifies bounded query growth with a realistically sized history.
   Other-account IDs, unfinished workout IDs, and unused catalogue exercise IDs
   are rejected. Changing the configured owner does not reuse the prior owner's
   data.
-- Explicit public projections exclude bodyweight, notes, account emails,
-  unfinished workouts, and coach conversations. Demo reads do not query
-  bodyweight or conversation tables.
+- Explicit public projections include the configured owner's bodyweight dates
+  and values. Notes, account emails, unfinished workouts, and coach conversations
+  remain excluded. Demo reads do not query conversation tables.
 - Unsupported mutation methods are rejected. SQLite query-only connections
   reject writes, and the demo session rejects ORM mutation attempts.
 - Anonymous private API access and the authenticated demo-data creation route

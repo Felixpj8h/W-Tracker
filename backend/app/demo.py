@@ -170,7 +170,14 @@ class MuscleSets(PublicModel):
     last_week_sets: int
 
 
+class Bodyweight(PublicModel):
+    recorded_on: date
+    weight: float
+
+
 class Dashboard(PublicModel):
+    latest_weight: Bodyweight | None
+    weight_series: list[Bodyweight]
     current_week_start: date
     previous_week_start: date
     total_current_volume: float
@@ -265,8 +272,10 @@ def workout(workout_id: int, db: Session = Depends(demo_db)):
 
 @router.get("/dashboard", response_model=Dashboard)
 def dashboard(db: Session = Depends(demo_db)):
-    data = m.training_dashboard(db, include_bodyweight=False)
-    return Dashboard(current_week_start=data["current_week_start"], previous_week_start=data["previous_week_start"],
+    data = m.training_dashboard(db, include_bodyweight=True)
+    return Dashboard(latest_weight=Bodyweight(**data["latest_weight"]) if data["latest_weight"] else None,
+        weight_series=[Bodyweight(**entry) for entry in data["weight_series"]],
+        current_week_start=data["current_week_start"], previous_week_start=data["previous_week_start"],
         total_current_volume=data["total_current_volume"], total_previous_volume=data["total_previous_volume"],
         volume_by_muscle_group=[MuscleVolume(**v) for v in data["volume_by_muscle_group"]],
         sets_by_muscle=[MuscleSets(**v) for v in data["sets_by_muscle"]])

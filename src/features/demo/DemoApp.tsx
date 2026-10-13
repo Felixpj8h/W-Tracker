@@ -50,13 +50,13 @@ export function DemoApp({ exit }: { exit: () => void }) {
     const date = new Date();
     setLoading(true); setError(''); setWorkout(undefined);
     void Promise.all([
-      demoApi<Omit<Dash, 'latest_weight' | 'weight_series'>>('/dashboard', { signal: controller.signal }),
+      demoApi<Dash>('/dashboard', { signal: controller.signal }),
       demoApi<Folder[]>('/folders', { signal: controller.signal }),
       demoApi<Workout[]>('/workouts', { signal: controller.signal }),
       demoApi<CalendarMonth>(`/calendar?year=${date.getFullYear()}&month=${date.getMonth() + 1}`, { signal: controller.signal }),
     ]).then(([summary, groups, workouts, calendar]) => {
       if (controller.signal.aborted) return;
-      setDash({ ...summary, latest_weight: null, weight_series: [] });
+      setDash(summary);
       setFolders(groups); setHistory(workouts);
       setMonths({ [monthKey(date.getFullYear(), date.getMonth() + 1)]: calendar });
     }).catch(failure => {
