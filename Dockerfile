@@ -13,11 +13,12 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine
 USER root
 RUN sed -i 's|/etc/nginx/conf.d/\*.conf|/tmp/default.conf|' /etc/nginx/nginx.conf
 USER 101
-# Render injects its private service address at runtime. /tmp also works with
+# Hosting injects its private service address at runtime. /tmp also works with
 # the read-only filesystem used by the local Compose deployment.
 ENV BACKEND_ADDRESS=backend:8000 \
+    NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
     NGINX_ENVSUBST_OUTPUT_DIR=/tmp \
-    NGINX_ENVSUBST_FILTER=^BACKEND_ADDRESS$
+    NGINX_ENVSUBST_FILTER=^(BACKEND_ADDRESS|NGINX_LOCAL_RESOLVERS)$
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

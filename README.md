@@ -120,6 +120,28 @@ The backend keeps demo publication disabled by default. To publish it, set
 then restart it. For Render, set these backend environment variables; for
 Compose, set them in `.env`. No Google session is created for demo visitors.
 
+For Railway, open the backend service in the production environment, select
+**Variables**, and set `DEMO_ENABLED=true` and
+`DEMO_OWNER_EMAIL=felixpj8h@gmail.com`. Review and deploy the staged changes.
+These variables must reach the FastAPI service; setting them only on a separate
+frontend service does not enable the demo. Pushing to main does not set these
+variables or upload your local database.
+
+Check `/api/v1/demo/dashboard`: HTTP 404 with `{"detail":"Demo unavailable."}`
+means the demo is disabled or the owner setting is missing. HTTP 200 confirms
+the demo is enabled; empty results mean the selected account has no matching
+training data in the deployed database.
+
+If the frontend loads but `/api/v1/health` and demo requests hang, check the
+frontend service's `BACKEND_ADDRESS`. It must be the backend's private hostname
+and listening port (for example `backend.railway.internal:8000` for this
+repository's backend Dockerfile), without a URL scheme or path. Both services
+must be in the same Railway project environment. Redeploy the frontend to
+refresh its connection configuration. Nginx uses the container's DNS resolver
+and refreshes backend addresses automatically, including IPv6 records, so
+backend redeployments do not leave it using an old IP. If health still fails,
+inspect the frontend's upstream connection errors and backend startup logs.
+
 The demo publishes current routines, completed workouts, training dates,
 exercise names, loads/reps/RPE, workout durations, calendar plans and training
 progress. It refreshes on navigation or reload. **Future training changes are
