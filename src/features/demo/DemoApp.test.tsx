@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../app/App';
 import { demoApi } from './api';
@@ -41,7 +41,11 @@ describe('Public demo workspace', () => {
     await screen.findByText('Weekly volume');
     for (const page of ['Routines', 'Calendar', 'History', 'Dashboard']) {
       await clickPage(page);
-      expect(screen.queryByText(/Log workout|Edit session|Delete session|Add note|Coach|Current weight|Share workout|Import workout|Test full map/)).toBeNull();
+      for (const button of screen.queryAllByRole('button', { name: /^(Log workout|＋ Log workout|Coach|Edit session|Add note|Import from link|Create folder|Start|Plan week)$/ })) {
+        expect((button as HTMLButtonElement).disabled).toBe(true);
+        fireEvent.click(button);
+      }
+      expect(screen.queryByText('Test full map')).toBeNull();
     }
     expect(localStorage.getItem('workout-active-session')).toBe(before);
     for (const [url, options] of vi.mocked(fetch).mock.calls) {
@@ -58,12 +62,35 @@ describe('Public demo workspace', () => {
     await clickPage('Routines');
     fireEvent.click(screen.getByRole('button', { name: /Public routine/ }));
     expect(screen.getByRole('dialog')).toBeTruthy();
-    expect(screen.getByText(/3 sets/)).toBeTruthy();
+    expect(screen.getByRole('dialog').querySelector('.rest-builder-list')).toBeTruthy();
+    expect((screen.getAllByRole('textbox')[0] as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
     await clickPage('History');
     expect(screen.getAllByText('Public workout').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('tab', { name: 'Analysis' }));
     expect(screen.queryByRole('button', { name: 'Edit session' })).toBeNull();
+  });
+
+  it('keeps the normal dashboard, calendar and mobile navigation layouts', async () => {
+    render(<App/>);
+    await screen.findByText('Weekly volume');
+    expect(screen.getByText('Current weight')).toBeTruthy();
+    expect(screen.getByText('Bodyweight')).toBeTruthy();
+    expect(document.querySelector('.dashboard-weight')).toBeTruthy();
+    expect(document.querySelector('.demo-banner')).toBeNull();
+    expect(document.querySelector('.demo-body-map')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More pages' }));
+    const more = screen.getByRole('dialog', { name: 'More' });
+    expect(within(more).getByRole('button', { name: 'Exit demo' })).toBeTruthy();
+    fireEvent.click(within(more).getByRole('button', { name: /Calendar/ }));
+    await screen.findByRole('button', { name: 'Plan week' });
+    expect(document.querySelector('.training-calendar')).toBeTruthy();
+    expect(document.querySelector('.training-detail')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Plan week' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'View workout' }));
+    const details = screen.getByRole('dialog', { name: 'Workout details' });
+    expect((within(details).getByRole('button', { name: 'Edit workout' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.every(([url, options]) => String(url).includes('/demo/') && options?.method === 'GET')).toBe(true);
   });
 
   it('exits to login without restoring or deleting an authenticated session', async () => {

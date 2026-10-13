@@ -366,3 +366,5 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .dashboard-volume>.dashboard-empty span{margin:0;max-width:300px}
 .dashboard-volume>.dashboard-empty button{margin-top:4px}
 @media(max-width:1050px){.dashboard-volume>.dashboard-empty{min-height:210px}}
+
+.dashboard-weight .private-weight-chart{display:grid;place-items:center;align-content:center;gap:10px;padding-inline:12px;text-align:center;background:none}.private-weight-chart span{color:var(--muted);font-size:13px}
