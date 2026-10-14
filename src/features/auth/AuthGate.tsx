@@ -126,7 +126,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
                 <div className="auth-brand" aria-hidden="true">W</div>
                 <h1 id="auth-title">Workout Tracker</h1>
                 <p>Sign in to your workspace.</p>
-                <div className="google-login" ref={googleButton}>
+                <div className="google-login" ref={googleButton} style={{ height: 48, maxHeight: 48, overflow: 'hidden', minWidth: 0 }}>
                     {restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}
                 </div>
                 {authError && <>
