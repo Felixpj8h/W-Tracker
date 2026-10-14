@@ -112,7 +112,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
         if (token || restoring || !googleReady || checking || !window.google || !googleButton.current) return;
         googleButton.current.replaceChildren();
         window.google.accounts.id.renderButton(googleButton.current, {
-            type: 'standard', theme: 'filled_black', size: 'large', text: 'continue_with',
+            type: 'standard', theme: 'outline', size: 'large', text: 'continue_with',
             shape: 'rectangular', logo_alignment: 'left', width: Math.min(360, Math.max(280, googleButton.current.clientWidth || 360)),
         });
     }, [checking, googleReady, restoring, token]);
