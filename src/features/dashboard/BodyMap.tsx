@@ -1,32 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import type { BodyMapMuscle } from './types';
 import { api } from '../../shared/api/client';
+import { demoApi } from '../demo/api';
+import './body-map.css';
 
-const WGER_BODY_BASE = {
-    front: '/body-front.svg',
-    back: '/body-back.svg'
-};
-
-export function BodyMap() {
+export function BodyMap({ readOnly = false }: { readOnly?: boolean }) {
     const [muscles, setMuscles] = useState<BodyMapMuscle[] | null>(null);
-    const [mapUnavailable, setMapUnavailable] = useState(false);
-    const [view, setView] = useState<'front' | 'back'>('front');
-    const [testMode, setTestMode] = useState(false);
-    const [testing, setTesting] = useState(false);
-    const loadMap = async () => {
-        try {
-            const result = await api<{ muscles: BodyMapMuscle[]; test_mode: boolean }>('/dashboard/body-map');
-            setMuscles(result.muscles); setTestMode(result.test_mode); setMapUnavailable(false);
-        } catch { setMapUnavailable(true); setMuscles([]); }
-    };
-    useEffect(() => { void loadMap(); }, []);
-    const toggleTestMode = async () => {
-        setTesting(true);
-        try { await api('/dashboard/body-map/test-data', { method: testMode ? 'DELETE' : 'POST' }); await loadMap(); }
-        finally { setTesting(false); }
-    };
-    const trainedMuscles = [...(muscles ?? [])].filter(muscle => muscle.volume > 0).sort((a, b) => b.volume - a.volume);
-    const strongest = trainedMuscles.slice(0, 3);
-    const visibleMuscles = (muscles ?? []).filter(muscle => muscle.is_front === (view === 'front'));
-    return <div className="body-map"><div className="body-map-copy"><span>THIS WEEK</span><b>Muscles trained</b><small>{mapUnavailable ? 'Restart the API to load your muscle overlays.' : muscles === null ? 'Loading your training map…' : trainedMuscles.length ? `${trainedMuscles.length} muscle region${trainedMuscles.length === 1 ? '' : 's'} hit` : 'Complete a workout to light up your map.'}</small><div className="body-map-view-toggle"><button className={view === 'front' ? 'active' : ''} onClick={() => setView('front')}>Front</button><button className={view === 'back' ? 'active' : ''} onClick={() => setView('back')}>Back</button></div><button className={`body-map-test ${testMode ? 'active' : ''}`} onClick={() => void toggleTestMode()} disabled={testing}>{testing ? 'Updating test…' : testMode ? 'Clear map test' : 'Test full map'}</button></div><div className="body-map-figure" aria-label={`${view} muscles trained this week`}><img className="wger-body-base" src={WGER_BODY_BASE[view]} alt=""/>{visibleMuscles.map(muscle => <img className="wger-muscle-layer" key={muscle.id} src={muscle.image_url} alt="" style={{ opacity: .24 + muscle.intensity * .76 }} />)}</div>{strongest.length > 0 && <div className="body-map-list">{strongest.map(muscle => <span key={muscle.id}>{muscle.name}<b>{Math.round(muscle.volume).toLocaleString()} kg</b></span>)}</div>}</div>;
+    const [unavailable, setUnavailable] = useState(false);
+    const [retry, setRetry] = useState(0);
+    const filterId = `heatmap-green-${useId().replace(/:/g, '')}`;
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const load = readOnly ? demoApi : api;
+        void load<{ muscles: BodyMapMuscle[] }>('/dashboard/body-map', { signal: controller.signal })
+            .then(result => {
+                if (!controller.signal.aborted) { setMuscles(result.muscles); setUnavailable(false); }
+            })
+            .catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
+        return () => controller.abort();
+    }, [readOnly, retry]);
+
+    if (unavailable) return <div className="heatmap-status" role="status"><span>Could not load your muscle heatmap.</span><button type="button" onClick={() => { setUnavailable(false); setMuscles(null); setRetry(value => value + 1); }}>Retry heatmap</button></div>;
+    if (muscles === null) return <div className="heatmap-status" role="status">Loading your muscle heatmap…</div>;
+    const trained = muscles.filter(muscle => muscle.volume > 0);
+
+    return <div className="muscle-heatmap">
+        <svg className="heatmap-filters" aria-hidden="true" width="0" height="0">
+            <defs><filter id={filterId} colorInterpolationFilters="sRGB">
+                <feColorMatrix type="matrix" values="0 0 0 0 0.192  0 0 0 0 0.357  0 0 0 0 0.251  0 0 0 1 0" />
+            </filter></defs>
+        </svg>
+        <div className="heatmap-bodies">
+            {(['front', 'back'] as const).map(view => <figure key={view}>
+                <div className="heatmap-figure" role="img" aria-label={`${view === 'front' ? 'Front' : 'Back'} muscle heatmap: ${trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => `${muscle.name}, ${Math.round(muscle.volume).toLocaleString()} kg`).join('; ') || 'No muscles trained this week'}`}>
+                    <img className="heatmap-base" src={`/body-${view}.svg`} alt="" />
+                    {trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => <img
+                        className="heatmap-layer" key={muscle.id} src={muscle.image_url} alt=""
+                        style={{ filter: `url(#${filterId})`, opacity: .25 + Math.max(0, Math.min(1, muscle.intensity)) * .75 }}
+                    />)}
+                </div>
+                <figcaption>{view === 'front' ? 'Front' : 'Back'}</figcaption>
+            </figure>)}
+        </div>
+        <div className="heatmap-legend" aria-label="Training volume intensity, less to more"><span>Less</span><div>{[.15, .3, .5, .7, 1].map(opacity => <i key={opacity} style={{ opacity }} />)}</div><span>More</span></div>
+        {!trained.length && <p className="heatmap-empty">{readOnly ? 'No training activity this week.' : 'Complete a workout to light up your map.'}</p>}
+    </div>;
 }
