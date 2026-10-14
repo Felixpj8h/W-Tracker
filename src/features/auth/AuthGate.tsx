@@ -117,10 +117,26 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
         });
     }, [checking, googleReady, restoring, token]);
 
-    const demoButton = onExploreDemo && <button type="button" className="primary" onClick={onExploreDemo}>Explore demo</button>;
+    const demoButton = onExploreDemo && <button type="button" className="auth-demo" onClick={onExploreDemo}>Explore demo</button>;
     if (token && profile) return children(profile);
     if (localDevelopment) return <main className="auth-shell"><section className="auth-card"><div className="auth-brand">W</div><h1>Local workspace</h1><p>{restoring ? 'Connecting to the local backend…' : authError || 'The backend did not return a local user. Restart it in development mode.'}</p>{!restoring && <button type="button" className="primary" onClick={() => window.location.reload()}>Retry connection</button>}{demoButton}</section></main>;
-    return <main className="auth-shell"><section className="auth-card" aria-labelledby="auth-title"><div className="auth-brand">W</div><p className="overline">WORKOUT TRACKER</p><h1 id="auth-title">Your training,<br/><em>kept personal.</em></h1><p>Sign in with your Google account to open your workout workspace.</p><div className="google-login" ref={googleButton}>{restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}</div>{authError && <><p className="auth-error" role="alert">{authError}</p>{!restoring && !checking && <button type="button" className="primary" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button>}</>}{demoButton}</section></main>;
+    return (
+        <main className="auth-shell">
+            <section className="auth-card" aria-labelledby="auth-title">
+                <div className="auth-brand" aria-hidden="true">W</div>
+                <h1 id="auth-title">Workout Tracker</h1>
+                <p>Sign in to your workspace.</p>
+                <div className="google-login" ref={googleButton}>
+                    {restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}
+                </div>
+                {authError && <>
+                    <p className="auth-error" role="alert">{authError}</p>
+                    {!restoring && !checking && <button type="button" className="primary" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button>}
+                </>}
+                {demoButton}
+            </section>
+        </main>
+    );
 }
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
