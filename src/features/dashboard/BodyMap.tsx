@@ -40,7 +40,7 @@ export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }
                     <img className="heatmap-base" src={`/body-${view}.svg`} alt="" />
                     {trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => <img
                         className="heatmap-layer" key={muscle.id} src={muscle.image_url} alt=""
-                        style={{ filter: `url(#${filterId})`, opacity: .25 + Math.max(0, Math.min(1, muscle.intensity)) * .75 }}
+                        style={{ filter: `url(#${filterId}) var(--heatmap-highlight-filter, brightness(1))`, opacity: .25 + Math.max(0, Math.min(1, muscle.intensity)) * .75 }}
                     />)}
                 </div>
                 <figcaption>{view === 'front' ? 'Front' : 'Back'}</figcaption>

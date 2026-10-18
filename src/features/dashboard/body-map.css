@@ -15,9 +15,10 @@
 .heatmap-empty { margin:12px 0 0; color:var(--muted); font-size:12px; text-align:center; }
 .dashboard-volume .muscle-card-head { flex-wrap:wrap; }
 .dashboard-volume .metric-toggle button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.app.dark .heatmap-base { opacity:.28; filter:grayscale(1) invert(1); }
+.app.dark .heatmap-base { opacity:.46; filter:grayscale(1) invert(1) brightness(1.15); }
+.app.dark .muscle-heatmap { --heatmap-highlight-filter:brightness(2.2) saturate(.85); }
 .app.dark .heatmap-layer { background:transparent; }
-.app.dark .heatmap-legend i { background:#76ad82; }
+.app.dark .heatmap-legend i { background:#83c894; }
 @media(max-width:760px) { .heatmap-figure { height:225px; } .heatmap-bodies { gap:12px; } }
 /* The desktop analytics row has a fixed share of the viewport. Let the artwork
    shrink into that space while reserving room for its captions and legend. */
