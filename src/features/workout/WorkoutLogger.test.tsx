@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkoutLogger } from './WorkoutLogger';
 import { api } from '../../shared/api/client';
@@ -10,6 +10,28 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 const original: Workout = { id: 42, name: 'Upper', completed: true, performed_on: '2026-10-18', exercises: [] };
 const props = { folders: [], active: [], start: vi.fn(), startAdHoc: vi.fn(), setWorkout: vi.fn(), editing: true, finish: vi.fn(), saveEdit: vi.fn() };
+
+it('pauses an active session with the latest workout without finishing it', async () => {
+    const pause = vi.fn().mockResolvedValue(undefined);
+    const activeWorkout = { ...original, completed: false, note: 'Latest changes' };
+    render(<WorkoutLogger {...props} workout={activeWorkout} editing={false} pause={pause}/>);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Pause session' })));
+    expect(pause).toHaveBeenCalledExactlyOnceWith(activeWorkout);
+    expect(props.finish).not.toHaveBeenCalled();
+});
+
+it('keeps the editor open and offers retry if pausing fails', async () => {
+    const pause = vi.fn().mockRejectedValue(new Error('Offline'));
+    render(<WorkoutLogger {...props} workout={{ ...original, completed: false }} editing={false} pause={pause}/>);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Pause session' })));
+    expect(screen.getByRole('alert').textContent).toContain('Please try pausing again');
+    expect((screen.getByRole('button', { name: 'Pause session' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('does not offer pause when editing a completed session', () => {
+    render(<WorkoutLogger {...props} workout={original} pause={vi.fn()}/>);
+    expect(screen.queryByRole('button', { name: 'Pause session' })).toBeNull();
+});
 
 it('debounces edits to completed workouts and preserves completion', async () => {
     vi.useFakeTimers();

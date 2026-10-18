@@ -1,3 +1,4 @@
+import '../features/workout/pause-session.css';
 import type { UserProfile } from '../features/auth/profile';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Workout } from '../features/workout/types';
@@ -54,7 +55,10 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     useEffect(() => { const initialDate = new Date(); void loadDashboard(); void loadFolders(); void loadHistory(); void loadActive(); void loadCalendar(initialDate.getFullYear(), initialDate.getMonth() + 1); }, [loadCalendar]); useEffect(() => localStorage.setItem('workout-theme', dark ? 'dark' : 'light'), [dark]);
     useEffect(() => { if (workout?.id && !workout.completed && !editing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(workout)); }, [workout, editing]);
     const start = async (routine: Routine) => { const optimistic = optimisticWorkoutFromRoutine(routine); setWorkout(optimistic); setEditing(false); setPage('workout'); const request = api<Workout>(`/routines/${routine.id}/start${routine.scheduled_on ? `?day=${routine.scheduled_on}` : ''}`, { method: 'POST' }); pendingWorkoutStart.current = request; try { const draft = await request; setWorkout(current => current ? { ...current, id: draft.id, started_at: draft.started_at, exercises: current.exercises.map((item, index) => ({ ...item, cached_exercise_id: draft.exercises[index]?.cached_exercise_id ?? item.exercise_id })) } : current); } catch { setWorkout(null); setPage('routines'); } finally { if (pendingWorkoutStart.current === request) pendingWorkoutStart.current = null; } };
+    const resumableWorkout = workout && !workout.completed && !editing ? workout : active.find(entry => !entry.completed);
+    const resumeWorkout = (entry: Workout) => { setWorkout(entry); setEditing(false); setPage('workout'); };
     const logFromDashboard = async () => {
+        if (resumableWorkout) { resumeWorkout(resumableWorkout); return; }
         if (pendingDashboardLog.current) return;
         pendingDashboardLog.current = true;
         try {
@@ -83,7 +87,18 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
             pendingDashboardLog.current = false;
         }
     };
-    const finish = async (entry: Workout) => { const wasEditing = editing; setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
+    const pauseWorkout = async (entry: Workout) => {
+        const started = entry.id ? null : await pendingWorkoutStart.current;
+        const persisted = started ? { ...entry, id: started.id, started_at: started.started_at } : entry;
+        if (!persisted.id) throw new Error('The session has not started yet');
+        localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(persisted));
+        await api(`/workouts/${persisted.id}`, { method: 'PATCH', body: JSON.stringify(persisted) });
+        setActive(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
+        setWorkout(persisted);
+        setEditing(false);
+        setPage('dashboard');
+    };
+    const finish = async (entry: Workout) => { const wasEditing = editing; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const cancelWorkout = async (entry: Workout) => { if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage('dashboard'); if (entry.id) void api(`/workouts/${entry.id}`, { method: 'DELETE' }).then(async () => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(entry.performed_on); }).catch(() => { setActive(current => current.some(item => item.id === entry.id) ? current : [...current, entry]); localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
     const repeatWorkout = async (previous: Workout) => {
         const matchingRoutine = folders.flatMap(folder => folder.routines).find(item => item.id === previous.routine_id);
@@ -95,7 +110,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         setPage('workout');
     };
     const pageError = page === 'coach' ? undefined : page === 'dashboard' ? loadErrors.dashboard : page === 'routines' ? loadErrors.folders : page === 'history' ? loadErrors.history : page === 'calendar' ? loadErrors.calendar : loadErrors.active || loadErrors.folders;
-    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Sidebar page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)} user={user}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} log={() => void logFromDashboard()} openCalendar={() => setPage('calendar')} openHistory={() => setPage('history')} openWorkout={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} targetPage={dashboardPage} onPageChange={setDashboardPage} saveWeight={async (weight, recordedOn) => {
+    return <div className={`app ${dark ? 'dark' : ''}`}><SavingIndicator/><Sidebar page={page} setPage={setPage} dark={dark} setDark={setDark} coachActive={Object.values(coach.streaming).some(Boolean)} user={user} hasActiveSession={page !== 'workout' && Boolean(resumableWorkout)} resumeSession={() => { if (resumableWorkout) resumeWorkout(resumableWorkout); }}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} log={() => void logFromDashboard()} openCalendar={() => setPage('calendar')} openHistory={() => setPage('history')} openWorkout={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} targetPage={dashboardPage} onPageChange={setDashboardPage} saveWeight={async (weight, recordedOn) => {
         const date = recordedOn ?? today();
         const previousWeight = dash?.weight_series.find(entry => entry.recorded_on === date)?.weight;
         optimisticWeights.current.set(date, weight);
@@ -113,5 +128,5 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
             }
             throw error;
         }
-    }}/>} {page === 'coach' && <Coach coach={coach} folders={folders} plan={calendarMonths[currentCalendarKey]?.plan ?? null}/>} {page === 'routines' && <Routines folders={folders} refresh={loadFolders} start={start} note={() => undefined}/>} {page === 'calendar' && <Calendar folders={folders} history={history} months={calendarMonths} loadMonth={loadCalendar} onWorkoutSaved={date => refreshWorkoutData(date)} start={start} repeatWorkout={repeatWorkout}/>} {page === 'workout' && <WorkoutLogger workout={workout} folders={folders} active={active} start={start} startAdHoc={async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setWorkout(draft); setEditing(false); }} setWorkout={setWorkout} editing={editing} finish={finish} saveEdit={finish} cancel={cancelWorkout}/>} {page === 'history' && <History data={history} edit={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} refresh={loadHistory} note={() => undefined} repeat={repeatWorkout}/>}</main><MobileNavigation page={page} setPage={setPage} dashboardPage={dashboardPage} setDashboardPage={setDashboardPage} dark={dark} setDark={setDark} logWorkout={() => void logFromDashboard()}/></div>;
+    }}/>} {page === 'coach' && <Coach coach={coach} folders={folders} plan={calendarMonths[currentCalendarKey]?.plan ?? null}/>} {page === 'routines' && <Routines folders={folders} refresh={loadFolders} start={start} note={() => undefined}/>} {page === 'calendar' && <Calendar folders={folders} history={history} months={calendarMonths} loadMonth={loadCalendar} onWorkoutSaved={date => refreshWorkoutData(date)} start={start} repeatWorkout={repeatWorkout}/>} {page === 'workout' && <WorkoutLogger workout={workout} folders={folders} active={active} start={start} startAdHoc={async () => { const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: 'Workout', performed_on: today() }) }); setWorkout(draft); setEditing(false); }} setWorkout={setWorkout} editing={editing} finish={finish} saveEdit={finish} cancel={cancelWorkout} pause={pauseWorkout}/>} {page === 'history' && <History data={history} edit={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} refresh={loadHistory} note={() => undefined} repeat={repeatWorkout}/>}</main><MobileNavigation page={page} setPage={setPage} dashboardPage={dashboardPage} setDashboardPage={setDashboardPage} dark={dark} setDark={setDark} logWorkout={() => void logFromDashboard()} hasActiveSession={page !== 'workout' && Boolean(resumableWorkout)}/></div>;
 }
