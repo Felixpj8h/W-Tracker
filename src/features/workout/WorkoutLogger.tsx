@@ -14,6 +14,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
     const extraExerciseTouch = useRef<number | null>(null), extraExerciseDidSwipe = useRef(false);
     const latestWorkout = useRef(workout);
+    const pendingEdit = useRef<Workout | null>(null);
     useEffect(() => { latestWorkout.current = workout; }, [workout]);
     useEffect(() => { if (!restUntil) return; const tick = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(tick); }, [restUntil]);
     useEffect(() => { if (restUntil && now >= restUntil) setRestUntil(null); }, [now, restUntil]);
@@ -22,13 +23,16 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const progressExerciseIds = workout?.exercises.map(item => item.exercise_id ?? item.cached_exercise_id).filter((id): id is number => Boolean(id)).join(',') ?? '';
     useEffect(() => { if (!workout?.id) { setProgressByExercise({}); return; } const workoutId = workout.id, exerciseIds = progressExerciseIds.split(',').map(Number).filter(Boolean); void api<Record<number, ExerciseProgress>>(`/workouts/${workoutId}/exercise-progress`).then(setProgressByExercise).catch(() => Promise.all(exerciseIds.map(async exerciseId => [exerciseId, await api<ExerciseProgress>(`/exercises/${exerciseId}/progress?exclude_workout_id=${workoutId}`)] as const)).then(entries => setProgressByExercise(Object.fromEntries(entries))).catch(() => setProgressByExercise({}))); }, [workout?.id, progressExerciseIds]);
     const previous = progressByExercise[openItem?.exercise_id ?? openItem?.cached_exercise_id ?? 0] ?? null;
-    useEffect(() => { if (!workout?.id || editing) return; const t = setTimeout(() => void api(`/workouts/${workout.id}`, { method: 'PATCH', body: JSON.stringify(workout) }).catch(() => undefined), 400); return () => clearTimeout(t); }, [workout, editing]);
+    useEffect(() => { if (!workout?.id) return; if (editing) pendingEdit.current = workout; const t = setTimeout(() => { pendingEdit.current = null; void api(`/workouts/${workout.id}`, { method: 'PATCH', body: JSON.stringify(workout) }).catch(() => undefined); }, 400); return () => clearTimeout(t); }, [workout, editing]);
+    useEffect(() => () => {
+        const pending = pendingEdit.current;
+        if (pending?.id) void api(`/workouts/${pending.id}`, { method: 'PATCH', body: JSON.stringify(pending) }).catch(() => undefined);
+    }, []);
     useEffect(() => {
-        if (editing) return;
         const saveBeforeSuspend = () => {
             const current = latestWorkout.current;
-            if (!current?.id || current.completed) return;
-            localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(current));
+            if (!current?.id) return;
+            if (!editing && !current.completed) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(current));
             void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(current), keepalive: true }).catch(() => undefined);
         };
         const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); };
