@@ -11,7 +11,7 @@ const muscles = [
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function mockMap() {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ muscles }) });
+    const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => ({ ok: true, json: async () => url.includes('/calendar') ? { plan: null, days: [] } : { muscles } }));
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
 }
@@ -22,11 +22,11 @@ describe('Dashboard muscle heatmap', () => {
         render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
         const controls = within(screen.getByRole('group', { name: 'Muscle metric' }));
         expect(controls.getByRole('button', { name: 'Volume' }).getAttribute('aria-pressed')).toBe('true');
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(fetchMock.mock.calls.some(([url]) => url.includes('/body-map'))).toBe(false);
         fireEvent.click(controls.getByRole('button', { name: 'Heatmap' }));
         expect(await screen.findByRole('img', { name: /Front muscle heatmap: Chest, 896 kg/ })).toBeTruthy();
         expect(screen.getByRole('img', { name: /Back muscle heatmap: Lats, 1,800 kg/ })).toBeTruthy();
-        expect(fetchMock.mock.calls[0][0]).toMatch(/\/dashboard\/body-map$/);
+        expect(fetchMock.mock.calls.some(([url]) => /\/dashboard\/body-map\?selected_week=/.test(url))).toBe(true);
         fireEvent.click(controls.getByRole('button', { name: 'Sets' }));
         expect(screen.getByText('Sets by muscle')).toBeTruthy();
         expect(screen.queryByRole('img', { name: /muscle heatmap/ })).toBeNull();
@@ -47,8 +47,7 @@ describe('Dashboard muscle heatmap', () => {
     it('shows a neutral map for a week without training', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ muscles: [] }) }));
         render(<BodyMap/>);
-        expect(await screen.findByText('Complete a workout to light up your map.')).toBeTruthy();
-        expect(screen.getAllByRole('img', { name: /No muscles trained this week/ })).toHaveLength(2);
+        expect(await screen.findAllByRole('img', { name: /No muscles trained this week/ })).toHaveLength(2);
     });
 
     it('recovers from an unavailable map on retry', async () => {

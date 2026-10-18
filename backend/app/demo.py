@@ -160,14 +160,14 @@ class MuscleVolume(PublicModel):
     name: str
     current_week_volume: float
     last_week_volume: float
-    current_week_sets: int
-    last_week_sets: int
+    current_week_sets: float
+    last_week_sets: float
 
 
 class MuscleSets(PublicModel):
     name: str
-    current_week_sets: int
-    last_week_sets: int
+    current_week_sets: float
+    last_week_sets: float
 
 
 class Bodyweight(PublicModel):
@@ -178,6 +178,8 @@ class Bodyweight(PublicModel):
 class Dashboard(PublicModel):
     latest_weight: Bodyweight | None
     weight_series: list[Bodyweight]
+    current_sessions: float = 0
+    previous_sessions: float = 0
     current_week_start: date
     previous_week_start: date
     total_current_volume: float
@@ -271,9 +273,9 @@ def workout(workout_id: int, db: Session = Depends(demo_db)):
 
 
 @router.get("/dashboard", response_model=Dashboard)
-def dashboard(db: Session = Depends(demo_db)):
-    data = m.training_dashboard(db, include_bodyweight=True)
-    return Dashboard(latest_weight=Bodyweight(**data["latest_weight"]) if data["latest_weight"] else None,
+def dashboard(selected_week: date | None = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db)):
+    data = m.training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today)
+    return Dashboard(current_sessions=data["current_sessions"], previous_sessions=data["previous_sessions"], latest_weight=Bodyweight(**data["latest_weight"]) if data["latest_weight"] else None,
         weight_series=[Bodyweight(**entry) for entry in data["weight_series"]],
         current_week_start=data["current_week_start"], previous_week_start=data["previous_week_start"],
         total_current_volume=data["total_current_volume"], total_previous_volume=data["total_previous_volume"],
@@ -282,8 +284,8 @@ def dashboard(db: Session = Depends(demo_db)):
 
 
 @router.get("/dashboard/body-map", response_model=BodyMap)
-def body_map(db: Session = Depends(demo_db)):
-    return BodyMap(muscles=[BodyMuscle(**v) for v in m.training_body_map(db, allow_remote=False)["muscles"]
+def body_map(selected_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db)):
+    return BodyMap(muscles=[BodyMuscle(**v) for v in m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today)["muscles"]
         if urlsplit(v["image_url"]).scheme == "https" and urlsplit(v["image_url"]).netloc == "wger.de"])
 
 

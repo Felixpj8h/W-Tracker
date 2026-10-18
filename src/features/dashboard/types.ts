@@ -1,6 +1,8 @@
 
 
 export type Dash = {
+    current_sessions?: number;
+    previous_sessions?: number;
     latest_weight: {
         recorded_on: string;
         weight: number;

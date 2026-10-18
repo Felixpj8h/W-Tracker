@@ -1484,50 +1484,66 @@ def list_weights(db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/dashboard")
-def dashboard(db: Session = Depends(get_db)):
-    return training_dashboard(db, include_bodyweight=True)
+def dashboard(selected_week: Optional[date] = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: Optional[date] = None, through_today: bool = False, db: Session = Depends(get_db)):
+    return training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today)
 
 
-def training_dashboard(db: Session, *, include_bodyweight: bool):
-    today = date.today(); week_start = today - timedelta(days=today.weekday()); previous_start = week_start - timedelta(days=7)
+def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: Optional[date] = None, comparison: str = 'previous', compare_week: Optional[date] = None, through_today: bool = False):
+    today = date.today()
+    anchor = selected_week or today
+    week_start = anchor - timedelta(days=anchor.weekday())
+    current_week = today - timedelta(days=today.weekday())
+    days = today.weekday() + 1 if through_today and week_start == current_week else 7
+    week_end = week_start + timedelta(days=days)
+    if comparison == 'custom' and compare_week is None:
+        raise HTTPException(422, 'Choose a comparison week')
+    baseline = compare_week if comparison == 'custom' else week_start - timedelta(days=7)
+    previous_start = baseline - timedelta(days=baseline.weekday())
+    comparison_starts = [week_start - timedelta(weeks=n) for n in range(1, 5)] if comparison == 'average' else [previous_start]
+    divisor = len(comparison_starts)
+    current_sessions = previous_sessions = 0
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
     current_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}; previous_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}
     has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
-    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= previous_start)).all()
+    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= min(week_start, *comparison_starts), Workout.performed_on < max(week_end, *(start + timedelta(days=days) for start in comparison_starts)))).all()
     for workout in workouts:
-        bucket = current if workout.performed_on >= week_start else previous
-        set_bucket = current_sets if workout.performed_on >= week_start else previous_sets
-        muscle_set_bucket = current_muscle_sets if workout.performed_on >= week_start else previous_muscle_sets
-        for exercise in workout.exercises:
-            if exercise.muscle_group in bucket:
-                bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets)
-                set_bucket[exercise.muscle_group] += len(exercise.sets)
-            for muscle in dashboard_muscles(exercise):
-                muscle_set_bucket[muscle] += len(exercise.sets)
-    if has_demo:
-        # The demo is meant to illustrate a stable training block: same work,
-        # with a small 4% progression in this week rather than a huge swing.
-        previous = {group: current[group] / 1.04 for group in GROUPS}
+        in_current = week_start <= workout.performed_on < week_end
+        in_previous = any(start <= workout.performed_on < start + timedelta(days=days) for start in comparison_starts)
+        current_sessions += int(in_current)
+        previous_sessions += int(in_previous)
+        for included, bucket, set_bucket, muscle_set_bucket, scale in [
+            (in_current, current, current_sets, current_muscle_sets, 1),
+            (in_previous, previous, previous_sets, previous_muscle_sets, divisor),
+        ]:
+            if not included: continue
+            for exercise in workout.exercises:
+                if exercise.muscle_group in bucket:
+                    bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets) / scale
+                    set_bucket[exercise.muscle_group] += len(exercise.sets) / scale
+                for muscle in dashboard_muscles(exercise):
+                    muscle_set_bucket[muscle] += len(exercise.sets) / scale
     weights = list_weights(db) if include_bodyweight else []
     # Demo mode deliberately uses a fixed 14-point window so older real or
     # earlier demo entries cannot distort the sample trend line.
     if has_demo:
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
-    return {"current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
+    return {"current_sessions": current_sessions, "previous_sessions": previous_sessions / divisor, "current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
 
 
 @app.get("/api/v1/dashboard/body-map")
-def dashboard_body_map(db: Session = Depends(get_db)):
-    return training_body_map(db, allow_remote=True)
+def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool = False, db: Session = Depends(get_db)):
+    return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today)
 
 
-def training_body_map(db: Session, *, allow_remote: bool):
+def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False):
     """Return this week's Wger overlays from every completed exercise involvement."""
     global WGER_MUSCLES
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())
+    anchor = selected_week or today
+    week_start = anchor - timedelta(days=anchor.weekday())
+    week_end = week_start + timedelta(days=today.weekday() + 1 if through_today and week_start == today - timedelta(days=today.weekday()) else 7)
     involvement: dict[str, defaultdict[str, float]] = {
         "primary": defaultdict(float),
         "secondary": defaultdict(float),
@@ -1536,7 +1552,7 @@ def training_body_map(db: Session, *, allow_remote: bool):
     # Some older/demo rows only know a broad group (for example "Legs"). Keep
     # that data useful by spreading it across the Wger regions for that group.
     broad_group_volume: defaultdict[str, float] = defaultdict(float)
-    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= week_start)).all()
+    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
     for workout in workouts:
         for exercise in workout.exercises:
             volume = sum(entry.weight * entry.reps for entry in exercise.sets)

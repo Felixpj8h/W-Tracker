@@ -89,6 +89,7 @@ describe('Public demo workspace', () => {
     expect(document.querySelector('.training-calendar')).toBeTruthy();
     expect(document.querySelector('.training-detail')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Plan week' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^13/ }));
     fireEvent.click(screen.getByRole('button', { name: 'View workout' }));
     const details = screen.getByRole('dialog', { name: 'Workout details' });
     expect((within(details).getByRole('button', { name: 'Edit workout' }) as HTMLButtonElement).disabled).toBe(true);

@@ -4,7 +4,7 @@ import { api } from '../../shared/api/client';
 import { demoApi } from '../demo/api';
 import './body-map.css';
 
-export function BodyMap({ readOnly = false }: { readOnly?: boolean }) {
+export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }: { readOnly?: boolean; selectedWeek?: string; throughToday?: boolean }) {
     const [muscles, setMuscles] = useState<BodyMapMuscle[] | null>(null);
     const [unavailable, setUnavailable] = useState(false);
     const [retry, setRetry] = useState(0);
@@ -13,13 +13,16 @@ export function BodyMap({ readOnly = false }: { readOnly?: boolean }) {
     useEffect(() => {
         const controller = new AbortController();
         const load = readOnly ? demoApi : api;
-        void load<{ muscles: BodyMapMuscle[] }>('/dashboard/body-map', { signal: controller.signal })
+        setMuscles(null);
+        setUnavailable(false);
+        const query = selectedWeek ? `?selected_week=${selectedWeek}&through_today=${throughToday}` : '';
+        void load<{ muscles: BodyMapMuscle[] }>(`/dashboard/body-map${query}`, { signal: controller.signal })
             .then(result => {
                 if (!controller.signal.aborted) { setMuscles(result.muscles); setUnavailable(false); }
             })
             .catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
         return () => controller.abort();
-    }, [readOnly, retry]);
+    }, [readOnly, retry, selectedWeek, throughToday]);
 
     if (unavailable) return <div className="heatmap-status" role="status"><span>Could not load your muscle heatmap.</span><button type="button" onClick={() => { setUnavailable(false); setMuscles(null); setRetry(value => value + 1); }}>Retry heatmap</button></div>;
     if (muscles === null) return <div className="heatmap-status" role="status">Loading your muscle heatmap…</div>;
