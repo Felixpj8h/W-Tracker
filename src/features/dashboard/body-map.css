@@ -24,12 +24,16 @@
 @media(min-width:1051px) {
     .dashboard-volume.heatmap-mode { display:flex!important; flex-direction:column; min-height:0!important; overflow:hidden!important; }
     .dashboard-volume.heatmap-mode .muscle-card-head { flex:none; }
-    .dashboard-volume.heatmap-mode .muscle-heatmap { display:flex; flex:1; flex-direction:column; min-height:0; padding-top:12px; }
-    .dashboard-volume.heatmap-mode .heatmap-bodies { flex:1; min-height:0; width:100%; }
+    .dashboard-volume.heatmap-mode .muscle-heatmap { display:flex; flex:1; flex-direction:column; min-height:0; padding-top:0; }
+    .dashboard-volume.heatmap-mode .heatmap-bodies { flex:1; min-height:0; width:100%; max-width:none; }
     .dashboard-volume.heatmap-mode .heatmap-bodies figure { display:grid; grid-template-rows:minmax(0,1fr) auto; min-height:0; }
     .dashboard-volume.heatmap-mode .heatmap-figure { height:auto; min-height:0; }
+    .dashboard-volume.heatmap-mode .heatmap-figure img { object-position:center bottom; }
+    .dashboard-volume.heatmap-mode .heatmap-bodies figcaption { margin-top:0; }
+    .dashboard-volume.heatmap-mode .heatmap-legend { position:absolute; right:0; bottom:20px; left:0; margin:0; pointer-events:none; }
     .dashboard-volume.heatmap-mode .heatmap-legend,
-    .dashboard-volume.heatmap-mode .heatmap-empty { flex:none; margin-top:8px; }
+    .dashboard-volume.heatmap-mode .heatmap-empty { flex:none; margin-top:2px; }
+    .dashboard-volume.heatmap-mode .heatmap-empty { font-size:11px; line-height:1.3; }
     .dashboard-volume.heatmap-mode .heatmap-status { flex:1; min-height:0; }
 }
 @media(prefers-reduced-motion:reduce) { .heatmap-layer { transition:none; } }

@@ -44,6 +44,5 @@ export function BodyMap({ readOnly = false }: { readOnly?: boolean }) {
             </figure>)}
         </div>
         <div className="heatmap-legend" aria-label="Training volume intensity, less to more"><span>Less</span><div>{[.15, .3, .5, .7, 1].map(opacity => <i key={opacity} style={{ opacity }} />)}</div><span>More</span></div>
-        {!trained.length && <p className="heatmap-empty">{readOnly ? 'No training activity this week.' : 'Complete a workout to light up your map.'}</p>}
     </div>;
 }
