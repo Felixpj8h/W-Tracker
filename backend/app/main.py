@@ -359,6 +359,14 @@ class LoggedSetIn(BaseModel):
 class WorkoutExerciseIn(BaseModel):
     exercise_id: Optional[int] = None; name: Optional[str] = Field(None, max_length=180); primary_muscle: Optional[str] = Field(None, max_length=80); secondary_muscles: list[str] = Field(default_factory=list, max_length=20); muscle_group: Optional[str] = Field(None, max_length=20); note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); sets: list[LoggedSetIn] = Field(default_factory=list, max_length=100)
 
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_saved_exercise_id(cls, value):
+        # Loaded workouts use cached_exercise_id; new selections use exercise_id.
+        if isinstance(value, dict) and value.get("exercise_id") is None and value.get("cached_exercise_id") is not None:
+            return {**value, "exercise_id": value["cached_exercise_id"]}
+        return value
+
 
 class WorkoutIn(BaseModel):
     name: str = Field(min_length=1, max_length=120); performed_on: date; note: Optional[str] = Field(None, max_length=1000); exercises: list[WorkoutExerciseIn] = Field(max_length=100)

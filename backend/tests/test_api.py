@@ -218,6 +218,35 @@ def test_workout_progress_is_fetched_in_one_batch():
     assert [payload[str(exercise["id"])]["sessions"][0]["best_weight"] for exercise in exercises] == [40, 50]
 
 
+@pytest.mark.parametrize("method", ["patch", "put"])
+def test_saving_loaded_workout_preserves_history_across_routines(method):
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    folder = client.post("/api/v1/folders", json={"name": "Training"}).json()
+    routines = [client.post("/api/v1/routines", json={
+        "name": name, "folder_id": folder["id"],
+        "exercises": [{"exercise_id": exercise["id"], "planned_sets": 1, "target_reps": 8, "target_weight": 60}],
+    }).json() for name in ["Upper", "Fullbody"]]
+    previous = client.post(f"/api/v1/routines/{routines[0]['id']}/start").json()
+    # Submit the API's own workout representation, as resumed sessions and edits do.
+    completed = client.put(f"/api/v1/workouts/{previous['id']}", json=previous)
+    assert completed.status_code == 200
+    loaded = completed.json()
+    loaded["exercises"][0]["sets"][0]["weight"] = 65
+    saved = getattr(client, method)(f"/api/v1/workouts/{previous['id']}", json=loaded)
+    assert saved.status_code == 200
+    assert saved.json()["exercises"][0]["cached_exercise_id"] == exercise["id"]
+    current = client.post(f"/api/v1/routines/{routines[1]['id']}/start").json()
+    # Active-session auto-save must preserve the current workout's link too.
+    assert client.patch(f"/api/v1/workouts/{current['id']}", json=current).status_code == 200
+    progress = client.get(f"/api/v1/workouts/{current['id']}/exercise-progress").json()
+    last_time = progress[str(exercise["id"])]["sessions"][0]
+    assert last_time["workout_id"] == previous["id"]
+    assert last_time["sets"][0]["weight"] == 65
+    individual = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
+    assert individual["sessions"][0]["sets"][0]["weight"] == 65
+
+
 def test_folders_never_refreshes_wger(monkeypatch):
     reset_db()
     monkeypatch.setattr(main_module, "sync_wger_catalogue", lambda _db: (_ for _ in ()).throw(AssertionError("unexpected refresh")))
