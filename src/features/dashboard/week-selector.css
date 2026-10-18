@@ -18,5 +18,4 @@
 .dashboard-period-context{font-size:12px;color:var(--muted);margin:-8px 0 12px;min-width:0}
 .dashboard-period-context button{color:var(--accent-dark);text-decoration:underline;background:transparent}
 .dashboard-period-context:empty{margin:0}
-@media(min-width:1051px){.dashboard-workspace .dashboard-shell{grid-template-rows:auto auto auto minmax(290px,1fr) auto}}
 @media(max-width:760px){.dashboard-head-actions{display:flex!important;flex-wrap:wrap;gap:8px}.week-selector .today-control{min-width:0;min-height:44px;display:grid!important;gap:8px;padding:6px 10px}.week-selector .today-control small{font-size:10px}.week-selector-panel{position:fixed;top:100px;right:16px}.dashboard-period-context{margin:12px 0}.dashboard-workspace .head{flex-wrap:wrap}}
