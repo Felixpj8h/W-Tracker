@@ -68,7 +68,14 @@ export function WorkoutSessionView(p: Props) {
      target?.scrollIntoView?.({block:'nearest'});
     });
    }}>Remove exercise</button></div></details></div>
-  <div className="session-exercise-body">{!editing && <button type="button" className="session-substitute" onClick={() => onOpenSearch(open)}>⇄ Substitute</button>}{lastSession && <details className="session-previous"><summary><span>Last time</span><b>{lastTime}</b></summary><div><span>{lastSession.performed_on}</span><span>Best: {previous?.personal_best_weight} kg · est. 1RM {previous?.personal_best_1rm.toFixed(1)} kg</span></div></details>}
+  <div className="session-exercise-body">
+  <div className="session-performance-row">
+   {lastSession ? <details className="session-previous"><summary>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 5v6h6"/><path d="M12 7v5l3 2"/></svg>
+    <span className="session-last-copy"><span>Last time</span><b>{lastTime}</b></span>
+   </summary><div><span>{lastSession.performed_on}</span><span>Best: {previous?.personal_best_weight} kg · est. 1RM {previous?.personal_best_1rm.toFixed(1)} kg</span></div></details> : <span className="session-history-empty">No previous sets</span>}
+   {!editing && <button type="button" className="session-substitute" onClick={() => onOpenSearch(open)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>Substitute</button>}
+  </div>
   <div className="session-set-labels" aria-hidden="true"><span>SET</span><span>KG</span><span>REPS</span><span>RPE</span><span>✓</span></div>
   {!item.sets?.length && <p className="session-meta">No sets yet. Add a set to track this exercise.</p>}
   {item.sets?.map((set,j) => { const changeSet = (patch: Partial<typeof set>) => update(open,{sets:item.sets?.map((entry,i) => i === j ? {...entry,...patch} : entry)}); return <div className={`session-set-row ${set.completed ? 'completed' : ''}`} key={j}><span>{j+1}</span><WeightInput value={set.weight} label={`${item.name} set ${j+1} weight in kg`} onChange={weight => changeSet({weight})}/><input aria-label={`${item.name} set ${j+1} reps`} inputMode="numeric" pattern="[0-9]*" value={set.reps || ''} placeholder="0" onChange={e => {if(/^\d*$/.test(e.target.value)) changeSet({reps:Number(e.target.value)});}}/><WeightInput value={set.exertion ?? 0} max={10} placeholder="—" label={`${item.name} set ${j+1} RPE`} onChange={exertion => changeSet({exertion})}/><label className="session-set-completion"><input type="checkbox" className="session-set-check" aria-label={`Complete ${item.name} set ${j+1}`} checked={Boolean(set.completed)} onChange={e => changeSet({completed:e.target.checked})}/></label></div>;})}
