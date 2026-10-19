@@ -93,7 +93,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         })();
         return () => controller.abort();
     }, [workout?.id, progressExerciseIds]);
-    const previous = progressByExercise[openItem?.exercise_id ?? openItem?.cached_exercise_id ?? 0] ?? null;
+    const openExerciseId = openItem?.exercise_id ?? openItem?.cached_exercise_id;
+    const namedHistory = Object.values(progressByExercise).filter(progress => progress.exercise?.name.trim().toLowerCase() === openItem?.name.trim().toLowerCase());
+    const previous = (openExerciseId ? progressByExercise[openExerciseId] : namedHistory.length === 1 ? namedHistory[0] : null) ?? null;
     useEffect(() => { if (!workout?.id) return; if (editing) pendingEdit.current = workout; const t = setTimeout(() => { pendingEdit.current = null; void api(`/workouts/${workout.id}`, { method: 'PATCH', body: JSON.stringify(workout) }).catch(() => undefined); }, 400); return () => clearTimeout(t); }, [workout, editing]);
     useEffect(() => () => {
         const pending = pendingEdit.current;
@@ -127,13 +129,21 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         if (substituteIndex !== null) setRestUntil(null);
         setSubstituteIndex(null); setQ(''); setResults([]); setExtraExerciseOpen(false);
     };
+    const removeExercise = () => {
+        const exercises = workout.exercises.filter((_, index) => index !== selectedIndex);
+        const nextIndex = Math.max(0, Math.min(selectedIndex, exercises.length - 1));
+        positionRef.current = { ...positionRef.current, index: nextIndex, identity: exerciseIdentity(exercises[nextIndex]) };
+        setOpen(nextIndex);
+        setRestUntil(null);
+        setWorkout({ ...workout, exercises });
+    };
     const pauseSession = async () => {
         if (!pause || pausing) return;
         setPausing(true); setPauseError('');
         try { await pause(workout); } catch { setPauseError('Could not save your session. Please try pausing again.'); } finally { setPausing(false); }
     };
     const remaining = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
-    return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} previous={previous}
+    return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} onRemoveExercise={removeExercise} previous={previous}
         onFinish={() => void (editing ? saveEdit(workout) : finish(workout))} onPause={!editing && pause ? () => void pauseSession() : undefined}
         onCancel={!editing && cancel ? () => void cancel(workout) : undefined} pausing={pausing} error={pauseError}
         restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}

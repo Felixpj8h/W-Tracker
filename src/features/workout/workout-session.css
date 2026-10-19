@@ -129,3 +129,5 @@
 .workout-session .session-review-stats dd small{font-size:13px;font-weight:500}
 .workout-session .session-review-stats p{margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
 .workout-session .session-review-finish{width:100%;min-height:48px;margin-top:16px;padding:12px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-weight:700}
+
+.workout-session .session-menu .session-remove-exercise{min-height:44px;border-top:1px solid var(--border);border-radius:0}

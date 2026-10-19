@@ -1427,16 +1427,34 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
 
 
+def legacy_exercise_ids(db: Session, names: set[str]) -> dict[str, int]:
+    """Resolve unlinked historical names only when the catalogue match is unique."""
+    if not names:
+        return {}
+    candidates: dict[str, list[int]] = defaultdict(list)
+    for exercise in db.scalars(select(Exercise).where(func.lower(func.trim(Exercise.name)).in_(names))):
+        candidates[exercise.name.strip().lower()].append(exercise.id)
+    return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
+
+
+def progress_workouts(db: Session, exclude_workout_id: Optional[int] = None):
+    query = select(Workout).where(Workout.completed == True)
+    if exclude_workout_id is not None:
+        query = query.where(Workout.id != exclude_workout_id)
+    return db.scalars(query.order_by(Workout.performed_on.desc(), Workout.completed_at.desc(), Workout.created_at.desc(), Workout.id.desc())).all()
+
+
 @app.get("/api/v1/exercises/{exercise_id}/progress")
 def exercise_progress(exercise_id: int, exclude_workout_id: Optional[int] = None, db: Session = Depends(get_db)):
     exercise = db.get(Exercise, exercise_id)
     if not exercise: raise HTTPException(404, "Exercise not found")
     rows = []
-    workouts = db.scalars(select(Workout).where(Workout.completed == True).order_by(Workout.performed_on.desc())).all()
+    legacy_ids = legacy_exercise_ids(db, {exercise.name.strip().lower()})
+    workouts = progress_workouts(db, exclude_workout_id)
     for workout in workouts:
-        if exclude_workout_id == workout.id: continue
         for item in workout.exercises:
-            if item.cached_exercise_id != exercise_id: continue
+            matched_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
+            if matched_id != exercise_id: continue
             sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets]
             volume = sum(s["weight"] * s["reps"] for s in sets)
             best_weight = max((s["weight"] for s in sets), default=0)
@@ -1450,13 +1468,14 @@ def workout_exercise_progress(workout_id: int, db: Session = Depends(get_db)):
     """Return progress for every exercise in a workout with one history query."""
     current = db.get(Workout, workout_id)
     if not current: raise HTTPException(404, "Workout not found")
-    exercise_ids = {item.cached_exercise_id for item in current.exercises if item.cached_exercise_id}
+    legacy_ids = legacy_exercise_ids(db, {item.name.strip().lower() for item in current.exercises})
+    exercise_ids = {item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower()) for item in current.exercises} - {None}
     exercises = {exercise.id: exercise for exercise in db.scalars(select(Exercise).where(Exercise.id.in_(exercise_ids))).all()}
     sessions: dict[int, list[dict]] = {exercise_id: [] for exercise_id in exercise_ids}
-    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.id != workout_id).order_by(Workout.performed_on.desc())).all()
+    workouts = progress_workouts(db, workout_id)
     for workout in workouts:
         for item in workout.exercises:
-            exercise_id = item.cached_exercise_id
+            exercise_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
             if exercise_id not in sessions: continue
             sets = [{"weight": entry.weight, "reps": entry.reps, "exertion": entry.exertion} for entry in item.sets]
             volume = sum(entry["weight"] * entry["reps"] for entry in sets)

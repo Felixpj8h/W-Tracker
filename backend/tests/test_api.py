@@ -606,3 +606,60 @@ def test_local_auth_bypass_is_limited_to_loopback_development(monkeypatch, envir
     assert main_module.is_local_development_request(request) is expected
     if expected:
         assert main_module.authenticate_request(request)["email"] == "local@workout.local"
+
+
+@pytest.mark.parametrize("current_linked", [True, False])
+def test_last_weight_recovers_unlinked_history_across_routines(current_linked):
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    older = client.post("/api/v1/workouts", json={
+        "name": "Other routine", "performed_on": "2026-10-18",
+        "exercises": [{"name": f"  {exercise['name'].upper()}  ", "sets": [{"weight": 42.5, "reps": 8}]}],
+    }).json()
+    assert older["exercises"][0]["cached_exercise_id"] is None
+    current = client.post("/api/v1/workouts/draft", json={"name": "Today's routine", "performed_on": "2026-10-19"}).json()
+    item = {"name": exercise["name"], "sets": [{"weight": 90, "reps": 8}]}
+    if current_linked:
+        item["exercise_id"] = exercise["id"]
+    client.patch(f"/api/v1/workouts/{current['id']}", json={**current, "exercises": [item]})
+    batched = client.get(f"/api/v1/workouts/{current['id']}/exercise-progress").json()
+    individual = client.get(f"/api/v1/exercises/{exercise['id']}/progress?exclude_workout_id={current['id']}").json()
+    for result in [batched[str(exercise["id"])], individual]:
+        assert [row["workout_id"] for row in result["sessions"]] == [older["id"]]
+        assert result["sessions"][0]["sets"][0]["weight"] == 42.5
+
+
+def test_last_weight_orders_same_day_sessions_and_excludes_other_exercise_ids():
+    reset_db()
+    exercise, other = client.get("/api/v1/exercises").json()[:2]
+    ids = []
+    for weight in [40, 47.5]:
+        response = client.post("/api/v1/workouts", json={
+            "name": f"Routine {weight}", "performed_on": "2026-10-18",
+            "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": weight, "reps": 8}]}],
+        }).json()
+        ids.append(response["id"])
+    # A different explicitly linked exercise must never match by display name.
+    with main_module.SessionLocal() as db:
+        foreign = main_module.Workout(name="Different exercise", performed_on=main_module.date(2026, 10, 19), completed=True)
+        foreign.exercises = [main_module.WorkoutExercise(cached_exercise_id=other["id"], name=exercise["name"], position=0, sets=[main_module.WorkoutSet(weight=100, reps=8, position=0)])]
+        db.add(foreign)
+        db.commit()
+    single = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
+    assert [row["workout_id"] for row in single["sessions"]] == ids[::-1]
+    assert single["sessions"][0]["sets"][0]["weight"] == 47.5
+    current = client.post("/api/v1/workouts/draft", json={"name": "New routine"}).json()
+    client.patch(f"/api/v1/workouts/{current['id']}", json={**current, "exercises": [{"exercise_id": exercise["id"], "sets": []}]})
+    batch = client.get(f"/api/v1/workouts/{current['id']}/exercise-progress").json()
+    assert batch[str(exercise["id"])]["sessions"] == single["sessions"]
+
+
+def test_ambiguous_unlinked_exercise_names_are_not_matched():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    with main_module.SessionLocal() as db:
+        db.add(main_module.Exercise(name=exercise["name"], equipment="Different equipment"))
+        db.commit()
+    client.post("/api/v1/workouts", json={"name": "Legacy", "performed_on": "2026-10-18", "exercises": [{"name": exercise["name"], "sets": [{"weight": 80, "reps": 8}]}]})
+    result = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
+    assert result["sessions"] == []

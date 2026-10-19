@@ -276,3 +276,50 @@ it('keeps statistics out of the exercise selector overview', () => {
     expect(screen.queryByRole('region',{name:'Workout statistics'})).toBeNull();
 });
 
+
+it.each([
+    { index: 0, removed: 'Squat', next: 'Bench', position: 'Exercise 1 of 2' },
+    { index: 1, removed: 'Bench', next: 'Row', position: 'Exercise 2 of 2' },
+    { index: 2, removed: 'Row', next: 'Bench', position: 'Exercise 2 of 2' },
+])('removes $removed from the active workout and selects $next', async ({index, removed, next, position}) => {
+    render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button', {name:new RegExp(`Exercise ${index + 1}: ${removed}`)}));
+    fireEvent.click(screen.getByLabelText(`${removed} actions`));
+    fireEvent.click(screen.getByRole('button', {name:'Remove exercise'}));
+    expect(screen.getByText(position)).toBeTruthy();
+    expect(screen.queryByRole('button', {name:new RegExp(`Exercise [0-9]+: ${removed}`)})).toBeNull();
+    expect(screen.getByRole('button', {name:new RegExp(`Exercise [0-9]+: ${next}`)})).toHaveAttribute('aria-current','step');
+    expect(navigationWorkout.exercises).toHaveLength(3);
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    expect(document.activeElement).toHaveClass('session-exercise-toggle');
+});
+it('removes the only exercise, stops its timer and autosaves an empty workout', async () => {
+    vi.useFakeTimers();
+    function Harness() {
+        const [workout, update] = useState<Workout>({...navigationWorkout, exercises:[navigationWorkout.exercises[0]]});
+        return <WorkoutLogger {...props} workout={workout} editing={false} setWorkout={update}/>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('button', {name:/Rest 1:30/}));
+    expect(screen.getByRole('timer')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Squat actions'));
+    fireEvent.click(screen.getByRole('button', {name:'Remove exercise'}));
+    expect(screen.getByText(/No exercises yet/)).toBeTruthy();
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('button', {name:'＋ Add exercise'})).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(document.activeElement).toBe(screen.getByRole('button', {name:'＋ Add exercise'}));
+    expect(api).toHaveBeenCalledWith('/workouts/42', {method:'PATCH', body:JSON.stringify({...navigationWorkout,exercises:[]})});
+});
+
+it('shows cross-routine last weight for an older workout without exercise ID links', async () => {
+    vi.mocked(api).mockImplementation(async path => path.endsWith('/exercise-progress') ? {7: {
+        exercise:{id:7,name:'Bench press',equipment:'Barbell'},
+        sessions:[{workout_id:3,workout_name:'Different routine',performed_on:'2026-10-12',sets:[{weight:42.5,reps:8}]}],
+        personal_best_weight:42.5,personal_best_1rm:54,
+    }} : {});
+    render(<WorkoutLogger {...props} editing={false} workout={{...original,completed:false,exercises:[{name:'  Bench press  ',sets:[]}]}}/>);
+    expect(await screen.findByText('42.5 kg × 8')).toBeTruthy();
+    expect(screen.getByText('Last time')).toBeTruthy();
+});
