@@ -33,6 +33,7 @@ export type Item = {
         muscle_group?: string | null;
     };
     sets?: {
+        completed?: boolean;
         weight: number;
         reps: number;
         exertion?: number;

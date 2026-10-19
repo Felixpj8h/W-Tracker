@@ -7,7 +7,7 @@ import { ACTIVE_WORKOUT_KEY } from '../features/workout/session';
 
 vi.mock('../shared/api/client', () => ({ api: vi.fn(), API: '/api/v1', pendingBackendWrites: 0, backendWriteFailed: false }));
 vi.mock('../features/coach/useCoachController', () => ({ useCoachController: () => ({ streaming: {} }) }));
-vi.mock('../features/dashboard/Dashboard', () => ({ Dashboard: () => <p>Dashboard content</p> }));
+vi.mock('../features/dashboard/Dashboard', () => ({ Dashboard: ({ log }: { log: () => void }) => <><p>Dashboard content</p><button onClick={log}>Dashboard log workout</button></> }));
 vi.mock('../features/routines/Routines', () => ({ Routines: () => <p>Routines content</p> }));
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
@@ -40,4 +40,31 @@ it('saves a paused session, allows navigation, and resumes the exact saved worko
     expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Resume session' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'Log workout' })).toHaveLength(2);
+});
+
+it.each(['dashboard', 'mobile', 'desktop'])('opens the chooser from %s even when today has a planned workout', async entry => {
+    const date = new Date();
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const planned = { id: 1, name: 'Planned legs', exercises: [{ exercise_id: 1, name: 'Squat', sets: [{ weight: 60, reps: 8 }] }] };
+    const wanted = { id: 2, name: 'Wanted upper', exercises: [{ exercise_id: 2, name: 'Bench', sets: [{ weight: 40, reps: 8 }] }] };
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (path === '/folders') return [{ id: 1, name: 'My routine', routines: [planned, wanted] }];
+        if (path.startsWith('/calendar')) return { plan: null, days: [{ date: dateKey, routine_id: planned.id, status: 'planned' }] };
+        if (path === '/dashboard') return { weight_series: [], latest_weight: null };
+        if (path === '/workouts' || path === '/workouts/active') return [];
+        if (path === '/routines/2/start' && options?.method === 'POST') return { id: 43, name: wanted.name, performed_on: dateKey, exercises: wanted.exercises };
+        return {};
+    });
+    render(<WorkoutApp user={{name: 'Athlete', firstName: 'Athlete', email: 'athlete@example.com'}}/>);
+    await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining('/calendar')));
+    if (entry === 'dashboard') fireEvent.click(screen.getByRole('button', {name:'Dashboard log workout'}));
+    else fireEvent.click(screen.getAllByRole('button', {name:'Log workout'})[entry === 'desktop' ? 0 : 1]);
+    await screen.findByRole('heading', {name:'Choose workout'});
+    expect(screen.getByRole('button', {name:/Planned legs/})).toBeTruthy();
+    expect(screen.getByRole('button', {name:/Wanted upper/})).toBeTruthy();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/start'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', {name:/Wanted upper/}));
+    await screen.findByLabelText('Bench set 1 weight in kg');
+    expect(api).toHaveBeenCalledWith('/routines/2/start', {method:'POST'});
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.startsWith('/routines/1/start'))).toBe(false);
 });

@@ -105,6 +105,7 @@ class Folder(PublicModel):
 
 
 class LoggedSet(PublicModel):
+    completed: bool = False
     weight: float
     reps: int
     exertion: float | None

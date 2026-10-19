@@ -1,0 +1,131 @@
+.workout-session{max-width:850px;margin:0 auto;padding-bottom:24px;color:var(--text);font-variant-numeric:tabular-nums}
+.workout-session button{font:inherit;cursor:pointer}
+.workout-session .session-header{margin-bottom:25px}
+.workout-session .session-eyebrow{margin:0 0 9px;font-size:11px;font-weight:750;letter-spacing:.14em;color:var(--muted)}
+.workout-session .session-title-row{display:flex;align-items:center;gap:16px}
+.workout-session .session-title{flex:1;min-width:0;width:100%;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--text);font-size:clamp(27px,4vw,38px);font-weight:750;letter-spacing:-.045em;line-height:1.2}
+.workout-session .session-meta{margin:8px 0 0;color:var(--muted);font-size:12px}
+.workout-session .session-header-actions{display:flex;align-items:center;gap:8px;flex:none}
+.workout-session .session-pause,.workout-session .session-menu>summary{display:grid;place-items:center;width:42px;height:44px;padding:0;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--accent-dark);list-style:none}
+.workout-session .session-finish{height:44px;min-width:76px;padding:0 18px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:750}
+.workout-session .session-menu{position:relative;flex:none;z-index:3}
+.workout-session .session-menu>summary{cursor:pointer;font-size:23px;line-height:1}
+.workout-session .session-menu>summary::-webkit-details-marker,.workout-session .session-previous>summary::-webkit-details-marker{display:none}
+.workout-session .session-menu>div{position:absolute;right:0;top:calc(100% + 6px);display:grid;gap:4px;min-width:165px;max-height:280px;overflow:auto;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px var(--shadow)}
+.workout-session .session-menu button{padding:10px 12px;border-radius:6px;background:transparent;text-align:left;font-size:13px;white-space:nowrap}
+.workout-session .session-menu button:hover{background:var(--soft)}
+.workout-session .session-danger{color:var(--negative,#c77f87)}
+.workout-session .session-progress{display:flex;align-items:center;gap:15px;margin:0 0 20px;font-size:12px;color:var(--muted)}
+.workout-session .session-progress>span{white-space:nowrap}
+.workout-session .session-rest{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin:0 0 14px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
+.workout-session .session-rest button{padding:5px 8px;background:transparent;color:inherit}
+.workout-session .session-exercises{display:grid;gap:12px}
+.workout-session .session-exercise{min-width:0;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
+.workout-session .session-exercise-heading{display:flex;align-items:center;gap:4px;padding:16px}
+.workout-session .session-exercise.expanded .session-exercise-heading{border-bottom:1px solid var(--border)}
+.workout-session .session-exercise-toggle{display:flex;align-items:center;gap:12px;min-width:0;flex:1;padding:0;background:transparent;color:var(--text);text-align:left}
+.workout-session .session-exercise-number{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;background:var(--accent-soft);color:var(--accent-dark);font-size:14px;font-weight:750}
+.workout-session .session-exercise-number.done{background:var(--accent);color:var(--on-accent)}
+.workout-session .session-exercise-copy{display:grid;gap:4px;flex:1;min-width:0}
+.workout-session .session-exercise-copy b{font-size:16px;line-height:1.3;font-weight:700;overflow-wrap:anywhere}
+.workout-session .session-exercise-copy small{color:var(--muted);font-size:12px;line-height:1.4}
+.workout-session .session-exercise-toggle>svg{flex:none;color:var(--muted);transition:transform .15s ease}
+.workout-session .session-exercise-toggle>svg.expanded{transform:rotate(180deg)}
+.workout-session .exercise-menu>summary{width:30px;height:34px;border:0;background:transparent;color:var(--muted)}
+.workout-session .session-exercise-body{padding:0 16px 14px}
+.workout-session .session-substitute{display:block;width:100%;min-height:44px;margin:12px 0;padding:10px 14px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--accent-dark);font-size:13px;font-weight:650}
+.workout-session .session-previous{margin:0 0 12px;border:1px solid var(--border);border-radius:10px;background:var(--soft)}
+.workout-session .session-previous>summary{display:flex;align-items:baseline;gap:12px;padding:11px 12px;list-style:none;cursor:pointer;font-size:12px}
+.workout-session .session-previous>summary>span{flex:none;color:var(--muted)}
+.workout-session .session-previous>summary::after{content:'⌄';margin-left:auto;color:var(--muted)}
+.workout-session .session-previous[open]>summary::after{content:'⌃'}
+.workout-session .session-previous b{font-weight:550;line-height:1.4}
+.workout-session .session-previous>div{display:grid;gap:5px;padding:0 12px 12px;color:var(--muted);font-size:11px}
+.workout-session :is(.session-set-labels,.session-set-row){display:grid;grid-template-columns:24px minmax(0,1.1fr) minmax(0,1fr) minmax(0,.85fr) 44px;align-items:center;gap:8px;text-align:center}
+.workout-session .session-set-labels{padding:8px 6px;font-size:10px;letter-spacing:.07em;font-weight:600;color:var(--muted)}
+.workout-session .session-set-row{margin:3px 0;padding:6px;border-radius:10px;font-size:15px;transition:background-color .15s ease}
+.workout-session .session-set-row.completed{background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.workout-session .session-set-row>input:not([type=checkbox]){width:100%;min-width:0;height:48px;padding:8px 3px;border:1px solid var(--border);border-radius:9px;background:var(--field,var(--bg));color:var(--text);font-size:18px;line-height:1.2;text-align:center;font-variant-numeric:tabular-nums;box-shadow:none;scroll-margin-block:140px}
+.workout-session .session-set-row>input::placeholder{color:var(--muted);opacity:.65}
+.workout-session .session-set-row>input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+.workout-session .session-set-check{appearance:none;-webkit-appearance:none;display:grid;place-content:center;width:27px;height:27px;margin:0 auto;padding:0;border:1.5px solid var(--muted);border-radius:7px;cursor:pointer;background:transparent;accent-color:var(--accent)}
+.workout-session .session-set-completion{display:grid;place-items:center;width:44px;min-height:48px;cursor:pointer}
+.workout-session .session-set-check:checked{background:var(--accent);border-color:var(--accent)}
+.workout-session .session-set-check:checked::after{content:'';display:block;width:10px;height:6px;border-left:2px solid var(--on-accent);border-bottom:2px solid var(--on-accent);transform:translateY(-1px) rotate(-45deg)}
+.workout-session .session-exercise-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0 12px}
+.workout-session .session-exercise-actions>button{flex:1;min-height:44px;padding:8px 4px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--accent-dark);font-size:13px;font-weight:650}
+.workout-session .session-exercise-actions>.session-rest-button{padding:8px 12px;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-weight:500}
+.workout-session .session-note{padding-top:10px;border-top:1px solid var(--border)}
+.workout-session .session-note>summary{min-height:32px;padding:5px 0;color:var(--muted);font-size:13px;cursor:pointer;list-style:none}
+.workout-session .session-note textarea{width:100%;min-height:80px;margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--soft);color:var(--text);font:inherit;font-size:16px;resize:vertical;scroll-margin-block:140px}
+.workout-session .session-add-exercise{width:100%;min-height:48px;margin-top:14px;padding:12px;border:1px solid var(--accent);border-radius:12px;background:transparent;color:var(--accent-dark);font-size:15px;font-weight:650}
+.workout-session button:disabled{opacity:.55;cursor:wait}
+.workout-session :is(button,summary,input[type=checkbox]):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.workout-session .session-search-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+.workout-session .session-search-backdrop{position:absolute;inset:0;width:100%;height:100%;border-radius:0;background:rgba(0,0,0,.55)}
+.workout-session .session-search-panel{position:relative;z-index:1;width:min(540px,100%);max-height:80dvh;padding:20px;overflow:auto;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:0 14px 60px var(--shadow);text-align:left}
+.workout-session .session-search-panel>header{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.workout-session .session-search-panel h2{margin:0;font-size:22px;letter-spacing:-.025em}
+.workout-session .session-search-panel header p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+.workout-session .session-search-panel header button{width:36px;height:36px;padding:0;background:var(--soft);color:var(--muted);border-radius:9px;font-size:24px}
+.workout-session .session-search-panel>input{width:100%;min-height:46px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--text);font-size:16px}
+.workout-session .session-search-results{display:grid;gap:6px;margin-top:12px;min-height:70px}
+.workout-session .session-search-results>p{padding:12px 0;color:var(--muted);font-size:13px;line-height:1.5}
+.workout-session .session-search-results>button{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:64px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--accent-dark);text-align:left}
+.workout-session .session-search-results>button>span:first-child{display:grid;gap:5px;min-width:0;color:var(--text)}
+.workout-session .session-search-results small{font-size:12px;color:var(--muted)}
+@media(max-width:760px){
+    .workout-session{padding-bottom:20px}
+    .workout-session .session-header{margin-bottom:20px}
+    .workout-session .session-title-row{gap:10px;flex-wrap:wrap}
+    .workout-session .session-title{font-size:30px;flex:1 1 145px}
+    .workout-session .session-header-actions{gap:6px}
+    .workout-session .session-pause{width:44px;height:44px}
+    .workout-session .session-finish{height:42px;min-width:65px;padding-inline:14px}
+    .workout-session .session-menu>summary{width:30px;height:42px}
+    .workout-session .session-exercise-heading{padding:14px 12px}
+    .workout-session .session-exercise-body{padding:0 10px 12px}
+    .workout-session .session-exercise-copy b{font-size:15px}
+    .workout-session .session-exercise-toggle{gap:9px}
+    .workout-session .session-exercise-number{width:34px;height:34px;font-size:13px}
+    .workout-session .session-search-overlay{padding:0;align-items:flex-end}
+    .workout-session .session-search-panel{width:100%;max-height:calc(100dvh - 24px);padding:20px 16px calc(20px + env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
+}
+@media(max-width:360px){.workout-session :is(.session-set-labels,.session-set-row){gap:5px;grid-template-columns:20px minmax(0,1.1fr) minmax(0,1fr) minmax(0,.8fr) 44px}.workout-session .session-set-row>input:not([type=checkbox]){font-size:16px}}
+@media(prefers-reduced-motion:reduce){.workout-session *{transition:none!important}}
+.workout-session .session-navigation{margin-bottom:16px}
+.workout-session .session-selector{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);text-align:left}
+.workout-session .session-selector>span:first-child{flex:none;font-size:13px;font-weight:650}
+.workout-session .session-selector>b{min-width:0;flex:1;text-align:right;font-size:14px;overflow-wrap:anywhere}
+.workout-session .session-segments{display:flex;flex-wrap:wrap;gap:4px;margin:0 2px}
+.workout-session .session-segments>button{flex:1 0 44px;min-width:44px;min-height:44px;padding:14px 2px;background:transparent;border-radius:5px}
+.workout-session .session-segments>button>span{display:block;height:7px;background:var(--border);border-radius:8px;overflow:hidden}
+.workout-session .session-segments i{display:block;height:100%;background:var(--accent);border-radius:inherit}
+.workout-session .session-segments [aria-current]>span{outline:2px solid var(--accent);outline-offset:3px}
+.workout-session .session-progress{justify-content:space-between;flex-wrap:wrap;gap:8px;margin:0;font-size:11px}
+.workout-session .session-exercise-heading{scroll-margin-top:20px}
+.workout-session .session-step-controls{margin-top:16px}
+.workout-session .session-step-controls>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:12px}
+.workout-session .session-step-controls button{min-height:48px;padding:10px 8px;border:1px solid var(--accent);border-radius:10px;background:transparent;color:var(--text);font-size:14px;font-weight:650}
+.workout-session .session-step-controls button.ready{background:var(--accent);color:var(--on-accent)}
+.workout-session .session-step-controls button:disabled{opacity:.4;cursor:default}
+.workout-session .session-overview-list{display:grid;gap:8px}
+.workout-session .session-overview-list>button{display:flex;gap:12px;align-items:center;width:100%;min-height:76px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--text);text-align:left}
+.workout-session .session-overview-list>button[aria-current]{outline:2px solid var(--accent);outline-offset:-2px}
+.workout-session .session-overview-list>button>span:nth-child(2){display:grid;gap:5px;min-width:0;overflow-wrap:anywhere}
+.workout-session .session-overview-list small{color:var(--muted);font-size:12px}
+.workout-session .session-overview-list .session-selected-label{color:var(--accent-dark);font-weight:700}
+.workout-session .session-search-panel header button{min-width:44px;min-height:44px}
+.workout-session .session-search-panel{overscroll-behavior:contain}
+
+.workout-session .session-overview-check{flex:none;margin-left:auto;color:var(--accent)}
+
+.workout-session .session-review-stats{margin-bottom:18px}
+.workout-session .session-review-stats h3{margin:0 0 12px;font-size:16px;overflow-wrap:anywhere}
+.workout-session .session-review-stats dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+.workout-session .session-review-stats dl>div{min-width:0;padding:14px 12px;border:1px solid var(--border);border-radius:10px;background:var(--soft)}
+.workout-session .session-review-stats dt{font-size:12px;line-height:1.4;color:var(--muted)}
+.workout-session .session-review-stats dd{margin:8px 0 0;font-size:23px;font-weight:700;color:var(--accent-dark);overflow-wrap:anywhere}
+.workout-session .session-review-stats dd small{font-size:13px;font-weight:500}
+.workout-session .session-review-stats p{margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.workout-session .session-review-finish{width:100%;min-height:48px;margin-top:16px;padding:12px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-weight:700}

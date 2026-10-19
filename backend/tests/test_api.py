@@ -247,6 +247,40 @@ def test_saving_loaded_workout_preserves_history_across_routines(method):
     assert individual["sessions"][0]["sets"][0]["weight"] == 65
 
 
+def test_set_completion_survives_autosave_resume_and_finish():
+    reset_db()
+    exercise = client.get('/api/v1/exercises').json()[0]
+    draft = client.post('/api/v1/workouts/draft', json={'name': 'Training', 'performed_on': '2026-10-18'}).json()
+    payload = {**draft, 'exercises': [{'exercise_id': exercise['id'], 'sets': [
+        {'weight': 22.5, 'reps': 8, 'completed': True}, {'weight': 22.5, 'reps': 8},
+    ]}]}
+    assert client.patch(f"/api/v1/workouts/{draft['id']}", json=payload).status_code == 200
+    resumed = client.get('/api/v1/workouts/active').json()[0]
+    assert [item['completed'] for item in resumed['exercises'][0]['sets']] == [True, False]
+    resumed['exercises'][0]['sets'][0]['completed'] = False
+    assert client.patch(f"/api/v1/workouts/{draft['id']}", json=resumed).status_code == 200
+    resumed = client.get('/api/v1/workouts/active').json()[0]
+    assert resumed['exercises'][0]['sets'][0]['completed'] is False
+    resumed['exercises'][0]['sets'][1]['completed'] = True
+    finished = client.put(f"/api/v1/workouts/{draft['id']}", json=resumed).json()
+    assert finished['completed'] is True
+    assert [item['completed'] for item in finished['exercises'][0]['sets']] == [False, True]
+    assert finished['exercises'][0]['sets'][0]['weight'] == 22.5
+
+
+def test_legacy_sqlite_sets_gain_completion_without_losing_values():
+    reset_db()
+    created = client.post('/api/v1/workouts', json={'name': 'Legacy', 'performed_on': '2026-10-18', 'exercises': [
+        {'name': 'Bench', 'sets': [{'weight': 22.5, 'reps': 8}]},
+    ]}).json()
+    with engine.begin() as connection:
+        connection.exec_driver_sql('ALTER TABLE workout_sets DROP COLUMN completed')
+    main_module.startup()
+    restored = next(workout for workout in client.get('/api/v1/workouts').json() if workout['id'] == created['id'])
+    assert restored['exercises'][0]['sets'][0]['completed'] is False
+    assert restored['exercises'][0]['sets'][0]['weight'] == 22.5
+
+
 def test_folders_never_refreshes_wger(monkeypatch):
     reset_db()
     monkeypatch.setattr(main_module, "sync_wger_catalogue", lambda _db: (_ for _ in ()).throw(AssertionError("unexpected refresh")))

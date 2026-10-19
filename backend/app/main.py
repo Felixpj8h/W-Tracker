@@ -167,6 +167,7 @@ class WorkoutSet(Base):
     weight: Mapped[float] = mapped_column(Float, default=0)
     reps: Mapped[int] = mapped_column(Integer, default=0)
     exertion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class BodyweightEntry(OwnedRecord, Base):
@@ -354,6 +355,7 @@ class SharedWorkoutImportIn(SharedWorkoutContentIn):
 
 class LoggedSetIn(BaseModel):
     weight: float = Field(ge=0); reps: int = Field(ge=0); exertion: Optional[float] = Field(None, ge=0, le=10)
+    completed: bool = False
 
 
 class WorkoutExerciseIn(BaseModel):
@@ -792,6 +794,8 @@ def startup():
         workout_set_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_sets)")}
         if "exertion" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
+        if "completed" not in workout_set_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN completed BOOLEAN NOT NULL DEFAULT 0")
         workout_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
         if "note" not in workout_columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN note VARCHAR(1000)")
@@ -1291,7 +1295,7 @@ def workout_out(workout: Workout) -> dict:
         primary = canonical_muscle(e.primary_muscle) or "Unmapped"
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "position": s.position} for s in e.sets]}
+        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "position": s.position} for s in e.sets]}
     return {"id": workout.id, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
@@ -1303,7 +1307,7 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
         primary = cached.primary_muscle if cached else canonical_muscle(item.primary_muscle)
         secondary = cached.secondary_muscles if cached else "|".join(stored_secondary_muscles("|".join(item.secondary_muscles)))
         wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=primary, secondary_muscles=secondary, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(primary)), position=pos, note=item.note, rest_seconds=item.rest_seconds)
-        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion) for i, s in enumerate(item.sets)]
+        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 
 

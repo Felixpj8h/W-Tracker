@@ -1,4 +1,0 @@
-.pause-workout{min-height:42px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--accent-soft);color:var(--accent-dark);font-weight:700}
-.pause-workout:hover{border-color:var(--accent)}
-.pause-workout:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-@media(max-width:760px){.head:has(.pause-workout){flex-wrap:wrap}.head:has(.pause-workout) .workout-head-actions{flex-wrap:wrap}.pause-workout{min-height:38px;padding:6px 10px;font-size:12px}}

@@ -1,4 +1,3 @@
-import '../features/workout/pause-session.css';
 import type { UserProfile } from '../features/auth/profile';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Workout } from '../features/workout/types';
@@ -32,7 +31,6 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     }, []);
     const optimisticWeights = useRef(new Map<string, number>());
     const pendingWorkoutStart = useRef<Promise<Workout> | null>(null);
-    const pendingDashboardLog = useRef(false);
     const calendarMonthsRef = useRef<Record<string, CalendarMonth>>({});
     const setLoadError = (key: keyof typeof loadErrors, failed: boolean) => setLoadErrors(current => { const next = { ...current }; if (failed) next[key] = `Could not load ${key}`; else delete next[key]; return next; });
     const loadDashboard = async () => { try { setDash(withOptimisticWeights(await api<Dash>('/dashboard'), optimisticWeights.current)); setLoadError('dashboard', false); } catch { setLoadError('dashboard', true); } };
@@ -57,35 +55,11 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     const start = async (routine: Routine) => { const optimistic = optimisticWorkoutFromRoutine(routine); setWorkout(optimistic); setEditing(false); setPage('workout'); const request = api<Workout>(`/routines/${routine.id}/start${routine.scheduled_on ? `?day=${routine.scheduled_on}` : ''}`, { method: 'POST' }); pendingWorkoutStart.current = request; try { const draft = await request; setWorkout(current => current ? { ...current, id: draft.id, started_at: draft.started_at, exercises: current.exercises.map((item, index) => ({ ...item, cached_exercise_id: draft.exercises[index]?.cached_exercise_id ?? item.exercise_id })) } : current); } catch { setWorkout(null); setPage('routines'); } finally { if (pendingWorkoutStart.current === request) pendingWorkoutStart.current = null; } };
     const resumableWorkout = workout && !workout.completed && !editing ? workout : active.find(entry => !entry.completed);
     const resumeWorkout = (entry: Workout) => { setWorkout(entry); setEditing(false); setPage('workout'); };
-    const logFromDashboard = async () => {
+    const logFromDashboard = () => {
         if (resumableWorkout) { resumeWorkout(resumableWorkout); return; }
-        if (pendingDashboardLog.current) return;
-        pendingDashboardLog.current = true;
-        try {
-            const date = new Date();
-            const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-            const calendar = await loadCalendar(date.getFullYear(), date.getMonth() + 1);
-            const scheduled = calendar?.days.find(day => day.date === dateKey);
-            if (scheduled?.routine_id && scheduled.status !== 'completed') {
-                const availableFolders = folders.length ? folders : await api<Folder[]>('/folders');
-                const routine = availableFolders.flatMap(folder => folder.routines).find(item => item.id === scheduled.routine_id);
-                if (routine) {
-                    const inProgress = active.find(item => !item.completed && item.performed_on === dateKey && item.name === routine.name);
-                    if (inProgress) { setWorkout(inProgress); setEditing(false); setPage('workout'); return; }
-                    await start(routine);
-                    return;
-                }
-            }
-            setWorkout(null);
-            setEditing(false);
-            setPage('workout');
-        } catch {
-            setWorkout(null);
-            setEditing(false);
-            setPage('workout');
-        } finally {
-            pendingDashboardLog.current = false;
-        }
+        setWorkout(null);
+        setEditing(false);
+        setPage('workout');
     };
     const pauseWorkout = async (entry: Workout) => {
         const started = entry.id ? null : await pendingWorkoutStart.current;
@@ -104,7 +78,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         const matchingRoutine = folders.flatMap(folder => folder.routines).find(item => item.id === previous.routine_id);
         if (matchingRoutine) { await start(matchingRoutine); return; }
         const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: previous.name, performed_on: today() }) });
-        const copied = await api<Workout>(`/workouts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ name: previous.name, performed_on: today(), exercises: previous.exercises.map(exercise => ({ ...exercise, sets: (exercise.sets ?? []).map(set => ({ ...set })) })) }) });
+        const copied = await api<Workout>(`/workouts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ name: previous.name, performed_on: today(), exercises: previous.exercises.map(exercise => ({ ...exercise, sets: (exercise.sets ?? []).map(set => ({ ...set, completed: false })) })) }) });
         setWorkout(copied);
         setEditing(false);
         setPage('workout');

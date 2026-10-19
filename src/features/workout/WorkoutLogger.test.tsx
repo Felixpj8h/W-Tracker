@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkoutLogger } from './WorkoutLogger';
 import { api } from '../../shared/api/client';
 import type { Workout } from './types';
+import { useState } from 'react';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn().mockResolvedValue({}), API: '/api/v1' }));
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); });
 
 const original: Workout = { id: 42, name: 'Upper', completed: true, performed_on: '2026-10-18', exercises: [] };
 const props = { folders: [], active: [], start: vi.fn(), startAdHoc: vi.fn(), setWorkout: vi.fn(), editing: true, finish: vi.fn(), saveEdit: vi.fn() };
@@ -31,6 +33,80 @@ it('keeps the editor open and offers retry if pausing fails', async () => {
 it('does not offer pause when editing a completed session', () => {
     render(<WorkoutLogger {...props} workout={original} pause={vi.fn()}/>);
     expect(screen.queryByRole('button', { name: 'Pause session' })).toBeNull();
+});
+
+it('tracks set completion, saves it, and restores progress on remount', async () => {
+    const changed = vi.fn();
+    const initial: Workout = { ...original, completed: false, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8 }, { weight: 60, reps: 8 }] }] };
+    function Harness({ initialWorkout }: { initialWorkout: Workout }) {
+        const [workout, update] = useState(initialWorkout);
+        return <WorkoutLogger {...props} editing={false} workout={workout} setWorkout={next => { changed(next); update(next); }}/>;
+    }
+    const view = render(<Harness initialWorkout={initial}/>);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Squat set 1' }));
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0.5');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Squat set 2' }));
+    expect(screen.getByText('1 of 1 exercises')).toBeTruthy();
+    const saved = changed.mock.lastCall![0] as Workout;
+    view.unmount();
+    render(<Harness initialWorkout={saved}/>);
+    expect((screen.getByRole('checkbox', { name: 'Complete Squat set 1' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('1');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Squat set 1' }));
+    expect(screen.getByText('0 of 1 exercises')).toBeTruthy();
+});
+
+it('keeps set removal in the exercise menu and updates progress after removal', () => {
+    function Harness() {
+        const [workout, update] = useState<Workout>({ ...original, completed: false, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8, completed: true }, { weight: 60, reps: 8 }] }] });
+        return <WorkoutLogger {...props} workout={workout} setWorkout={update} editing={false}/>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByLabelText('Squat actions'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove set 2' }));
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+    expect(screen.getByText('1 of 1 exercises')).toBeTruthy();
+});
+
+it('opens exercise search from the full-width Add exercise button', () => {
+    render(<WorkoutLogger {...props} workout={{ ...original, completed: false }} editing={false}/>);
+    fireEvent.click(screen.getByRole('button', { name: '＋ Add exercise' }));
+    expect(screen.getByRole('dialog', { name: 'Add exercise' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search exercises' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('replaces an exercise in place and loads the replacement history', async () => {
+    const changed = vi.fn();
+    const replacement = { id: 8, name: 'Cable row', primary_muscle: 'Lats', equipment: 'Cable' };
+    vi.mocked(api).mockImplementation(async path => {
+        if (path.startsWith('/exercises?q=')) return [replacement];
+        if (path.startsWith('/exercises/8/progress')) return { sessions: [{ performed_on: '2026-10-12', sets: [{ weight: 35, reps: 8 }] }], personal_best_weight: 35, personal_best_1rm: 44 };
+        return {};
+    });
+    function Harness() {
+        const [workout, update] = useState<Workout>({ ...original, completed: false, exercises: [{ cached_exercise_id: 7, name: 'Bench press', rest_seconds: 120, sets: [{ weight: 65, reps: 8, exertion: 9 }, { weight: 60, reps: 10 }] }] });
+        return <WorkoutLogger {...props} editing={false} workout={workout} setWorkout={next => { changed(next); update(next); }}/>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('button', { name: /Substitute/ }));
+    fireEvent.change(screen.getByLabelText('Search replacement exercise'), { target: { value: 'row' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Cable row.*Replace/ }));
+    const saved = changed.mock.lastCall![0] as Workout;
+    expect(saved.exercises).toHaveLength(1);
+    expect(saved.exercises[0]).toMatchObject({ exercise_id: 8, name: 'Cable row', rest_seconds: 120, sets: [{ weight: 0, reps: 8 }, { weight: 0, reps: 10 }] });
+    expect(saved.exercises[0].cached_exercise_id).toBeUndefined();
+    expect(saved.exercises[0].sets?.[0].exertion).toBeUndefined();
+    expect(await screen.findByText('35 kg × 8')).toBeTruthy();
+});
+
+it('cancels substitution without changing the exercise', () => {
+    render(<WorkoutLogger {...props} editing={false} workout={{ ...original, completed: false, exercises: [{ exercise_id: 7, name: 'Bench press', sets: [] }] }}/>);
+    fireEvent.click(screen.getByRole('button', { name: /Substitute/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel substitution' }));
+    expect(props.setWorkout).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Exercise 1 of 1.*Bench press/ })).toBeTruthy();
 });
 
 it('debounces edits to completed workouts and preserves completion', async () => {
@@ -63,9 +139,10 @@ it('looks past zero-weight and empty sessions for the latest recorded weight', a
         personal_best_weight: 65, personal_best_1rm: 82,
     } });
     render(<WorkoutLogger {...props} workout={{ ...original, exercises: [{ cached_exercise_id: 7, name: 'Bench press', sets: [] }] }}/>);
-    expect(await screen.findByText('LAST TIME · 2026-10-15')).toBeTruthy();
-    expect(screen.getByText('65 kg × 8')).toBeTruthy();
-    expect(screen.queryByText('LAST TIME · 2026-10-17')).toBeNull();
+    expect(await screen.findByText('65 kg × 8')).toBeTruthy();
+    fireEvent.click(screen.getByText('Last time'));
+    expect(screen.getByText('2026-10-15')).toBeTruthy();
+    expect(screen.queryByText('2026-10-17')).toBeNull();
 });
 
 it('hides Last time when no session has a recorded weight', async () => {
@@ -76,5 +153,126 @@ it('hides Last time when no session has a recorded weight', async () => {
     await act(async () => {
         render(<WorkoutLogger {...props} workout={{ ...original, exercises: [{ cached_exercise_id: 7, name: 'Bench press', sets: [] }] }}/>);
     });
-    expect(screen.queryByText(/LAST TIME/)).toBeNull();
+    expect(screen.queryByText('Last time')).toBeNull();
 });
+
+const navigationWorkout: Workout = { ...original, completed: false, exercises: [
+    { name: 'Squat', sets: [{ weight: 60, reps: 8 }, { weight: 60, reps: 8 }] },
+    { name: 'Bench', sets: [{ weight: 40, reps: 8 }] },
+    { name: 'Row', sets: [] },
+] };
+function NavigationHarness() {
+    const [workout, update] = useState(navigationWorkout);
+    return <WorkoutLogger {...props} workout={workout} setWorkout={update} editing={false}/>;
+}
+it('navigates boundaries without completing or automatically advancing and reviews explicitly', () => {
+    render(<NavigationHarness/>);
+    expect(screen.getByRole('button', { name: /Previous/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Squat set 1' }));
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0.5');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Complete Squat set 2' }));
+    expect(screen.getByText('Exercise 1 of 3')).toBeTruthy();
+    expect(screen.getByRole('button', {name: /Next exercise/})).toHaveClass('ready');
+    fireEvent.click(screen.getByRole('button', {name: /Next exercise/}));
+    expect(screen.queryByLabelText('Complete Squat set 1')).toBeNull();
+    expect(screen.getByText('Exercise 2 of 3')).toBeTruthy();
+    expect(screen.getByRole('button', {name: /Next exercise/})).not.toHaveClass('ready');
+    fireEvent.click(screen.getByRole('button', {name: /Next exercise/}));
+    fireEvent.click(screen.getByRole('button', {name: 'Review workout'}));
+    expect(screen.getByRole('dialog', {name: 'Workout review'})).toBeTruthy();
+    expect(props.finish).not.toHaveBeenCalled();
+});
+it('jumps by segments and overview while keeping selection distinct from completion', () => {
+    render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 3: Row/}));
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 3 of 3/}));
+    expect(screen.getByRole('button', {name: /03\s*Row.*Not started.*Selected/})).toHaveAttribute('aria-current','step');
+    fireEvent.click(screen.getByRole('button', {name: /02\s*Bench.*Not started/}));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('Exercise 2 of 3')).toBeTruthy();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow','0');
+});
+it('traps overview focus, dismisses with Escape and restores the selector', () => {
+    render(<NavigationHarness/>);
+    const selector = screen.getByRole('button', {name: /Exercise 1 of 3/});
+    selector.focus(); fireEvent.click(selector);
+    const close = screen.getByRole('button', {name:'Close exercise overview'});
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close,{key:'Tab',shiftKey:true});
+    expect(document.activeElement).toBe(screen.getByRole('button', {name:/03\s*Row/}));
+    fireEvent.keyDown(document,{key:'Escape'});
+    expect(document.activeElement).toBe(selector);
+});
+it('restores selected exercise and saved scroll after remount and isolates workouts', async () => {
+    const scrollTo = vi.spyOn(window,'scrollTo').mockImplementation(() => {});
+    const first = render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button', {name:/Exercise 2: Bench/}));
+    Object.defineProperty(window,'scrollY',{value:320,configurable:true});
+    fireEvent.scroll(window);
+    first.unmount();
+    const second = render(<NavigationHarness/>);
+    expect(screen.getByText('Exercise 2 of 3')).toBeTruthy();
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    expect(scrollTo).toHaveBeenCalledWith({top:320,behavior:'instant'});
+    second.unmount();
+    render(<WorkoutLogger {...props} workout={{...navigationWorkout,id:99}} editing={false}/>);
+    expect(screen.getByText('Exercise 1 of 3')).toBeTruthy();
+    scrollTo.mockRestore();
+    Object.defineProperty(window,'scrollY',{value:0,configurable:true});
+});
+
+
+it('retains the selected exercise when earlier exercises are removed and clamps after its removal', () => {
+    const view = render(<WorkoutLogger {...props} workout={navigationWorkout} editing={false}/>);
+    fireEvent.click(screen.getByRole('button', {name:/Exercise 2: Bench/}));
+    view.rerender(<WorkoutLogger {...props} workout={{...navigationWorkout, exercises:navigationWorkout.exercises.slice(1)}} editing={false}/>);
+    expect(screen.getByText('Exercise 1 of 2')).toBeTruthy();
+    expect(screen.getByLabelText('Complete Bench set 1')).toBeTruthy();
+    view.rerender(<WorkoutLogger {...props} workout={{...navigationWorkout,exercises:[]}} editing={false}/>);
+    expect(screen.queryByRole('button',{name:/Next exercise/})).toBeNull();
+    expect(screen.getByText(/No exercises yet/)).toBeTruthy();
+});
+it('keeps a setless exercise incomplete, including after adding and removing its only set', () => {
+    render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button',{name:/Exercise 3: Row/}));
+    expect(screen.getByRole('button',{name:'Review workout'})).not.toHaveClass('ready');
+    fireEvent.click(screen.getByRole('button',{name:/Add set/}));
+    fireEvent.click(screen.getByLabelText('Complete Row set 1'));
+    expect(screen.getByRole('button',{name:'Review workout'})).toHaveClass('ready');
+    fireEvent.click(screen.getByLabelText('Row actions'));
+    fireEvent.click(screen.getByRole('button',{name:'Remove set 1'}));
+    expect(screen.getByRole('button',{name:'Review workout'})).not.toHaveClass('ready');
+    expect(screen.getByRole('button',{name:/Exercise 3: Row, Not started, 0 of 0/})).toBeTruthy();
+});
+
+it('reviews workout stats from checked sets only and finishes explicitly', () => {
+    const finish = vi.fn();
+    const workout: Workout = { ...navigationWorkout, exercises: [
+        { name: 'Squat', sets: [{ weight: 42.5, reps: 8, completed: true }, { weight: 100, reps: 20, completed: false }] },
+        { name: 'Bench', sets: [{ weight: 20.25, reps: 5, completed: true }] },
+        { name: 'Row', sets: [] },
+    ] };
+    render(<WorkoutLogger {...props} workout={workout} editing={false} finish={finish}/>);
+    fireEvent.click(screen.getByRole('button', {name:/Exercise 3: Row/}));
+    const trigger = screen.getByRole('button', {name:'Review workout'});
+    trigger.focus(); fireEvent.click(trigger);
+    expect(screen.getByRole('dialog', {name:'Workout review'})).toBeTruthy();
+    const stat = (label: string) => screen.getByText(label).parentElement!.querySelector('dd')!;
+    expect(stat('Exercises completed')).toHaveTextContent('1 / 3');
+    expect(stat('Sets completed')).toHaveTextContent('2 / 3');
+    expect(stat('Total reps')).toHaveTextContent('13');
+    expect(stat('Volume lifted')).toHaveTextContent('441.25 kg');
+    expect(finish).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, {key:'Escape'});
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('button', {name:'Finish workout'}));
+    expect(finish).toHaveBeenCalledExactlyOnceWith(workout);
+});
+it('keeps statistics out of the exercise selector overview', () => {
+    render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button', {name:/Exercise 1 of 3/}));
+    expect(screen.getByRole('dialog',{name:'Exercise overview'})).toBeTruthy();
+    expect(screen.queryByRole('region',{name:'Workout statistics'})).toBeNull();
+});
+
