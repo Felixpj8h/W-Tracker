@@ -172,3 +172,31 @@ it('leaves the workout active when cancellation confirmation is declined', async
     expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
     expect(localStorage.getItem(ACTIVE_WORKOUT_KEY)).not.toBeNull();
 });
+
+it('retains the active editor and explains a rejected finish instead of silently restoring it later', async () => {
+    localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(cancellationWorkout));
+    let reject = true;
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (options?.method === 'PUT' && reject) throw new Error('HTTP 403: Invalid request origin.');
+        if (path === '/workouts/active') return reject ? [cancellationWorkout] : [];
+        return baseResponse(path);
+    });
+    render(<WorkoutApp user={athlete}/>);
+    fireEvent.click(screen.getByRole('button', {name:'Finish workout ✓'}));
+    expect((await screen.findByRole('alert')).textContent).toContain('HTTP 403: Invalid request origin.');
+    expect(screen.queryByText('Dashboard content')).toBeNull();
+    expect(localStorage.getItem(ACTIVE_WORKOUT_KEY)).not.toBeNull();
+    reject = false;
+    fireEvent.click(screen.getByRole('button', {name:'Finish workout ✓'}));
+    await screen.findByText('Dashboard content');
+    expect(localStorage.getItem(ACTIVE_WORKOUT_KEY)).toBeNull();
+    expect(screen.queryByRole('button', {name:'Resume'})).toBeNull();
+});
+it('does not restore a cached active workout that is already completed on the server', async () => {
+    localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(cancellationWorkout));
+    vi.mocked(api).mockImplementation(async path => path === '/workouts' ? [{...cancellationWorkout,completed:true}] : baseResponse(path));
+    render(<WorkoutApp user={athlete}/>);
+    await screen.findByRole('heading', {name:'Choose workout'});
+    expect(localStorage.getItem(ACTIVE_WORKOUT_KEY)).toBeNull();
+    expect(screen.queryByRole('button', {name:'Pause session'})).toBeNull();
+});

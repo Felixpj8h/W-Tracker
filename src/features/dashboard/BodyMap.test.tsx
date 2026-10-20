@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BodyMap } from './BodyMap';
 import { DashboardPanels } from './DashboardPanels';
@@ -47,7 +47,7 @@ describe('Dashboard muscle heatmap', () => {
     it('shows a neutral map for a week without training', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ muscles: [] }) }));
         render(<BodyMap/>);
-        expect(await screen.findAllByRole('img', { name: /No muscles trained this week/ })).toHaveLength(2);
+        expect(await screen.findAllByRole('img', { name: /No muscles trained in the selected week/ })).toHaveLength(2);
     });
 
     it('recovers from an unavailable map on retry', async () => {
@@ -56,4 +56,19 @@ describe('Dashboard muscle heatmap', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Retry heatmap' }));
         expect(await screen.findByRole('img', { name: /Back muscle heatmap: Lats/ })).toBeTruthy();
     });
+});
+
+it('replaces current-week muscle values with the selected historical week and ignores late responses', async () => {
+    let resolveCurrent!: (response: {ok: boolean; json: () => Promise<unknown>}) => void;
+    const current = new Promise<{ok: boolean; json: () => Promise<unknown>}>(resolve => { resolveCurrent = resolve; });
+    const previousMuscles = [{...muscles[0],volume:2500,intensity:1}];
+    const fetchMock = vi.fn(async (url: string) => url.includes('selected_week=2026-10-19') ? current : {ok:true,json:async () => ({muscles:previousMuscles})});
+    vi.stubGlobal('fetch',fetchMock);
+    const view = render(<BodyMap selectedWeek="2026-10-19"/>);
+    view.rerender(<BodyMap selectedWeek="2026-10-12"/>);
+    await screen.findByRole('img',{name:/Front muscle heatmap: Chest, 2,500 kg/});
+    expect(fetchMock.mock.calls.some(([url]) => url.includes('selected_week=2026-10-12&through_today=false'))).toBe(true);
+    await act(async () => resolveCurrent({ok:true,json:async () => ({muscles})}));
+    expect(screen.getByRole('img',{name:/Front muscle heatmap: Chest, 2,500 kg/})).toBeTruthy();
+    expect(screen.queryByRole('img',{name:/Lats, 1,800 kg/})).toBeNull();
 });

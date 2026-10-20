@@ -1343,8 +1343,9 @@ def update_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(ge
 @app.delete("/api/v1/workouts/{workout_id}")
 def delete_workout(workout_id: int, db: Session = Depends(get_db)):
     workout = db.get(Workout, workout_id)
-    if not workout: raise HTTPException(404, "Workout not found")
-    db.delete(workout); db.commit()
+    # Retrying a cancellation after a lost response is already successful.
+    if workout:
+        db.delete(workout); db.commit()
     return {"deleted": True, "saved": True}
 
 
@@ -1560,8 +1561,8 @@ def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool
     return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today)
 
 
-def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False):
-    """Return this week's Wger overlays from every completed exercise involvement."""
+def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None):
+    """Return the selected week's overlays from saved exercise involvement."""
     global WGER_MUSCLES
     today = date.today()
     anchor = selected_week or today
@@ -1583,9 +1584,12 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
             # reps become the visual score when there is no load volume.
             activation = volume or max(1, sum(entry.reps for entry in exercise.sets))
             cached = db.get(Exercise, exercise.cached_exercise_id) if exercise.cached_exercise_id else None
-            source_primary = cached.primary_muscle if cached else exercise.primary_muscle
-            source_secondary = cached.secondary_muscles if cached else exercise.secondary_muscles
-            source_group = cached.muscle_group if cached else exercise.muscle_group
+            # Historical workouts retain the muscles recorded at logging time.
+            # Catalogue edits or incomplete catalogue rows must not erase them.
+            saved_primary = canonical_muscle(exercise.primary_muscle)
+            source_primary = saved_primary if saved_primary and saved_primary.casefold() != "unmapped" else cached.primary_muscle if cached else None
+            source_secondary = exercise.secondary_muscles or (cached.secondary_muscles if cached else "")
+            source_group = exercise.muscle_group or (cached.muscle_group if cached else None)
             primary = canonical_muscle(source_primary)
             secondary = stored_secondary_muscles(source_secondary)
             group = (source_group or group_for(primary) or "").strip().title()
@@ -1605,17 +1609,22 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
                 for muscle in targets:
                     if muscle != primary and muscle not in secondary:
                         involvement["tertiary"][muscle.casefold()] += activation * 0.20 / len(targets)
-    if WGER_MUSCLES is None and allow_remote:
+    if muscle_catalogue is None and not WGER_MUSCLES and allow_remote:
         try:
             with httpx.Client(timeout=10) as client:
                 response = client.get("https://wger.de/api/v2/muscle/", params={"limit": 100})
                 response.raise_for_status()
                 payload = response.json()
-                WGER_MUSCLES = payload.get("results", payload) if isinstance(payload, dict) else payload
-        except httpx.HTTPError:
-            WGER_MUSCLES = []
+                catalogue = payload.get("results", payload) if isinstance(payload, dict) else payload
+                if not isinstance(catalogue, list) or not catalogue:
+                    raise ValueError("Empty muscle artwork catalogue")
+                WGER_MUSCLES = catalogue
+        except (httpx.HTTPError, ValueError):
+            # Do not turn a transient upstream failure into a permanently empty
+            # heatmap. Keep the cache retryable and let the UI offer Retry.
+            raise HTTPException(503, "Muscle heatmap artwork is temporarily unavailable. Please retry.")
     muscles = []
-    for muscle in WGER_MUSCLES or []:
+    for muscle in (muscle_catalogue if muscle_catalogue is not None else WGER_MUSCLES) or []:
         name = muscle.get("name_en") or muscle.get("name")
         canonical_name = canonical_muscle(name)
         key = canonical_name.casefold()

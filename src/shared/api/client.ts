@@ -31,7 +31,13 @@ export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
     try {
         const response = await fetch(API + path, { ...opts, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
         if (response.status === 401) window.dispatchEvent(new Event('google-auth-expired'));
-        if (!response.ok) throw Error('Could not reach the tracker server');
+        if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            const detail = typeof body?.detail === 'string' ? body.detail : Array.isArray(body?.detail)
+                ? body.detail.map((item: { loc?: (string | number)[]; msg?: string }) => `${item.loc?.filter(part => part !== 'body').join('.') ?? 'Workout'}: ${item.msg ?? 'Invalid value'}`).join('; ')
+                : 'The server rejected the request.';
+            throw Error(`HTTP ${response.status}: ${detail}`);
+        }
         const payload = await response.json();
         // A successful HTTP response is sufficient for older API versions that
         // predate the optional `saved` acknowledgement. Only roll optimistic UI

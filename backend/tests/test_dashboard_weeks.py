@@ -75,3 +75,48 @@ def test_through_today_matches_weekdays_and_body_map_bounds(monkeypatch):
         assert historical['muscles'][0]['volume'] == (600 if today.weekday() < 6 else 400)
     finally:
         main_module.WGER_MUSCLES = previous_catalogue
+
+
+def test_historical_heatmap_uses_saved_muscles_when_catalogue_changes(monkeypatch):
+    reset_db()
+    log(date(2026, 10, 12), 40)
+    log(date(2026, 10, 18), 20)
+    log(date(2026, 10, 19), 90)
+    with main_module.SessionLocal() as db:
+        exercise = db.scalar(main_module.select(main_module.Exercise).where(main_module.Exercise.muscle_group == 'Chest'))
+        exercise.primary_muscle = 'Unmapped'
+        exercise.muscle_group = None
+        db.commit()
+    monkeypatch.setattr(main_module, 'WGER_MUSCLES', [{'id':1,'name_en':'Chest','is_front':True,'image_url_main':'https://wger.de/chest.svg'}])
+    previous = client.get('/api/v1/dashboard/body-map?selected_week=2026-10-12&through_today=true').json()
+    current = client.get('/api/v1/dashboard/body-map?selected_week=2026-10-19').json()
+    assert previous['muscles'][0]['volume'] == 600
+    assert current['muscles'][0]['volume'] == 900
+    assert previous['muscles'][0]['intensity'] == 1
+    empty = client.get('/api/v1/dashboard/body-map?selected_week=2026-10-05').json()
+    assert empty['muscles'] == []
+
+
+def test_heatmap_artwork_fetch_can_recover_without_restarting_backend(monkeypatch):
+    import httpx
+    reset_db()
+    log(date(2026, 10, 12), 40)
+    monkeypatch.setattr(main_module, 'WGER_MUSCLES', None)
+    attempts = []
+    class CatalogueClient:
+        def __init__(self, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, url, **kwargs):
+            attempts.append(url)
+            if len(attempts) == 1:
+                raise httpx.ConnectError('Temporary artwork outage')
+            return httpx.Response(200, request=httpx.Request('GET',url), json={'results':[{'id':1,'name_en':'Chest','is_front':True,'image_url_main':'https://wger.de/chest.svg'}]})
+    monkeypatch.setattr(main_module.httpx, 'Client', CatalogueClient)
+    first = client.get('/api/v1/dashboard/body-map?selected_week=2026-10-12')
+    assert first.status_code == 503
+    assert main_module.WGER_MUSCLES is None
+    second = client.get('/api/v1/dashboard/body-map?selected_week=2026-10-12')
+    assert second.status_code == 200
+    assert second.json()['muscles'][0]['volume'] == 400
+    assert len(attempts) == 2

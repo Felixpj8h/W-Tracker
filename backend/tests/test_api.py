@@ -663,3 +663,13 @@ def test_ambiguous_unlinked_exercise_names_are_not_matched():
     client.post("/api/v1/workouts", json={"name": "Legacy", "performed_on": "2026-10-18", "exercises": [{"name": exercise["name"], "sets": [{"weight": 80, "reps": 8}]}]})
     result = client.get(f"/api/v1/exercises/{exercise['id']}/progress").json()
     assert result["sessions"] == []
+
+
+def test_cancelling_a_workout_is_idempotent():
+    reset_db()
+    draft = client.post('/api/v1/workouts/draft', json={'name': 'Cancel retry'}).json()
+    for _ in range(2):
+        response = client.delete(f"/api/v1/workouts/{draft['id']}")
+        assert response.status_code == 200
+        assert response.json() == {"deleted": True, "saved": True}
+    assert all(workout['id'] != draft['id'] for workout in client.get('/api/v1/workouts/active').json())

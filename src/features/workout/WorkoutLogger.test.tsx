@@ -339,3 +339,19 @@ it('suspends autosave and pagehide saves while cancellation is pending', async (
     await act(async () => resolveCancel());
     fetchSpy.mockRestore();
 });
+
+it('waits for in-flight autosave before finishing and suppresses further saves', async () => {
+    vi.useFakeTimers();
+    let resolveSave!: () => void;
+    const saved = new Promise<void>(resolve => { resolveSave = resolve; });
+    vi.mocked(api).mockImplementation(async (_path, options) => options?.method === 'PATCH' ? saved : {});
+    const finish = vi.fn().mockResolvedValue(undefined);
+    render(<WorkoutLogger {...props} editing={false} workout={{...original,completed:false}} finish={finish}/>);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    fireEvent.click(screen.getByRole('button', {name:'Finish workout ✓'}));
+    expect(finish).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(vi.mocked(api).mock.calls.filter(([,options]) => options?.method === 'PATCH')).toHaveLength(1);
+    await act(async () => resolveSave());
+    expect(finish).toHaveBeenCalledOnce();
+});

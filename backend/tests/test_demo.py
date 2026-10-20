@@ -226,9 +226,9 @@ def test_invalid_stored_override_fails_closed(public_demo):
     assert "PRIVATE" not in response.text and OWNER not in response.text
 
 
-def test_cached_body_map_only_exposes_trusted_https_images(public_demo, monkeypatch):
+def test_bundled_body_map_only_exposes_trusted_https_images(public_demo, monkeypatch):
     client, _engine, _ids = public_demo
-    monkeypatch.setattr(m, "WGER_MUSCLES", [
+    monkeypatch.setattr(demo, "BUNDLED_MUSCLES", [
         {"id": i, "name_en": "Pectoralis major", "is_front": True, "image_url_main": url}
         for i, url in enumerate(("https://wger.de/static/chest.svg", "https://untrusted.example/track.svg", "http://wger.de/chest.svg"), 1)
     ])
@@ -236,3 +236,30 @@ def test_cached_body_map_only_exposes_trusted_https_images(public_demo, monkeypa
     response = client.get("/api/v1/demo/dashboard/body-map")
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["muscles"]] == [1]
+
+
+@pytest.mark.parametrize("cached_catalogue", [None, []])
+def test_demo_heatmap_works_on_cold_start_for_selected_previous_week(public_demo, monkeypatch, cached_catalogue):
+    client, engine, ids = public_demo
+    monday = date.today() - timedelta(days=date.today().weekday())
+    previous_monday = monday - timedelta(days=7)
+    with Session(engine) as db:
+        completed = db.scalar(select(m.Workout).where(m.Workout.owner_email == OWNER, m.Workout.completed == True))
+        completed.performed_on = previous_monday
+        exercise = m.WorkoutExercise(cached_exercise_id=ids['exercise'], name='Public bench', primary_muscle='Chest', muscle_group='Chest', position=0,
+            sets=[m.WorkoutSet(position=0, weight=25, reps=10)])
+        db.add(m.Workout(owner_email=OWNER, name='Current week', performed_on=monday, completed=True, exercises=[exercise]))
+        db.commit()
+        expected = sum(s.weight * s.reps for ex in completed.exercises for s in ex.sets)
+    monkeypatch.setattr(m, 'WGER_MUSCLES', cached_catalogue)
+    monkeypatch.setattr(m.httpx, 'Client', lambda *_a, **_k: pytest.fail('Demo made an upstream request'))
+    previous = client.get(f'/api/v1/demo/dashboard/body-map?selected_week={previous_monday}')
+    current = client.get(f'/api/v1/demo/dashboard/body-map?selected_week={monday}')
+    assert previous.status_code == current.status_code == 200
+    chest = next(muscle for muscle in previous.json()['muscles'] if muscle['name'] == 'Chest')
+    assert chest['volume'] == expected
+    assert chest['intensity'] > 0
+    assert next(muscle for muscle in current.json()['muscles'] if muscle['name'] == 'Chest')['volume'] == 250
+    empty = client.get(f'/api/v1/demo/dashboard/body-map?selected_week={previous_monday - timedelta(days=7)}')
+    assert empty.json()['muscles'] == []
+    assert m.WGER_MUSCLES is cached_catalogue

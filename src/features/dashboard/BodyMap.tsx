@@ -36,7 +36,7 @@ export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }
         </svg>
         <div className="heatmap-bodies">
             {(['front', 'back'] as const).map(view => <figure key={view}>
-                <div className="heatmap-figure" role="img" aria-label={`${view === 'front' ? 'Front' : 'Back'} muscle heatmap: ${trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => `${muscle.name}, ${Math.round(muscle.volume).toLocaleString()} kg`).join('; ') || 'No muscles trained this week'}`}>
+                <div className="heatmap-figure" role="img" aria-label={`${view === 'front' ? 'Front' : 'Back'} muscle heatmap: ${trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => `${muscle.name}, ${Math.round(muscle.volume).toLocaleString()} kg`).join('; ') || 'No muscles trained in the selected week'}`}>
                     <img className="heatmap-base" src={`/body-${view}.svg`} alt="" />
                     {trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => <img
                         className="heatmap-layer" key={muscle.id} src={muscle.image_url} alt=""

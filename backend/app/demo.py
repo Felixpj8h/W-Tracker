@@ -1,6 +1,8 @@
 """Public training projection. Never authenticate a visitor as the source owner."""
 from calendar import monthrange
 from datetime import date, timedelta
+import json
+from pathlib import Path
 import os
 from threading import Lock
 from typing import Literal
@@ -17,6 +19,8 @@ router = APIRouter(prefix="/api/v1/demo")
 _pool_lock = Lock()
 _engine = None
 _database_url = None
+# Public artwork metadata keeps the read-only demo independent of private traffic.
+BUNDLED_MUSCLES = json.loads((Path(__file__).parent / "data" / "muscles.json").read_text(encoding="utf-8"))
 
 
 def demo_enabled():
@@ -286,7 +290,7 @@ def dashboard(selected_week: date | None = None, comparison: Literal['previous',
 
 @router.get("/dashboard/body-map", response_model=BodyMap)
 def body_map(selected_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db)):
-    return BodyMap(muscles=[BodyMuscle(**v) for v in m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today)["muscles"]
+    return BodyMap(muscles=[BodyMuscle(**v) for v in m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today, muscle_catalogue=BUNDLED_MUSCLES)["muscles"]
         if urlsplit(v["image_url"]).scheme == "https" and urlsplit(v["image_url"]).netloc == "wger.de"])
 
 

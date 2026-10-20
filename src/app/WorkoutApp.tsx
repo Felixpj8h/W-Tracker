@@ -53,6 +53,15 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     const refreshWorkoutData = async (calendarDate: string | Date = now) => { const date = typeof calendarDate === 'string' ? new Date(`${calendarDate}T12:00:00`) : calendarDate; await Promise.allSettled([loadDashboard(), loadHistory(), loadActive(), loadCalendar(date.getFullYear(), date.getMonth() + 1, true)]); };
     useEffect(() => { const initialDate = new Date(); void loadDashboard(); void loadFolders(); void loadHistory(); void loadActive(); void loadCalendar(initialDate.getFullYear(), initialDate.getMonth() + 1); }, [loadCalendar]); useEffect(() => localStorage.setItem('workout-theme', dark ? 'dark' : 'light'), [dark]);
     useEffect(() => { if (workout?.id && !workout.completed && !editing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(workout)); }, [workout, editing]);
+    const checkedInitialWorkout = useRef(false);
+    useEffect(() => {
+        if (!historyLoaded || checkedInitialWorkout.current) return;
+        checkedInitialWorkout.current = true;
+        if (!initialWorkout?.id || !history.some(item => item.id === initialWorkout.id && item.completed)) return;
+        const cached = storedWorkout();
+        if (cached?.id === initialWorkout.id) localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+        setWorkout(current => current && current.id === initialWorkout.id && !current.completed ? null : current);
+    }, [historyLoaded, history, initialWorkout]);
     const start = async (routine: Routine) => { const optimistic = optimisticWorkoutFromRoutine(routine); setWorkout(optimistic); setEditing(false); setPage('workout'); const request = api<Workout>(`/routines/${routine.id}/start${routine.scheduled_on ? `?day=${routine.scheduled_on}` : ''}`, { method: 'POST' }); pendingWorkoutStart.current = request; try { const draft = await request; setWorkout(current => current ? { ...current, id: draft.id, started_at: draft.started_at, exercises: current.exercises.map((item, index) => ({ ...item, cached_exercise_id: draft.exercises[index]?.cached_exercise_id ?? item.exercise_id })) } : current); } catch { setWorkout(null); setPage('routines'); } finally { if (pendingWorkoutStart.current === request) pendingWorkoutStart.current = null; } };
     const resumableWorkout = workout && !workout.completed && !editing ? workout : active.find(entry => !entry.completed);
     const resumeWorkout = (entry: Workout) => { setWorkout(entry); setEditing(false); setPage('workout'); };
@@ -73,7 +82,20 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         setEditing(false);
         setPage('dashboard');
     };
-    const finish = async (entry: Workout) => { const wasEditing = editing; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
+    const finish = async (entry: Workout) => {
+        const wasEditing = editing;
+        const started = entry.id ? null : await pendingWorkoutStart.current;
+        const persistedEntry = started ? { ...entry, id: started.id } : entry;
+        if (!persistedEntry.id) throw new Error('The session has not started yet');
+        await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) });
+        cancelledWorkoutIds.current.add(persistedEntry.id);
+        setActive(current => current.filter(item => item.id !== persistedEntry.id));
+        if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+        setWorkout(null);
+        setEditing(false);
+        setPage(wasEditing ? 'history' : 'dashboard');
+        await refreshWorkoutData(persistedEntry.performed_on);
+    };
     const cancelWorkout = async (entry: Workout) => {
         if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return;
         const started = entry.id ? null : await pendingWorkoutStart.current;
