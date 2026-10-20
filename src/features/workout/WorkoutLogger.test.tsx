@@ -355,3 +355,23 @@ it('waits for in-flight autosave before finishing and suppresses further saves',
     await act(async () => resolveSave());
     expect(finish).toHaveBeenCalledOnce();
 });
+
+it('switches progress segments in place while Next still scrolls to the exercise heading', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable:true, value:scrollIntoView });
+    try {
+        render(<NavigationHarness/>);
+        fireEvent.click(screen.getByRole('button', {name:/Exercise 2: Bench/}));
+        await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+        expect(screen.getByText('Exercise 2 of 3')).toBeTruthy();
+        expect(scrollIntoView).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', {name:/Next exercise/}));
+        await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+        expect(screen.getByText('Exercise 3 of 3')).toBeTruthy();
+        expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({block:'start'});
+    } finally {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+        else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+});
