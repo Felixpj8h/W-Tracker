@@ -323,3 +323,19 @@ it('shows cross-routine last weight for an older workout without exercise ID lin
     expect(await screen.findByText('42.5 kg × 8')).toBeTruthy();
     expect(screen.getByText('Last time')).toBeTruthy();
 });
+
+it('suspends autosave and pagehide saves while cancellation is pending', async () => {
+    vi.useFakeTimers();
+    let resolveCancel!: () => void;
+    const cancel = vi.fn(() => new Promise<void>(resolve => { resolveCancel = resolve; }));
+    const fetchSpy = vi.spyOn(window, 'fetch').mockResolvedValue({} as Response);
+    render(<WorkoutLogger {...props} editing={false} workout={{...original,completed:false}} cancel={cancel}/>);
+    fireEvent.click(screen.getByLabelText('Workout actions'));
+    fireEvent.click(screen.getByRole('button', {name:'Cancel workout'}));
+    fireEvent(window, new Event('pagehide'));
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
+    await act(async () => resolveCancel());
+    fetchSpy.mockRestore();
+});

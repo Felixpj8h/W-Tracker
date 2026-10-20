@@ -31,12 +31,13 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     }, []);
     const optimisticWeights = useRef(new Map<string, number>());
     const pendingWorkoutStart = useRef<Promise<Workout> | null>(null);
+    const cancelledWorkoutIds = useRef(new Set<number>());
     const calendarMonthsRef = useRef<Record<string, CalendarMonth>>({});
     const setLoadError = (key: keyof typeof loadErrors, failed: boolean) => setLoadErrors(current => { const next = { ...current }; if (failed) next[key] = `Could not load ${key}`; else delete next[key]; return next; });
     const loadDashboard = async () => { try { setDash(withOptimisticWeights(await api<Dash>('/dashboard'), optimisticWeights.current)); setLoadError('dashboard', false); } catch { setLoadError('dashboard', true); } };
     const loadFolders = async () => { try { setFolders(await api<Folder[]>('/folders')); setLoadError('folders', false); } catch { setLoadError('folders', true); } };
     const loadHistory = async () => { try { setHistory(await api<Workout[]>('/workouts')); setHistoryLoaded(true); setLoadError('history', false); } catch { setHistoryLoaded(true); setLoadError('history', true); } };
-    const loadActive = async () => { try { setActive(await api<Workout[]>('/workouts/active')); setLoadError('active', false); } catch { setLoadError('active', true); } };
+    const loadActive = async () => { try { setActive((await api<Workout[]>('/workouts/active')).filter(item => !item.id || !cancelledWorkoutIds.current.has(item.id))); setLoadError('active', false); } catch { setLoadError('active', true); } };
     const loadCalendar = useCallback(async (year: number, month: number, force = false) => { const key = `${year}-${String(month).padStart(2, '0')}`; if (!force && calendarMonthsRef.current[key]) return calendarMonthsRef.current[key]; try { const result = await api<CalendarMonth>(`/calendar?year=${year}&month=${month}`); calendarMonthsRef.current = { ...calendarMonthsRef.current, [key]: result }; setCalendarMonths(calendarMonthsRef.current); setLoadErrors(current => { const next = { ...current }; delete next.calendar; return next; }); return result; } catch { setLoadErrors(current => ({ ...current, calendar: 'Could not load calendar' })); return undefined; } }, []);
 
     const [dashboardPage, setDashboardPage] = useState(0);
@@ -73,7 +74,21 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         setPage('dashboard');
     };
     const finish = async (entry: Workout) => { const wasEditing = editing; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage(wasEditing ? 'history' : 'dashboard'); void (async () => { const started = entry.id ? null : await pendingWorkoutStart.current; const persistedEntry = started ? { ...entry, id: started.id } : entry; await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify(persistedEntry) }); if (!wasEditing) localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(persistedEntry.performed_on); })().catch(() => { if (!wasEditing) localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
-    const cancelWorkout = async (entry: Workout) => { if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return; setActive(current => current.filter(item => item.id !== entry.id)); setWorkout(null); setEditing(false); setPage('dashboard'); if (entry.id) void api(`/workouts/${entry.id}`, { method: 'DELETE' }).then(async () => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); await refreshWorkoutData(entry.performed_on); }).catch(() => { setActive(current => current.some(item => item.id === entry.id) ? current : [...current, entry]); localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(entry)); }); };
+    const cancelWorkout = async (entry: Workout) => {
+        if (!window.confirm(`Cancel “${entry.name}”? All progress in this workout will be permanently deleted.`)) return;
+        const started = entry.id ? null : await pendingWorkoutStart.current;
+        const persisted = started ? { ...entry, id: started.id } : entry;
+        if (!persisted.id) throw new Error('The session has not started yet');
+        await api(`/workouts/${persisted.id}`, { method: 'DELETE' });
+        cancelledWorkoutIds.current.add(persisted.id);
+        localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+        localStorage.removeItem(`workout-position:${persisted.id}`);
+        setActive(current => current.filter(item => item.id !== persisted.id));
+        setWorkout(null);
+        setEditing(false);
+        setPage('dashboard');
+        await refreshWorkoutData(persisted.performed_on);
+    };
     const repeatWorkout = async (previous: Workout) => {
         const matchingRoutine = folders.flatMap(folder => folder.routines).find(item => item.id === previous.routine_id);
         if (matchingRoutine) { await start(matchingRoutine); return; }
