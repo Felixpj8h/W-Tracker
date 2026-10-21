@@ -1,3 +1,4 @@
+import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
 import type { Workout } from '../workout/types';
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../../shared/api/client';
@@ -10,6 +11,7 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
     const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
     const lastSelectedId = useRef<number | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
+    const menuRoot = useOutsideDismiss<HTMLDivElement>(menuOpen, () => setMenuOpen(false));
     const [showSetDetails, setShowSetDetails] = useState(false);
     const [noteOpen, setNoteOpen] = useState(false);
     const [noteDraft, setNoteDraft] = useState('');
@@ -34,6 +36,9 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
         setDetailOpen(false);
         await refresh();
         note('Workout deleted');
+    };
+    const dismissNote = () => {
+        if (!noteSaving && (noteDraft === (selected?.note ?? '') || window.confirm('Discard unsaved note changes?'))) setNoteOpen(false);
     };
     const saveSelectedNote = async () => {
         if (readOnly || !selected) return;
@@ -74,7 +79,7 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
                     <button className="history-session-close" type="button" aria-label="Close workout details" onClick={() => setDetailOpen(false)}>×</button>
                     <header className="history-session-head">
                         <div><h2>{selected.name}</h2><p>{formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p></div>
-                        {<div className="history-actions"><button type="button" disabled={readOnly} className="history-edit" onClick={() => edit(selected)}>Edit session</button><div className="history-menu-wrap"><button type="button" disabled={readOnly} className="history-menu-trigger" aria-label="More session actions" aria-expanded={menuOpen} onClick={() => setMenuOpen(current => !current)}>⋯</button>{menuOpen && <div className="history-menu"><button type="button" onClick={() => void deleteSelected(selected)}>Delete session</button></div>}</div></div>}
+                        {<div className="history-actions"><button type="button" disabled={readOnly} className="history-edit" onClick={() => edit(selected)}>Edit session</button><div className="history-menu-wrap" ref={menuRoot}><button type="button" disabled={readOnly} className="history-menu-trigger" aria-label="More session actions" aria-expanded={menuOpen} onClick={() => setMenuOpen(current => !current)}>⋯</button>{menuOpen && <div className="history-menu"><button type="button" onClick={() => void deleteSelected(selected)}>Delete session</button></div>}</div></div>}
                     </header>
                     <div className="history-session-stats"><span><DashboardIcon name="session"/>{selected.exercises.length} exercises</span><span><DashboardIcon name="scale"/>{volume(selected).toLocaleString()} kg</span><span><DashboardIcon name="clock"/>{duration(selected.duration_seconds)}</span></div>
                     {selected.note && <p className="history-session-note">{selected.note}</p>}
@@ -85,6 +90,6 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
                 </article>}
             </section> : <div className="empty">No completed workouts yet.</div>}
         </>}
-        {noteOpen && selected && <div className="back history-note-overlay"><form className="history-note-panel" role="dialog" aria-modal="true" aria-label="Workout note" onSubmit={event => { event.preventDefault(); void saveSelectedNote(); }}><header><h2>Workout note</h2><button type="button" aria-label="Close note" onClick={() => setNoteOpen(false)}>×</button></header><p>{selected.name} · {formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p><textarea autoFocus maxLength={1000} value={noteDraft} onChange={event => setNoteDraft(event.target.value)} placeholder="How did this workout go?"/><footer><button type="button" onClick={() => setNoteOpen(false)}>Cancel</button><button className="primary" disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button></footer></form></div>}
+        {noteOpen && selected && <div className="back history-note-overlay" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) dismissNote(); }}><form className="history-note-panel" role="dialog" aria-modal="true" aria-label="Workout note" onSubmit={event => { event.preventDefault(); void saveSelectedNote(); }}><header><h2>Workout note</h2><button type="button" aria-label="Close note" onClick={dismissNote}>×</button></header><p>{selected.name} · {formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p><textarea autoFocus maxLength={1000} value={noteDraft} onChange={event => setNoteDraft(event.target.value)} placeholder="How did this workout go?"/><footer><button type="button" onClick={dismissNote}>Cancel</button><button className="primary" disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button></footer></form></div>}
     </>;
 }

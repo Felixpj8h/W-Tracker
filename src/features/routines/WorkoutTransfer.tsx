@@ -58,7 +58,7 @@ export function WorkoutTransfer({ routine, sharedFolder, initialLink = '', folde
         finally { setBusy(false); }
     };
 
-    return <div className="back" onKeyDown={event => {
+    return <div className="back" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) dismiss(); }} onKeyDown={event => {
         if (event.key === 'Escape') dismiss();
         if (event.key === 'Tab') {
             const controls = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)');
