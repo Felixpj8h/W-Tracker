@@ -13,14 +13,25 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
 }) {
     const [displayValues, setDisplayValues] = useState(values);
     const [hovered, setHovered] = useState<number | null>(null), [editing, setEditing] = useState<number | null>(null), [draft, setDraft] = useState('');
+    const [selected, setSelected] = useState<number | null>(null);
     const [adding, setAdding] = useState<{ date: string; x: number; y: number } | null>(null);
     const [newWeight, setNewWeight] = useState('');
     const [addError, setAddError] = useState('');
     const [savingNew, setSavingNew] = useState(false);
-    const popoverRoot = useOutsideDismiss<HTMLDivElement>(editing !== null || adding !== null, () => {
+    const popoverRoot = useOutsideDismiss<HTMLDivElement>(editing !== null || adding !== null || selected !== null, () => {
         if (savingNew) return;
-        setEditing(null); setHovered(null); setAdding(null);
+        setEditing(null); setHovered(null); setSelected(null); setAdding(null);
     });
+    const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; x: number; y: number; suppressClick: boolean } | null>(null);
+    const isMobile = () => window.matchMedia?.('(max-width: 760px)').matches ?? window.innerWidth <= 760;
+    const cancelPress = () => {
+        if (press.current?.timer) clearTimeout(press.current.timer);
+        if (press.current) press.current.timer = null;
+    };
+    useEffect(() => () => { if (press.current?.timer) clearTimeout(press.current.timer); }, []);
+    const editPoint = (index: number) => {
+        setAdding(null); setSelected(null); setEditing(index); setHovered(index); setDraft(String(displayValues[index].weight));
+    };
     const optimisticWeights = useRef(new Map<string, number>());
     useEffect(() => setDisplayValues(values.map(entry => {
         if (!entry.recorded_on) return entry;
@@ -36,7 +47,7 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
     const positions = displayValues.map((_, index) => point(index));
     const curve = positions.length ? positions.slice(1).reduce((path, current, index) => { const previous = positions[index], distance = (current.x - previous.x) / 3; return `${path} C ${previous.x + distance},${previous.y} ${current.x - distance},${current.y} ${current.x},${current.y}`; }, `M ${positions[0].x},${positions[0].y}`) : '';
     const area = curve ? `${curve} L ${positions.at(-1)!.x},100 L ${positions[0].x},100 Z` : '';
-    const shown = editing ?? hovered;
+    const shown = editing ?? selected ?? hovered;
     const gridTicks = [0, 1, 2, 3, 4];
     const yTickValues = gridTicks.map(index => high - spread * index / 4);
     const dateTicks = gridTicks.map(index => new Date(firstTime + (lastTime - firstTime) * index / 4));
@@ -65,6 +76,7 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
         if (displayValues.some(entry => entry.recorded_on === date)) return;
         setHovered(null);
         setEditing(null);
+        setSelected(null);
         setNewWeight('');
         setAddError('');
         setAdding({ date, x: 2 + fraction * 96, y: Math.min(88, Math.max(16, (clientY - rect.top) / rect.height * 100)) });
@@ -79,5 +91,32 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
         catch { setAddError('Could not save this weight. Try again.'); }
         finally { setSavingNew(false); }
     };
-    return <div className={`chart ${displayValues.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{displayValues.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none" onClick={event => chooseEmptyDay(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())}><title>{readOnly ? 'Bodyweight over time' : 'Click an unlogged day to add a bodyweight entry'}</title><defs><linearGradient id="weight-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs><g className="weight-grid">{gridTicks.map(index => <line key={`y-${index}`} x1="2" x2="98" y1={16 + index * 18} y2={16 + index * 18}/>) }{gridTicks.map(index => <line key={`x-${index}`} x1={2 + index * 24} x2={2 + index * 24} y1="16" y2="88"/>)}</g><path className="weight-area" d={area}/><path className="weight-curve" d={curve}/></svg>{displayValues.map((entry, index) => { const position = point(index); const distance = hovered === null ? null : Math.abs(index - hovered); return <button type="button" className={`weight-point-circle ${distance !== null && distance <= 2 ? `proximity-${distance}` : ''} ${index === displayValues.length - 1 ? 'latest' : ''}`} key={`${entry.recorded_on}-${index}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${position.x / 100})`, top: `${position.y}%` }} onPointerEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }} onClick={() => { if (readOnly) { setHovered(index); return; } setAdding(null); setEditing(index); setHovered(index); setDraft(String(entry.weight)); }} aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms.${readOnly ? '' : ' Click to edit.'}`}/>; })}{shown !== null && <div ref={popoverRoot} className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === displayValues.length - 1 ? 'at-end' : ''}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${point(shown).x / 100})`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); void saveEditedPoint(shown); }}><label>{formatDate(displayValues[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{displayValues[shown].weight.toFixed(1)} kg</b><small>{formatDate(displayValues[shown].recorded_on)}</small></>}</div>}{adding && <div ref={popoverRoot} className={`weight-point-popover weight-new-point ${adding.x < 15 ? 'at-start' : adding.x > 85 ? 'at-end' : ''} ${adding.y < 40 ? 'below' : ''}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${adding.x / 100})`, top: `${adding.y}%` }}><form onSubmit={event => { event.preventDefault(); void saveNewPoint(); }} onKeyDown={event => { if (event.key === 'Escape') setAdding(null); }}><label>{formatDate(adding.date)}<span><input autoFocus aria-label={`Bodyweight for ${formatDate(adding.date)}`} value={newWeight} onChange={event => setNewWeight(event.target.value)} inputMode="decimal"/> kg</span></label><div><button type="button" onClick={() => setAdding(null)}>Cancel</button><button disabled={savingNew}>{savingNew ? 'Saving…' : 'Save'}</button></div>{addError && <small className="weight-new-error" role="alert">{addError}</small>}</form></div>}<div className="chart-axis">{yTickValues.map((value, index) => <span key={index}>{value.toFixed(0)}</span>)}</div><div className="chart-dates">{dateTicks.map((date, index) => <span key={index}>{formatTickDate(date)}</span>)}</div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
+    return <div className={`chart ${displayValues.length ? '' : 'chart-empty'}`} onPointerLeave={() => { if (editing === null) setHovered(null); }}>{displayValues.length ? <><svg viewBox="0 0 100 100" preserveAspectRatio="none" onClick={event => chooseEmptyDay(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())}><title>{readOnly ? 'Bodyweight over time' : 'Click an unlogged day to add a bodyweight entry'}</title><defs><linearGradient id="weight-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs><g className="weight-grid">{gridTicks.map(index => <line key={`y-${index}`} x1="2" x2="98" y1={16 + index * 18} y2={16 + index * 18}/>) }{gridTicks.map(index => <line key={`x-${index}`} x1={2 + index * 24} x2={2 + index * 24} y1="16" y2="88"/>)}</g><path className="weight-area" d={area}/><path className="weight-curve" d={curve}/></svg>{displayValues.map((entry, index) => { const position = point(index); const distance = hovered === null ? null : Math.abs(index - hovered); return <button type="button" className={`weight-point-circle ${distance !== null && distance <= 2 ? `proximity-${distance}` : ''} ${index === displayValues.length - 1 ? 'latest' : ''}`} key={`${entry.recorded_on}-${index}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${position.x / 100})`, top: `${position.y}%` }} onPointerEnter={event => { if (event.pointerType !== 'touch') setHovered(index); }} onFocus={() => setHovered(index)} onBlur={() => { if (editing === null) setHovered(null); }}
+        onPointerDown={event => {
+            cancelPress(); press.current = null;
+            if (!isMobile() || event.button !== 0) return;
+            const gesture = { timer: null as ReturnType<typeof setTimeout> | null, x: event.clientX, y: event.clientY, suppressClick: false };
+            press.current = gesture;
+            if (!readOnly) gesture.timer = setTimeout(() => {
+                gesture.timer = null; gesture.suppressClick = true; editPoint(index);
+            }, 500);
+        }}
+        onPointerMove={event => {
+            const gesture = press.current;
+            if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 10) {
+                cancelPress(); gesture.suppressClick = true;
+            }
+        }}
+        onPointerUp={cancelPress}
+        onPointerCancel={() => { cancelPress(); if (press.current) press.current.suppressClick = true; }}
+        onPointerLeave={cancelPress}
+        onContextMenu={event => { if (isMobile()) event.preventDefault(); }}
+        onClick={event => {
+            if (press.current?.suppressClick) { press.current = null; return; }
+            press.current = null;
+            if (readOnly || (isMobile() && event.detail !== 0)) {
+                setAdding(null); setEditing(null); setHovered(null); setSelected(index); return;
+            }
+            editPoint(index);
+        }} aria-label={`${formatDate(entry.recorded_on)}, ${entry.weight} kilograms.${readOnly ? '' : isMobile() ? ' Tap to view. Long press to edit.' : ' Click to edit.'}`}/>; })}{shown !== null && <div ref={popoverRoot} className={`weight-point-popover ${shown === 0 ? 'at-start' : shown === displayValues.length - 1 ? 'at-end' : ''}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${point(shown).x / 100})`, top: `${point(shown).y}%` }}>{editing === shown ? <form onSubmit={event => { event.preventDefault(); void saveEditedPoint(shown); }}><label>{formatDate(displayValues[shown].recorded_on)}<span><input autoFocus value={draft} inputMode="decimal" onChange={event => setDraft(event.target.value)}/> kg</span></label><div><button type="button" onClick={() => { setEditing(null); setHovered(null); }}>Cancel</button><button>Save</button></div></form> : <><b>{displayValues[shown].weight.toFixed(1)} kg</b><small>{formatDate(displayValues[shown].recorded_on)}</small></>}</div>}{adding && <div ref={popoverRoot} className={`weight-point-popover weight-new-point ${adding.x < 15 ? 'at-start' : adding.x > 85 ? 'at-end' : ''} ${adding.y < 40 ? 'below' : ''}`} style={{ left: `calc(var(--chart-axis-width) + (100% - var(--chart-axis-width) - var(--chart-right-gutter, 0px)) * ${adding.x / 100})`, top: `${adding.y}%` }}><form onSubmit={event => { event.preventDefault(); void saveNewPoint(); }} onKeyDown={event => { if (event.key === 'Escape') setAdding(null); }}><label>{formatDate(adding.date)}<span><input autoFocus aria-label={`Bodyweight for ${formatDate(adding.date)}`} value={newWeight} onChange={event => setNewWeight(event.target.value)} inputMode="decimal"/> kg</span></label><div><button type="button" onClick={() => setAdding(null)}>Cancel</button><button disabled={savingNew}>{savingNew ? 'Saving…' : 'Save'}</button></div>{addError && <small className="weight-new-error" role="alert">{addError}</small>}</form></div>}<div className="chart-axis">{yTickValues.map((value, index) => <span key={index}>{value.toFixed(0)}</span>)}</div><div className="chart-dates">{dateTicks.map((date, index) => <span key={index}>{formatTickDate(date)}</span>)}</div></> : <span>Log bodyweight to unlock your trend.</span>}</div>;
 }
