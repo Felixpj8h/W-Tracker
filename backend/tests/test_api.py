@@ -673,3 +673,71 @@ def test_cancelling_a_workout_is_idempotent():
         assert response.status_code == 200
         assert response.json() == {"deleted": True, "saved": True}
     assert all(workout['id'] != draft['id'] for workout in client.get('/api/v1/workouts/active').json())
+
+
+def test_calendar_move_preserves_override_and_only_moves_one_occurrence():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    content = {"name": "Upper", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3}]}
+    routine = client.post("/api/v1/routines", json=content).json()
+    client.post("/api/v1/calendar/plan", json={"name": "Week", "starts_on": "2026-09-01", "days": [{"weekday": 2, "routine_id": routine["id"]}]})
+    content["name"] = "Lighter day"
+    assert client.put(f"/api/v1/calendar/2026-09-30/routine/{routine['id']}", json=content).status_code == 200
+    assert client.post("/api/v1/calendar/move", json={"source": "2026-09-30", "target": "2026-10-01"}).status_code == 200
+    september = client.get("/api/v1/calendar?year=2026&month=9").json()["days"]
+    assert september[-1]["status"] == "empty"
+    october = client.get("/api/v1/calendar?year=2026&month=10").json()["days"]
+    assert october[0]["routine_override"]["name"] == "Lighter day"
+    assert october[6]["routine_name"] == "Upper"
+    assert client.post("/api/v1/calendar/move", json={"source": "2026-10-01", "target": "2026-10-07"}).status_code == 409
+    assert client.post("/api/v1/calendar/move", json={"source": "2026-10-01", "target": "2026-09-30"}).status_code == 200
+    assert client.get("/api/v1/calendar?year=2026&month=9").json()["days"][-1]["routine_name"] == "Lighter day"
+
+
+def test_calendar_move_completed_workout_preserves_log():
+    reset_db()
+    with main_module.SessionLocal() as db:
+        workout = main_module.Workout(name="Logged upper", performed_on=main_module.date(2026, 10, 1), completed=True, note="Keep this note", duration_seconds=123)
+        db.add(workout)
+        db.commit()
+        workout_id = workout.id
+    assert client.post("/api/v1/calendar/move", json={"source": "2026-10-01", "target": "2026-10-02"}).status_code == 200
+    with main_module.SessionLocal() as db:
+        workout = db.get(main_module.Workout, workout_id)
+        assert str(workout.performed_on) == "2026-10-02"
+        assert workout.note == "Keep this note"
+        assert workout.duration_seconds == 123
+        assert workout.completed
+
+
+def test_remove_calendar_occurrences_keeps_weekly_plan_and_routine():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    routine = client.post("/api/v1/routines", json={"name": "Upper", "exercises": [{"exercise_id": exercise["id"], "planned_sets": 3}]}).json()
+    assert client.post("/api/v1/calendar/plan", json={"name": "Week", "starts_on": "2026-09-01", "days": [{"weekday": 2, "routine_id": routine["id"]}]}).status_code == 200
+    for day in ["2026-09-30", "2026-10-07"]:
+        assert client.delete(f"/api/v1/calendar/{day}").status_code == 200
+        assert client.delete(f"/api/v1/calendar/{day}").status_code == 200
+    assert client.get("/api/v1/calendar?year=2026&month=9").json()["days"][-1]["status"] == "empty"
+    days = client.get("/api/v1/calendar?year=2026&month=10").json()["days"]
+    assert days[6]["status"] == "empty"
+    assert days[13]["routine_name"] == "Upper"
+    assert client.get("/api/v1/calendar/plan").json()["days"][0]["routine_id"] == routine["id"]
+
+
+def test_remove_completed_calendar_workout_suppresses_underlying_plan():
+    reset_db()
+    routine = client.post("/api/v1/routines", json={"name": "Upper", "exercises": []}).json()
+    client.post("/api/v1/calendar/plan", json={"name": "Week", "starts_on": "2026-09-01", "days": [{"weekday": 2, "routine_id": routine["id"]}]})
+    with main_module.SessionLocal() as db:
+        workout = main_module.Workout(name="Done", performed_on=main_module.date(2026, 9, 30), completed=True)
+        active = main_module.Workout(name="Active", performed_on=main_module.date(2026, 9, 30), completed=False)
+        db.add_all([workout, active])
+        db.commit()
+        workout_id, active_id = workout.id, active.id
+    assert client.delete(f"/api/v1/calendar/2026-09-29?workout_id={workout_id}").status_code == 409
+    assert client.delete(f"/api/v1/calendar/2026-09-30?workout_id={workout_id}").status_code == 200
+    assert client.get("/api/v1/calendar?year=2026&month=9").json()["days"][-1]["status"] == "empty"
+    with main_module.SessionLocal() as db:
+        assert db.get(main_module.Workout, workout_id) is None
+        assert db.get(main_module.Workout, active_id) is not None

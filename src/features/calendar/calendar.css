@@ -153,3 +153,13 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .training-detail-actions button:only-child{grid-column:1/-1;font-size:13px}
   .training-calendar .week-planner{position:static;max-height:none;margin-bottom:14px;box-shadow:none}
 }
+
+.training-event[draggable="true"]{cursor:grab}
+.training-event[draggable="true"]:active{cursor:grabbing}
+.training-day.drag-source .training-event{opacity:.4}
+.training-day.drop-target{outline:3px dashed var(--accent);outline-offset:-4px;background:var(--accent-soft)}
+.calendar-move-status{flex:none;margin:0 0 12px;color:var(--muted);font-size:14px}
+
+.training-detail-actions .calendar-remove-workout{color:var(--muted)}
+.training-detail-actions .calendar-remove-workout:hover{color:var(--text)}
+@media(max-width:760px){.training-detail-actions .calendar-remove-workout{grid-column:1/-1}}

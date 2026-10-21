@@ -1266,7 +1266,7 @@ def start_routine(routine_id: int, day: Optional[date] = None, db: Session = Dep
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
     assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day)) if day else None
-    if assignment and assignment.routine_id == routine_id and assignment.workout_override:
+    if assignment and assignment.routine_id == routine_id and assignment.workout_override and not json.loads(assignment.workout_override).get("cancelled"):
         payload = RoutineIn.model_validate_json(assignment.workout_override)
         routine = Routine(id=routine_id)
         populate_routine(routine, payload, db)
@@ -1386,6 +1386,77 @@ def save_weekly_plan(payload: WeeklyPlanIn, db: Session = Depends(get_db)):
     return saved_response(weekly_plan_out(plan))
 
 
+class CalendarMoveIn(BaseModel):
+    source: date
+    target: date
+
+
+def calendar_schedule(db, day):
+    assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
+    if assignment:
+        return None if assignment.workout_override and json.loads(assignment.workout_override).get("cancelled") else assignment
+    plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
+    return next((item for item in plan.days if item.weekday == day.weekday()), None) if plan and day >= plan.starts_on else None
+
+
+@app.post("/api/v1/calendar/move")
+def move_calendar_workout(payload: CalendarMoveIn, db: Session = Depends(get_db)):
+    if payload.source == payload.target:
+        return {"saved": True}
+    if not 2000 <= payload.target.year <= 2100:
+        raise HTTPException(422, "Choose a date between 2000 and 2100")
+    completed = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on == payload.source)).all()
+    scheduled = calendar_schedule(db, payload.source)
+    if len(completed) > 1:
+        raise HTTPException(409, "This day has multiple logged workouts; edit their dates individually")
+    if not completed and not scheduled:
+        raise HTTPException(404, "Workout no longer exists on this day")
+    if calendar_schedule(db, payload.target) or db.scalar(select(Workout).where(Workout.completed == True, Workout.performed_on == payload.target)):
+        raise HTTPException(409, "That day already has a workout. Choose an empty day.")
+    if completed:
+        completed[0].performed_on = payload.target
+    else:
+        target = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == payload.target))
+        if not target:
+            target = CalendarAssignment(day=payload.target, routine_id=scheduled.routine_id)
+            db.add(target)
+        target.routine_id = scheduled.routine_id
+        target.workout_override = scheduled.workout_override if isinstance(scheduled, CalendarAssignment) else None
+    if scheduled:
+        source = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == payload.source))
+        if not source:
+            source = CalendarAssignment(day=payload.source, routine_id=scheduled.routine_id)
+            db.add(source)
+        source.workout_override = json.dumps({"cancelled": True})
+    db.commit()
+    return {"saved": True}
+
+
+@app.delete("/api/v1/calendar/{day}")
+def remove_calendar_workout(day: date, workout_id: Optional[int] = None, db: Session = Depends(get_db)):
+    # Suppress this occurrence so the weekly plan cannot fill it back in.
+    scheduled = calendar_schedule(db, day)
+    completed = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on == day)).all()
+    if workout_id is not None:
+        workout = db.get(Workout, workout_id)
+        if workout and (not workout.completed or workout.performed_on != day):
+            raise HTTPException(409, "Workout date changed. Refresh the calendar and try again.")
+    elif len(completed) > 1:
+        raise HTTPException(409, "Select a specific completed workout to remove")
+    else:
+        workout = completed[0] if completed else None
+    if scheduled:
+        assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
+        if not assignment:
+            assignment = CalendarAssignment(day=day, routine_id=scheduled.routine_id)
+            db.add(assignment)
+        assignment.workout_override = json.dumps({"cancelled": True})
+    if workout:
+        db.delete(workout)
+    db.commit()
+    return {"deleted": True, "saved": True}
+
+
 @app.put("/api/v1/calendar/{day}/routine/{routine_id}")
 def save_planned_workout(day: date, routine_id: int, payload: RoutineIn, db: Session = Depends(get_db)):
     if not db.get(Routine, routine_id):
@@ -1423,6 +1494,8 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
     for offset in range((last - first).days + 1):
         day = first + timedelta(days=offset)
         scheduled = assignments.get(day) or (planned.get(day.weekday()) if plan and day >= plan.starts_on else None)
+        if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override and json.loads(scheduled.workout_override).get("cancelled"):
+            scheduled = None
         workout = completed.get(day)
         result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
