@@ -4,8 +4,8 @@ type LoggedWorkout = {
   id?: number;
   performed_on: string;
   exercises: {
-    exercise_id?: number;
-    cached_exercise_id?: number;
+    exercise_id?: number | null;
+    cached_exercise_id?: number | null;
     name: string;
     sets?: { weight: number; reps: number }[];
   }[];
@@ -18,7 +18,8 @@ const rangeDays: Record<Range, number> = { '1M': 31, '3M': 92, '6M': 183, '1Y': 
 const dayTime = (date: string) => new Date(`${date}T12:00:00`).getTime();
 const shortDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const longDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-const exerciseKey = (exercise: LoggedWorkout['exercises'][number]) => String(exercise.exercise_id ?? exercise.cached_exercise_id ?? exercise.name.trim().toLocaleLowerCase());
+const normalizedName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+const linkedId = (exercise: LoggedWorkout['exercises'][number]) => exercise.exercise_id ?? exercise.cached_exercise_id;
 const volume = (sets: LoggedWorkout['exercises'][number]['sets']) => (sets ?? []).reduce((total, set) => total + set.weight * set.reps, 0);
 const formatVolume = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
 
@@ -36,11 +37,38 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
   const [hovered, setHovered] = useState<{ date: string; id: string; key: string; value: number } | null>(null);
   const initialized = useRef(false);
   const ordered = [...completed].sort((a, b) => a.performed_on.localeCompare(b.performed_on) || (a.id ?? 0) - (b.id ?? 0));
+  // Resolve legacy names against all loaded history, before applying date filters.
+  // Multiple known IDs with one name are intentionally kept separate.
+  const idsByName = new Map<string, Set<number>>();
+  for (const workout of ordered) for (const exercise of workout.exercises) {
+    const id = linkedId(exercise);
+    if (id == null) continue;
+    const name = normalizedName(exercise.name);
+    const ids = idsByName.get(name) ?? new Set<number>();
+    ids.add(id); idsByName.set(name, ids);
+  }
+  const exerciseKey = (exercise: LoggedWorkout['exercises'][number]) => {
+    const name = normalizedName(exercise.name);
+    const candidates = idsByName.get(name);
+    const id = linkedId(exercise) ?? (candidates?.size === 1 ? [...candidates][0] : undefined);
+    return id == null ? 'legacy:' + name : 'id:' + id;
+  };
   const exerciseCounts = new Map<string, { name: string; count: number }>();
   for (const workout of ordered) for (const exercise of workout.exercises) {
     const key = exerciseKey(exercise);
     const current = exerciseCounts.get(key);
     exerciseCounts.set(key, { name: exercise.name, count: (current?.count ?? 0) + 1 });
+  }
+  const keysByName = new Map<string, Set<string>>();
+  for (const [key, item] of exerciseCounts) {
+    const name = normalizedName(item.name);
+    const keys = keysByName.get(name) ?? new Set<string>();
+    keys.add(key); keysByName.set(name, keys);
+  }
+  for (const [key, item] of exerciseCounts) {
+    if ((keysByName.get(normalizedName(item.name))?.size ?? 0) > 1) {
+      item.name = item.name.trim() + (key.startsWith('legacy:') ? ' (Unlinked history)' : ' (Record ' + key.slice(3) + ')');
+    }
   }
   const options = [...exerciseCounts].map(([key, item]) => ({ key, ...item })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   useEffect(() => {

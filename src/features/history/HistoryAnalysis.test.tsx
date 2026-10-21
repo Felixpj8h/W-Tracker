@@ -35,3 +35,44 @@ describe('History analysis', () => {
     expect(screen.getByText('＋ Add')).toBeTruthy();
   });
 });
+
+it('joins unlinked older workouts to a single known ID across date filters', async () => {
+  const { container } = render(<HistoryAnalysis completed={[
+    { id: 1, performed_on: '2025-01-01', exercises: [{ name: ' Incline  press ', sets: [{ weight: 10, reps: 10 }] }] },
+    { id: 2, performed_on: '2026-09-25', exercises: [{ cached_exercise_id: 7, name: 'Incline press', sets: [{ weight: 20, reps: 10 }] }] },
+  ]}/>);
+  await waitFor(() => expect(container.querySelectorAll('.analysis-chip')).toHaveLength(1));
+  expect(container.querySelectorAll('.analysis-point')).toHaveLength(2);
+  expect(container.querySelector('.analysis-table-row')?.textContent).toContain('+100.0%');
+  fireEvent.click(screen.getByText('1M'));
+  expect(container.querySelectorAll('.analysis-point')).toHaveLength(1);
+  fireEvent.click(screen.getByText('All'));
+  expect(container.querySelectorAll('.analysis-point')).toHaveLength(2);
+});
+
+it('keeps distinct IDs and ambiguous legacy history separate with clear labels', async () => {
+  const { container } = render(<HistoryAnalysis completed={[
+    { id: 1, performed_on: '2026-09-01', exercises: [{ cached_exercise_id: 7, name: 'Incline press', sets: [{ weight: 10, reps: 10 }] }] },
+    { id: 2, performed_on: '2026-09-02', exercises: [{ exercise_id: 8, name: 'Incline press', sets: [{ weight: 20, reps: 10 }] }] },
+    { id: 3, performed_on: '2026-09-03', exercises: [{ name: 'Incline press', sets: [{ weight: 30, reps: 10 }] }] },
+  ]}/>);
+  await waitFor(() => expect(container.querySelectorAll('.analysis-chip')).toHaveLength(3));
+  const rows = [...container.querySelectorAll('.analysis-table-row')].map(row => row.textContent);
+  expect(rows).toContain('Incline press (Record 7)100 kg100 kg—');
+  expect(rows).toContain('Incline press (Record 8)200 kg200 kg—');
+  expect(rows).toContain('Incline press (Unlinked history)300 kg300 kg—');
+  expect(container.querySelectorAll('.analysis-point')).toHaveLength(3);
+  fireEvent.click(screen.getByLabelText('Remove Incline press (Record 8)'));
+  fireEvent.click(screen.getByText('＋ Add'));
+  expect(screen.getByRole('button', { name: /Incline press \(Record 8\).*1 sessions/ })).toBeTruthy();
+});
+
+it('groups legacy-only records without merging different exercise names', async () => {
+  const { container } = render(<HistoryAnalysis completed={[
+    { id: 1, performed_on: '2026-09-01', exercises: [{ name: ' Incline PRESS ', sets: [{ weight: 10, reps: 10 }] }] },
+    { id: 2, performed_on: '2026-09-02', exercises: [{ name: 'Incline press', sets: [{ weight: 20, reps: 10 }] }, { cached_exercise_id: 8, name: 'Flat press', sets: [{ weight: 30, reps: 10 }] }] },
+  ]}/>);
+  await waitFor(() => expect(container.querySelectorAll('.analysis-chip')).toHaveLength(2));
+  expect(container.querySelectorAll('.analysis-point')).toHaveLength(3);
+  expect(container.querySelector('.analysis-table-row')?.textContent).toContain('+100.0%');
+});
