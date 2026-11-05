@@ -44,7 +44,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
                 else if (response.status !== 401) setAuthError('Cannot restore your session. Retry your connection.');
                 return;
             }
-            const body = await response.json() as { email?: string; name?: string; given_name?: string };
+            const body = await response.json() as { email?: string; name?: string; given_name?: string; picture?: string };
             if (!cancelled && body.email) {
                 setProfile(profileFromSession(body));
                 setToken('session');
@@ -80,7 +80,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
                     setGoogleIdToken(response.credential);
                     try {
                         const validation = await fetch(`${API}/session`, { credentials: 'include', headers: authHeaders() });
-                        const body = await validation.json().catch(() => null) as { detail?: string; email?: string; name?: string; given_name?: string } | null;
+                        const body = await validation.json().catch(() => null) as { detail?: string; email?: string; name?: string; given_name?: string; picture?: string } | null;
                         if (!validation.ok) throw new Error(body?.detail ?? 'This Google account cannot access the workout tracker.');
                         const authenticatedProfile = profileFromSession(body ?? {});
                         if (!authenticatedProfile.email) throw new Error('Google did not return an email address for this account.');

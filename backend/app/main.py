@@ -70,7 +70,7 @@ def _session_identity(value: str) -> dict[str, str] | None:
         allowed = {email.strip().lower() for email in os.getenv("ALLOWED_EMAILS", "").split(",") if email.strip()}
         if payload["email"] not in allowed:
             return None
-        return {key: str(payload.get(key, "")) for key in ("email", "name", "given_name")}
+        return {key: str(payload.get(key, "")) for key in ("email", "name", "given_name", "picture")}
     except (ValueError, KeyError, TypeError, OverflowError):
         return None
 
@@ -563,7 +563,7 @@ def authenticate_request(request: Request) -> dict[str, str]:
     given_name = str(token_info.get("given_name", "")).strip()[:80]
     if not given_name and full_name:
         given_name = full_name.split()[0]
-    return {"email": email, "name": full_name, "given_name": given_name}
+    return {"email": email, "name": full_name, "given_name": given_name, "picture": str(token_info.get("picture", ""))}
 
 
 def group_for(muscle: Optional[str]) -> Optional[str]:
@@ -714,6 +714,7 @@ async def require_google_auth(request: Request, call_next):
             request.state.user_email = identity["email"]
             request.state.user_name = identity["name"]
             request.state.user_given_name = identity["given_name"]
+            request.state.user_picture = identity.get("picture", "")
         except HTTPException as error:
             return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
     elif is_api and not is_public:
@@ -896,6 +897,7 @@ def session(request: Request):
         "email": getattr(request.state, "user_email", None),
         "name": getattr(request.state, "user_name", ""),
         "given_name": getattr(request.state, "user_given_name", ""),
+        "picture": getattr(request.state, "user_picture", ""),
     }
 
 

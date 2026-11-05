@@ -425,10 +425,10 @@ def test_authentication_fails_closed(monkeypatch):
         monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "other@example.com", "email_verified": True})
         assert client.get("/api/v1/session", headers={"Authorization": "Bearer token"}).status_code == 403
 
-        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "allowed@example.com", "email_verified": True, "name": "Allowed Person", "given_name": "Allowed"})
+        monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: {"email": "allowed@example.com", "email_verified": True, "name": "Allowed Person", "given_name": "Allowed", "picture": "https://lh3.googleusercontent.com/avatar"})
         response = client.get("/api/v1/session", headers={"Authorization": "Bearer token"})
         assert response.status_code == 200
-        assert response.json() == {"email": "allowed@example.com", "name": "Allowed Person", "given_name": "Allowed"}
+        assert response.json() == {"email": "allowed@example.com", "name": "Allowed Person", "given_name": "Allowed", "picture": "https://lh3.googleusercontent.com/avatar"}
 
         monkeypatch.delenv("GOOGLE_CLIENT_ID")
         assert client.get("/api/v1/session", headers={"Authorization": "Bearer token"}).status_code == 503
