@@ -27,6 +27,19 @@ it('saves a dragged occurrence and refreshes the calendar and workout data', asy
     expect(api).toHaveBeenCalledWith('/calendar/move', { method: 'POST', body: JSON.stringify({ source: `${key}-01`, target: `${key}-02` }) });
     expect(loadMonth).toHaveBeenCalledWith(Number(key.slice(0, 4)), Number(key.slice(5)), true);
 });
+it('moves a workout after a touch press and release over an empty day', async () => {
+    vi.mocked(api).mockResolvedValue({ saved: true });
+    const { event, target, moved } = setup();
+    const sourceDay = event.closest('.training-day')!;
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => target) });
+    fireEvent.pointerDown(event, { pointerType: 'touch', pointerId: 1, clientX: 10, clientY: 10 });
+    await new Promise(resolve => setTimeout(resolve, 400));
+    fireEvent.pointerMove(sourceDay, { pointerType: 'touch', pointerId: 1, clientX: 30, clientY: 30 });
+    expect(target.classList.contains('drop-target')).toBe(true);
+    fireEvent.pointerUp(sourceDay, { pointerType: 'touch', pointerId: 1, clientX: 30, clientY: 30 });
+    await waitFor(() => expect(moved).toHaveBeenCalledWith(`${key}-02`));
+    Reflect.deleteProperty(document, 'elementFromPoint');
+});
 it('shows save errors without selecting the destination', async () => {
     vi.mocked(api).mockRejectedValue(new Error('That day already has a workout.'));
     const { event, target, dataTransfer, moved } = setup();

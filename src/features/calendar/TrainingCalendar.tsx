@@ -2,7 +2,7 @@ import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
 import type { Folder, Routine } from '../routines/types';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth, LoadCalendarMonth, CalendarDay } from './types';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { today, duration } from '../../shared/lib/format';
 import { api } from '../../shared/api/client';
 import { RoutineEditor } from '../routines/RoutineEditor';
@@ -13,6 +13,9 @@ export function TrainingCalendar({ folders, history, months, loadMonth, start, r
     const [dropDate, setDropDate] = useState<string | null>(null);
     const [moving, setMoving] = useState(false);
     const [moveMessage, setMoveMessage] = useState('');
+    const touchDrag = useRef<{ source: string; pointerId: number; x: number; y: number; active: boolean; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+    const suppressClick = useRef(false);
+    useEffect(() => () => { if (touchDrag.current?.timer) clearTimeout(touchDrag.current.timer); }, []);
     const routines = folders.flatMap(folder => folder.routines);
     const [plannedEdit, setPlannedEdit] = useState<Routine | null>(null);
     const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -51,8 +54,8 @@ export function TrainingCalendar({ folders, history, months, loadMonth, start, r
     const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
     for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber++) { const key = dateKey(new Date(month.getFullYear(), month.getMonth(), dayNumber)); cells.push({ date: key, day: daysByDate.get(key), outside: false }); }
     while (cells.length % 7) { const d = new Date(month.getFullYear(), month.getMonth(), cells.length - firstOffset + 1); cells.push({ date: dateKey(d), outside: true }); }
-    const moveWorkout = async (target: string) => {
-        const source = draggedDate;
+    const moveWorkout = async (target: string, touchSource?: string) => {
+        const source = touchSource ?? draggedDate;
         setDraggedDate(null); setDropDate(null);
         if (readOnly || moving || !source || source === target) return;
         setMoving(true); setMoveMessage('Moving workout…');
@@ -64,6 +67,48 @@ export function TrainingCalendar({ folders, history, months, loadMonth, start, r
             setMoveMessage('Workout moved.');
         } catch (error) { setMoveMessage(error instanceof Error ? error.message : 'Could not move workout. Please try again.'); }
         finally { setMoving(false); }
+    };
+    const touchTarget = (x: number, y: number, source: string) => {
+        const day = document.elementFromPoint(x, y)?.closest<HTMLElement>('.training-day');
+        return day?.dataset.date !== source && day?.dataset.occupied === 'false' ? day?.dataset.date ?? null : null;
+    };
+    const cancelTouchDrag = () => {
+        if (touchDrag.current?.timer) clearTimeout(touchDrag.current.timer);
+        if (touchDrag.current?.active) setMoveMessage('');
+        touchDrag.current = null;
+        setDraggedDate(null);
+        setDropDate(null);
+    };
+    const touchStart = (event: React.PointerEvent, source: string) => {
+        if (event.pointerType === 'mouse' || readOnly || moving) return;
+        cancelTouchDrag();
+        const element = event.currentTarget as HTMLElement;
+        const drag = { source, pointerId: event.pointerId, x: event.clientX, y: event.clientY, active: false, timer: null as ReturnType<typeof setTimeout> | null };
+        drag.timer = setTimeout(() => {
+            if (touchDrag.current !== drag) return;
+            drag.active = true;
+            setDraggedDate(source);
+            setMoveMessage('Drag to an empty day.');
+            try { element.setPointerCapture?.(event.pointerId); } catch { cancelTouchDrag(); }
+        }, 350);
+        touchDrag.current = drag;
+    };
+    const touchMove = (event: React.PointerEvent) => {
+        const drag = touchDrag.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        if (!drag.active) {
+            if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 10) cancelTouchDrag();
+            return;
+        }
+        setDropDate(touchTarget(event.clientX, event.clientY, drag.source));
+    };
+    const touchEnd = (event: React.PointerEvent) => {
+        const drag = touchDrag.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const target = drag.active ? touchTarget(event.clientX, event.clientY, drag.source) : null;
+        if (drag.active) { suppressClick.current = true; setTimeout(() => { suppressClick.current = false; }, 0); }
+        cancelTouchDrag();
+        if (target) void moveWorkout(target, drag.source);
     };
     const removeWorkout = async () => {
         if (readOnly || moving || !eventName) return;
@@ -86,7 +131,8 @@ export function TrainingCalendar({ folders, history, months, loadMonth, start, r
         <header className="training-calendar-header"><h1>{month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h1><div className="training-calendar-tools"><button className="calendar-icon-button previous" aria-label="Previous month" onClick={() => changeMonth(-1)}>‹</button><button className="calendar-icon-button next" aria-label="Next month" onClick={() => changeMonth(1)}>›</button><select aria-label="Routine" value={chosenRoutine} onChange={event => setChosenRoutine(event.target.value)}><option value="">{plan?.name.replace(/\\s+Program$/i, '') ?? 'Choose a routine'}</option>{routines.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button disabled={readOnly} className="calendar-plan-button" onClick={() => setEditing(value => !value)}>{editing ? 'Close plan' : 'Plan week'}</button><div className="calendar-menu-wrap" ref={menuRoot}><button className="calendar-icon-button calendar-menu-button" aria-label="Calendar options" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}>⋯</button>{menuOpen && <div className="calendar-menu"><button onClick={() => { setSelected(today()); setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setMenuOpen(false); }}>Go to today</button><button disabled={readOnly} onClick={() => { setEditing(true); setMenuOpen(false); }}>Edit weekly plan</button>{!readOnly && <button onClick={() => { setManageLabels(true); setMenuOpen(false); }}>Manage labels</button>}</div>}</div></div></header>
         {moveMessage && <p className="calendar-move-status" role="status">{moveMessage}</p>}
         {editing && <section className="week-planner" ref={plannerRoot}><label>WEEK NAME<input value={name} onChange={event => setName(event.target.value)}/></label><div>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, weekday) => <label key={label}><span>{label}</span><select value={assignments[weekday] ?? ''} onChange={event => setAssignments({ ...assignments, [weekday]: event.target.value })}><option value="">Rest day</option>{routines.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>)}</div><button className="primary" onClick={() => void save()}>Save weekly plan →</button></section>}
-        <div className="training-calendar-layout"><div className="training-month"><div className="training-weekdays">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(label => <span key={label}>{label}</span>)}</div><div className="training-days">{cells.map(cell => { const day = cell.day; const label = day?.status === 'completed' ? day.workout_name : day?.routine_name; const shortLabel = label ? (/full body/i.test(label) ? 'Full' : label.split(' · ')[0].split(' ')[0]) : ''; const loggedWorkout = history.find(item => item.completed && item.performed_on === cell.date); const dayNote = loggedWorkout?.note; const eventRoutineId = day?.status === 'completed' ? loggedWorkout?.routine_id : day?.routine_id; const matchesFilter = !chosenRoutine || !label || (eventRoutineId != null ? String(eventRoutineId) === chosenRoutine : label.trim().toLocaleLowerCase() === selectedRoutine?.name.trim().toLocaleLowerCase()); return <button key={cell.date} type="button" className={`training-day ${day?.status ?? 'empty'} ${cell.outside ? 'outside' : ''} ${cell.date === selected ? 'selected' : ''} ${cell.date === today() ? 'today' : ''} ${matchesFilter ? '' : 'filtered-out'} ${dropDate === cell.date ? 'drop-target' : ''} ${draggedDate === cell.date ? 'drag-source' : ''}`} onDragOver={event => { if (draggedDate && !moving && !readOnly && !label && draggedDate !== cell.date) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropDate(cell.date); } }} onDragLeave={() => setDropDate(current => current === cell.date ? null : current)} onDrop={event => { event.preventDefault(); if (!label) void moveWorkout(cell.date); }} onClick={() => { setSelected(cell.date); if (cell.outside) setMonth(new Date(`${cell.date}T12:00:00`)); }}><span className="training-date">{Number(cell.date.slice(-2))}</span>{dayNote && <span className="training-note-indicator" tabIndex={0} aria-label={`Workout note: ${dayNote}`}>✎<span className="training-note-tooltip" role="tooltip">{dayNote}</span></span>}{day?.label && <span className={`calendar-label-chip calendar-grid-label color-${day.label.color}`}>{day.label.name}</span>}{label && <span className="training-event" draggable={!readOnly && !moving} title={readOnly ? undefined : 'Drag to an empty day to move this workout'} onDragStart={event => { if (readOnly || moving) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', cell.date); setDraggedDate(cell.date); setMoveMessage(''); }} onDragEnd={() => { setDraggedDate(null); setDropDate(null); }}><b className="training-event-full">{label}</b><b className="training-event-short">{shortLabel}</b><small>{day?.status === 'completed' ? 'Completed' : day?.status === 'missed' ? 'Missed' : 'Planned'}</small><i aria-hidden="true">{day?.status === 'completed' ? '✓' : '●'}</i></span>}</button>; })}</div></div>
+        <div className="training-calendar-layout"><div className="training-month"><div className="training-weekdays">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(label => <span key={label}>{label}</span>)}</div><div className="training-days">{cells.map(cell => { const day = cell.day; const label = day?.status === 'completed' ? day.workout_name : day?.routine_name; const shortLabel = label ? (/full body/i.test(label) ? 'Full' : label.split(' · ')[0].split(' ')[0]) : ''; const loggedWorkout = history.find(item => item.completed && item.performed_on === cell.date); const dayNote = loggedWorkout?.note; const eventRoutineId = day?.status === 'completed' ? loggedWorkout?.routine_id : day?.routine_id; const matchesFilter = !chosenRoutine || !label || (eventRoutineId != null ? String(eventRoutineId) === chosenRoutine : label.trim().toLocaleLowerCase() === selectedRoutine?.name.trim().toLocaleLowerCase()); return <button key={cell.date} type="button" data-date={cell.date} data-occupied={Boolean(label)} onPointerMove={touchMove} onPointerUp={touchEnd} onPointerCancel={cancelTouchDrag} className={`training-day ${day?.status ?? 'empty'} ${cell.outside ? 'outside' : ''} ${cell.date === selected ? 'selected' : ''} ${cell.date === today() ? 'today' : ''} ${matchesFilter ? '' : 'filtered-out'} ${dropDate === cell.date ? 'drop-target' : ''} ${draggedDate === cell.date ? 'drag-source' : ''}`} onDragOver={event => { if (draggedDate && !moving && !readOnly && !label && draggedDate !== cell.date) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropDate(cell.date); } }} onDragLeave={() => setDropDate(current => current === cell.date ? null : current)} onDrop={event => { event.preventDefault(); if (!label) void moveWorkout(cell.date); }} onClick={() => { if (suppressClick.current) return; setSelected(cell.date); if (cell.outside) setMonth(new Date(`${cell.date}T12:00:00`)); }}><span className="training-date">{Number(cell.date.slice(-2))}</span>{dayNote && <span className="training-note-indicator" tabIndex={0} aria-label={`Workout note: ${dayNote}`}>✎<span className="training-note-tooltip" role="tooltip">{dayNote}</span></span>}{day?.label && <span className={`calendar-label-chip calendar-grid-label color-${day.label.color}`}>{day.label.name}</span>}{label && <span className="training-event" onPointerDown={event => touchStart(event, cell.date)} draggable={!readOnly && !moving} title={readOnly ? undefined : 'Drag to an empty day to move this workout'} onDragStart={event => { if (readOnly || moving) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', cell.date); setDraggedDate(cell.date); setMoveMessage(''); }} onDragEnd={() => { setDraggedDate(null); setDropDate(null); }}><b className="training-event-full">{label}</b><b className="training-event-short">{shortLabel}</b><small>{day?.status === 'completed' ? 'Completed' : day?.status === 'missed' ? 'Missed' : 'Planned'}</small><i aria-hidden="true">{day?.status === 'completed' ? '✓' : '●'}</i></span>}</button>; })}</div></div>
         <aside className="training-detail"><div className="training-detail-head"><h2><span className="training-detail-desktop-date">{date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span><span className="training-detail-mobile-date">{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span></h2><p>{date.toLocaleDateString(undefined, { weekday: 'long' })}</p></div>{eventName ? <div className="training-detail-workout"><span className="training-detail-icon" aria-hidden="true">{workout ? '✓' : '▤'}</span><div><h3>{eventName}{workout?.note && <span className="training-detail-note-indicator" tabIndex={0} aria-label={`Workout note: ${workout.note}`}>✎<span className="training-note-tooltip" role="tooltip">{workout.note}</span></span>}</h3><p>{workout ? `${workout.exercises.reduce((total, exercise) => total + (exercise.sets?.length ?? 0), 0)} sets · ${duration(workout.duration_seconds)}` : selectedDay?.status === 'missed' ? 'Missed workout' : 'Planned workout'}</p></div></div> : <p className="training-detail-empty">No workout planned.</p>}<button disabled={readOnly && !workout} className="training-detail-primary" onClick={primary}>{workout ? 'View workout' : routine ? 'Start workout' : 'Add workout'}</button><div className="training-detail-actions">{workout && <><button disabled={readOnly} onClick={() => void repeatWorkout(workout)}>↻ <span>Log again</span>›</button><button disabled={readOnly} onClick={() => editWorkout(workout)}>✎ <span>Edit workout</span>›</button><button disabled={readOnly} onClick={() => addNote(workout)}>▤ <span>{workout.note ? 'Edit note' : 'Add note'}</span>›</button></>}{!workout && routine && <button onClick={() => setPlannedEdit(routine)}>▤ <span>Open planned workout</span>›</button>}{eventName && <button className="calendar-remove-workout" disabled={readOnly || moving} title={selectedDay?.status === 'completed' ? 'Delete this completed workout and its logged sets' : 'Remove this workout from this date'} onClick={() => void removeWorkout()}>× <span>Remove workout</span>›</button>}</div><DayLabels selected={selected} label={selectedDay?.label} months={months} loadMonth={loadMonth} readOnly={readOnly} manageOpen={manageLabels} openManage={() => setManageLabels(true)} closeManage={() => setManageLabels(false)}/></aside></div>
     </section>;
 }
+
