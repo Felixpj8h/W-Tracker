@@ -199,7 +199,7 @@ it('traps overview focus, dismisses with Escape and restores the selector', () =
     const close = screen.getByRole('button', {name:'Close exercise overview'});
     expect(document.activeElement).toBe(close);
     fireEvent.keyDown(close,{key:'Tab',shiftKey:true});
-    expect(document.activeElement).toBe(screen.getByRole('button', {name:/03\s*Row/}));
+    expect(document.activeElement).toBe(screen.getByRole('button', {name:'Move Row up'}));
     fireEvent.keyDown(document,{key:'Escape'});
     expect(document.activeElement).toBe(selector);
 });
@@ -374,4 +374,55 @@ it('switches progress segments in place while Next still scrolls to the exercise
         if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
         else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
+});
+
+
+it.each([
+    { selected: 'Bench', move: 'Bench', direction: 'up', order: ['Bench', 'Squat', 'Row'], position: 1 },
+    { selected: 'Bench', move: 'Bench', direction: 'down', order: ['Squat', 'Row', 'Bench'], position: 3 },
+    { selected: 'Bench', move: 'Squat', direction: 'down', order: ['Bench', 'Squat', 'Row'], position: 1 },
+    { selected: 'Bench', move: 'Row', direction: 'up', order: ['Squat', 'Row', 'Bench'], position: 3 },
+])('keeps $selected selected when moving $move $direction and autosaves the order', async ({selected, move, direction, order, position}) => {
+    vi.useFakeTimers();
+    render(<NavigationHarness/>);
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 2: Bench/}));
+    fireEvent.change(screen.getByLabelText('Bench set 1 weight in kg'), {target: {value: '42.5'}});
+    fireEvent.click(screen.getByLabelText('Complete Bench set 1'));
+    fireEvent.click(screen.getByRole('button', {name: /Rest 1:30/}));
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 2 of 3/}));
+    expect(screen.getByRole('button', {name: 'Move Squat up'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Move Row down'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Move ' + move + ' ' + direction}));
+    expect(screen.getByRole('dialog', {name: 'Exercise overview'})).toBeTruthy();
+    expect([...document.querySelectorAll('.session-overview-row b')].map(item => item.textContent)).toEqual(order);
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(screen.getByText('Exercise ' + position + ' of 3')).toBeTruthy();
+    expect(screen.getByRole('button', {name: new RegExp('Exercise ' + position + ': ' + selected)})).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByLabelText('Bench set 1 weight in kg')).toHaveValue('42.5');
+    expect(screen.getByLabelText('Complete Bench set 1')).toBeChecked();
+    expect(screen.getByRole('timer')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    const saves = vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH');
+    const saved = JSON.parse(saves.at(-1)![1]!.body as string) as Workout;
+    expect(saved.exercises.map(item => item.name)).toEqual(order);
+    expect(saved.exercises.find(item => item.name === 'Bench')?.sets).toEqual([{weight: 42.5, reps: 8, completed: true}]);
+    expect(saved.completed).toBe(false);
+    expect(JSON.parse(localStorage.getItem('workout-position:42')!).index).toBe(position - 1);
+});
+
+it('retains the exact selected entry when a session contains duplicate exercises', () => {
+    function Harness() {
+        const [workout, update] = useState<Workout>({...navigationWorkout, exercises: [
+            {exercise_id: 7, name: 'Bench', sets: [{weight: 40, reps: 8}]},
+            {exercise_id: 7, name: 'Bench', sets: [{weight: 50, reps: 6}]},
+        ]});
+        return <WorkoutLogger {...props} workout={workout} setWorkout={update} editing={false}/>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 2: Bench/}));
+    fireEvent.click(screen.getByRole('button', {name: /Exercise 2 of 2/}));
+    fireEvent.click(screen.getAllByRole('button', {name: 'Move Bench up'})[1]);
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(screen.getByText('Exercise 1 of 2')).toBeTruthy();
+    expect(screen.getByLabelText('Bench set 1 weight in kg')).toHaveValue('50');
 });

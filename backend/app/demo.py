@@ -146,6 +146,12 @@ class Plan(PublicModel):
     days: list[PlanDay]
 
 
+class CalendarLabel(PublicModel):
+    id: int
+    name: str
+    color: str
+
+
 class CalendarDay(PublicModel):
     date: date
     routine_id: int | None
@@ -154,6 +160,7 @@ class CalendarDay(PublicModel):
     status: Literal["completed", "upcoming", "missed", "empty"]
     workout_id: int | None
     workout_name: str | None
+    label: CalendarLabel | None
 
 
 class CalendarMonth(PublicModel):
@@ -328,6 +335,7 @@ def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12
     completed = {w.performed_on: w for w in db.scalars(select(m.Workout).where(m.Workout.performed_on >= first, m.Workout.performed_on <= last))}
     weekly = {d.weekday: d for d in item.days if d.routine is not None} if item else {}
     assignments = {a.day: a for a in db.scalars(select(m.CalendarAssignment).where(m.CalendarAssignment.day >= first, m.CalendarAssignment.day <= last)) if a.routine is not None}
+    labels = {entry.day: entry.label for entry in db.scalars(select(m.CalendarDayLabel).where(m.CalendarDayLabel.day >= first, m.CalendarDayLabel.day <= last)) if entry.label is not None}
     days = []
     for offset in range(last.day):
         day = first + timedelta(days=offset)
@@ -337,7 +345,8 @@ def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12
         days.append(CalendarDay(date=day, routine_id=scheduled.routine_id if scheduled else None,
             routine_name=override.name if override else scheduled.routine.name if scheduled else None,
             routine_override=override, status="completed" if done else ("upcoming" if day >= date.today() else "missed") if scheduled else "empty",
-            workout_id=done.id if done else None, workout_name=done.name if done else None))
+            workout_id=done.id if done else None, workout_name=done.name if done else None,
+            label=CalendarLabel(id=labels[day].id, name=labels[day].name, color=labels[day].color) if day in labels else None))
     return CalendarMonth(plan=public_plan(item), days=days)
 
 

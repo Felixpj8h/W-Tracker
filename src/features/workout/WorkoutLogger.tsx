@@ -8,6 +8,7 @@ import { WorkoutSessionView } from './WorkoutSessionView';
 import { authHeaders } from '../auth/auth';
 import { routineMuscles } from '../routines/routineMuscles';
 import { PageHeader } from '../../shared/ui/PageHeader';
+import { moveItem } from '../../shared/lib/moveItem';
 
 export function WorkoutLogger({ workout, folders, active, start, startAdHoc, setWorkout, editing, finish, saveEdit, cancel, pause }: { workout: Workout | null; folders: Folder[]; active: Workout[]; start: (r: Routine) => void; startAdHoc: () => Promise<void>; setWorkout: (x: Workout) => void; editing: boolean; finish: (x: Workout) => Promise<void>; saveEdit: (x: Workout) => Promise<void>; cancel?: (x: Workout) => Promise<void>; pause?: (x: Workout) => Promise<void> }) {
     const [q, setQ] = useState(''), [results, setResults] = useState<Exercise[]>([]), [open, setOpen] = useState(0), [progressByExercise, setProgressByExercise] = useState<Record<number, ExerciseProgress>>({}), [restUntil, setRestUntil] = useState<number | null>(null), [now, setNow] = useState(Date.now), [extraExerciseOpen, setExtraExerciseOpen] = useState(false);
@@ -149,6 +150,16 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         if (substituteIndex !== null) setRestUntil(null);
         setSubstituteIndex(null); setQ(''); setResults([]); setExtraExerciseOpen(false);
     };
+    const moveExercise = (from: number, to: number) => {
+        const exercises = moveItem(workout.exercises, from, to);
+        if (exercises === workout.exercises || pausing) return;
+        const nextIndex = selectedIndex === from ? to
+            : from < selectedIndex && to >= selectedIndex ? selectedIndex - 1
+            : from > selectedIndex && to <= selectedIndex ? selectedIndex + 1 : selectedIndex;
+        positionRef.current = { ...positionRef.current, index: nextIndex, identity: exerciseIdentity(exercises[nextIndex]) };
+        setOpen(nextIndex);
+        setWorkout({ ...workout, exercises });
+    };
     const removeExercise = () => {
         const exercises = workout.exercises.filter((_, index) => index !== selectedIndex);
         const nextIndex = Math.max(0, Math.min(selectedIndex, exercises.length - 1));
@@ -186,7 +197,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         } finally { endingSession.current = false; setPausing(false); }
     };
     const remaining = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
-    return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} onRemoveExercise={removeExercise} previous={previous}
+    return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} onMoveExercise={moveExercise} onRemoveExercise={removeExercise} previous={previous}
         onFinish={() => void finishSession()} onPause={!editing && pause ? () => void pauseSession() : undefined}
         onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} error={pauseError || saveError}
         restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}

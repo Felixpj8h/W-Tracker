@@ -205,6 +205,23 @@ class CalendarAssignment(OwnedRecord, Base):
     __table_args__ = (UniqueConstraint("owner_email", "day", name="uq_calendar_owner_day"),)
 
 
+class CalendarLabel(OwnedRecord, Base):
+    __tablename__ = "calendar_labels"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(40))
+    color: Mapped[str] = mapped_column(String(20))
+    dates: Mapped[list["CalendarDayLabel"]] = relationship(cascade="all, delete-orphan")
+
+
+class CalendarDayLabel(OwnedRecord, Base):
+    __tablename__ = "calendar_day_labels"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
+    label_id: Mapped[int] = mapped_column(ForeignKey("calendar_labels.id"))
+    label: Mapped[CalendarLabel] = relationship()
+    __table_args__ = (UniqueConstraint("owner_email", "day", name="uq_calendar_day_label_owner_day"),)
+
+
 class AIConversation(OwnedRecord, Base):
     __tablename__ = "ai_conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -244,7 +261,7 @@ class AIChangeProposal(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, AIConversation)
+TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation)
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -1393,6 +1410,84 @@ class CalendarMoveIn(BaseModel):
     target: date
 
 
+class CalendarLabelIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    color: Literal["rose", "amber", "sky", "violet", "mint", "slate"]
+
+
+class CalendarDayLabelIn(BaseModel):
+    label_id: int
+
+
+def calendar_label_out(label: CalendarLabel) -> dict:
+    return {"id": label.id, "name": label.name, "color": label.color}
+
+
+@app.get("/api/v1/calendar/labels")
+def list_calendar_labels(db: Session = Depends(get_db)):
+    return [calendar_label_out(label) for label in db.scalars(select(CalendarLabel).order_by(CalendarLabel.name, CalendarLabel.id))]
+
+
+@app.post("/api/v1/calendar/labels")
+def create_calendar_label(payload: CalendarLabelIn, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(422, "Enter a label name")
+    label = CalendarLabel(name=name, color=payload.color)
+    db.add(label)
+    db.commit()
+    db.refresh(label)
+    return saved_response(calendar_label_out(label))
+
+
+@app.patch("/api/v1/calendar/labels/{label_id}")
+def update_calendar_label(label_id: int, payload: CalendarLabelIn, db: Session = Depends(get_db)):
+    label = db.get(CalendarLabel, label_id)
+    if not label:
+        raise HTTPException(404, "Label not found")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(422, "Enter a label name")
+    label.name, label.color = name, payload.color
+    db.commit()
+    return saved_response(calendar_label_out(label))
+
+
+@app.delete("/api/v1/calendar/labels/{label_id}")
+def delete_calendar_label(label_id: int, db: Session = Depends(get_db)):
+    label = db.get(CalendarLabel, label_id)
+    if not label:
+        raise HTTPException(404, "Label not found")
+    db.delete(label)
+    db.commit()
+    return {"saved": True, "deleted": True}
+
+
+@app.put("/api/v1/calendar/{day}/label")
+def assign_calendar_label(day: date, payload: CalendarDayLabelIn, db: Session = Depends(get_db)):
+    if not 2000 <= day.year <= 2100:
+        raise HTTPException(422, "Choose a date between 2000 and 2100")
+    label = db.get(CalendarLabel, payload.label_id)
+    if not label:
+        raise HTTPException(404, "Label not found")
+    assignment = db.scalar(select(CalendarDayLabel).where(CalendarDayLabel.day == day))
+    if not assignment:
+        assignment = CalendarDayLabel(day=day)
+        db.add(assignment)
+    assignment.label_id = label.id
+    db.commit()
+    return saved_response(calendar_label_out(label))
+
+
+@app.delete("/api/v1/calendar/{day}/label")
+def clear_calendar_label(day: date, db: Session = Depends(get_db)):
+    assignment = db.scalar(select(CalendarDayLabel).where(CalendarDayLabel.day == day))
+    if assignment:
+        db.delete(assignment)
+        db.commit()
+    return {"saved": True, "deleted": True}
+
+
 def calendar_schedule(db, day):
     assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
     if assignment:
@@ -1492,6 +1587,7 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
     completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
     planned = {item.weekday: item for item in plan.days} if plan else {}
     assignments = {item.day: item for item in db.scalars(select(CalendarAssignment).where(CalendarAssignment.day >= first, CalendarAssignment.day <= last)).all() if item.routine is not None}
+    labels = {item.day: item.label for item in db.scalars(select(CalendarDayLabel).where(CalendarDayLabel.day >= first, CalendarDayLabel.day <= last)).all() if item.label is not None}
     result = []
     for offset in range((last - first).days + 1):
         day = first + timedelta(days=offset)
@@ -1499,7 +1595,7 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
         if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override and json.loads(scheduled.workout_override).get("cancelled"):
             scheduled = None
         workout = completed.get(day)
-        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None})
+        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None, "label": calendar_label_out(labels[day]) if day in labels else None})
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
 
 

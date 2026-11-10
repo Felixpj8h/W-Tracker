@@ -40,7 +40,7 @@ it('disables dragging in read-only calendars', () => {
     expect(event.draggable).toBe(false);
     fireEvent.dragStart(event, { dataTransfer });
     fireEvent.drop(target, { dataTransfer });
-    expect(api).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path !== '/calendar/labels')).toHaveLength(0);
 });
 
 it.each(['upcoming', 'missed', 'completed'] as const)('removes a %s occurrence and refreshes data', async status => {
@@ -75,6 +75,17 @@ it('does not remove a workout when the browser confirmation is cancelled', () =>
     fireEvent.click(event);
     fireEvent.click(screen.getByRole('button', { name: /Remove workout/ }));
     expect(window.confirm).toHaveBeenCalledOnce();
-    expect(api).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path !== '/calendar/labels')).toHaveLength(0);
     expect(moved).not.toHaveBeenCalled();
+});
+
+it('shows a day label alongside its workout in a read-only calendar', () => {
+    const loadMonth = vi.fn().mockResolvedValue(undefined);
+    render(<TrainingCalendar readOnly folders={[]} history={[]} months={{ [key]: { plan: null, days: [{ date: `${key}-01`, routine_id: 1, routine_name: 'Upper', status: 'upcoming', workout_name: null, label: { id: 2, name: 'Sick', color: 'rose' } }] } }} loadMonth={loadMonth} start={vi.fn()} repeatWorkout={vi.fn()} viewWorkout={vi.fn()} editWorkout={vi.fn()} addNote={vi.fn()}/>);
+    const day = screen.getByText('Upper', { selector: '.training-event-full' }).closest('.training-day')!;
+    expect(day.querySelector('.calendar-grid-label')?.textContent).toBe('Sick');
+    expect(day.querySelector('.calendar-grid-label')?.classList.contains('color-rose')).toBe(true);
+    fireEvent.click(day);
+    expect(screen.getByText('Sick', { selector: '.calendar-label-control .calendar-label-chip' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New label' })).toBeNull();
 });

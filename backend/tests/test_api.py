@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 import app.main as main_module
 from app.main import Base, app, group_for
@@ -49,6 +49,48 @@ def reset_db():
         main_module.store_exercise(db, "Bench press", "Barbell", "Pectoralis major")
         main_module.store_exercise(db, "Seated row", "Cable", "Latissimus dorsi")
         db.commit()
+
+
+def test_calendar_day_labels_are_reusable_and_do_not_change_workouts():
+    reset_db()
+    day = "2026-09-30"
+    with main_module.SessionLocal() as db:
+        db.add(main_module.Workout(name="Upper", performed_on=main_module.date.fromisoformat(day), completed=True))
+        db.commit()
+    first = client.post("/api/v1/calendar/labels", json={"name": " Sick ", "color": "rose"}).json()
+    second = client.post("/api/v1/calendar/labels", json={"name": "Travel", "color": "sky"}).json()
+    assert first["name"] == "Sick"
+    assert client.put(f"/api/v1/calendar/{day}/label", json={"label_id": first["id"]}).status_code == 200
+    assert client.put("/api/v1/calendar/2026-10-01/label", json={"label_id": first["id"]}).status_code == 200
+    assert client.put(f"/api/v1/calendar/{day}/label", json={"label_id": second["id"]}).status_code == 200
+    days = client.get("/api/v1/calendar?year=2026&month=9").json()["days"]
+    assert days[-1]["label"]["name"] == "Travel"
+    assert days[-1]["status"] == "completed"
+    assert days[-1]["workout_name"] == "Upper"
+    updated = client.patch(f"/api/v1/calendar/labels/{second['id']}", json={"name": "Away", "color": "amber"}).json()
+    assert updated["color"] == "amber"
+    assert client.get("/api/v1/calendar?year=2026&month=9").json()["days"][-1]["label"]["name"] == "Away"
+    assert client.delete(f"/api/v1/calendar/labels/{second['id']}").status_code == 200
+    unlabelled = client.get("/api/v1/calendar?year=2026&month=9").json()["days"][-1]
+    assert unlabelled["label"] is None
+    assert unlabelled["workout_name"] == "Upper"
+    assert client.delete("/api/v1/calendar/2026-10-01/label").status_code == 200
+    assert client.get("/api/v1/calendar?year=2026&month=10").json()["days"][0]["label"] is None
+    assert client.post("/api/v1/calendar/labels", json={"name": " ", "color": "rose"}).status_code == 422
+    assert client.post("/api/v1/calendar/labels", json={"name": "Bad", "color": "black"}).status_code == 422
+
+
+def test_calendar_labels_are_private_to_each_account():
+    reset_db()
+    with Session(engine) as db:
+        other = main_module.CalendarLabel(owner_email="other@example.com", name="Private", color="violet")
+        db.add(other)
+        db.commit()
+        other_id = other.id
+    assert client.get("/api/v1/calendar/labels").json() == []
+    assert client.put("/api/v1/calendar/2026-09-30/label", json={"label_id": other_id}).status_code == 404
+    assert client.patch(f"/api/v1/calendar/labels/{other_id}", json={"name": "Changed", "color": "rose"}).status_code == 404
+    assert client.delete(f"/api/v1/calendar/labels/{other_id}").status_code == 404
 
 
 def test_routine_to_workout_updates_volume_and_all_groups_present():

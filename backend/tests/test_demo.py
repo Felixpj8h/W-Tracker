@@ -203,6 +203,22 @@ def test_cross_owner_relationships_are_hidden(public_demo):
         assert "OTHER_PRIVATE" not in response.text
 
 
+def test_demo_calendar_shows_only_public_owner_day_labels(public_demo):
+    client, engine, _ids = public_demo
+    with Session(engine) as db:
+        own = m.CalendarLabel(owner_email=OWNER, name="Sick", color="rose")
+        other = m.CalendarLabel(owner_email=OTHER, name="OTHER_PRIVATE_LABEL", color="sky")
+        db.add_all([own, other]); db.flush()
+        db.add(m.CalendarDayLabel(owner_email=OWNER, day=date.today(), label_id=own.id))
+        db.add(m.CalendarDayLabel(owner_email=OTHER, day=date.today() + timedelta(days=1), label_id=other.id))
+        db.commit()
+    response = client.get(f"/api/v1/demo/calendar?year={date.today().year}&month={date.today().month}")
+    assert response.status_code == 200
+    days = response.json()["days"]
+    assert next(day for day in days if day["date"] == date.today().isoformat())["label"]["name"] == "Sick"
+    assert "OTHER_PRIVATE_LABEL" not in response.text
+
+
 def test_demo_rate_limit_ignores_spoofed_forwarded_ip(public_demo):
     client, _engine, _ids = public_demo
     m._rate_limit("testclient", "demo-read", 1)

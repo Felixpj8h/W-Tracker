@@ -4,11 +4,13 @@ import type { Workout } from './types';
 import type { Exercise, ExerciseProgress } from '../exercises/types';
 import { formatClockTime, formatRestDuration } from '../../shared/lib/format';
 import { WeightInput } from './WeightInput';
+import { ExerciseOrderControls } from '../../shared/ui/ExerciseOrderControls';
 import './workout-session.css';
 type Props = {
  workout: Workout; editing: boolean; onChange: (workout: Workout) => void; open: number; onOpen: (index: number) => void; onRemoveExercise: () => void; previous: ExerciseProgress | null;
  onFinish: () => void; onPause?: () => void; onCancel?: () => void; pausing: boolean; error: string;
  restRemaining: number; onRest: (seconds: number) => void; onSkipRest: () => void;
+ onMoveExercise: (from: number, to: number) => void;
  searchOpen: boolean; substituteIndex: number | null; onOpenSearch: (index: number | null) => void; onCloseSearch: () => void;
  query: string; onQuery: (query: string) => void; results: Exercise[]; onChoose: (exercise: Exercise) => void; searchLoading: boolean; searchError: string;
 };
@@ -18,7 +20,7 @@ const progress = (item: Workout['exercises'][number]) => {
  return { total, checked, label: total > 0 && checked === total ? 'Completed' : checked ? 'In progress' : 'Not started' };
 };
 export function WorkoutSessionView(p: Props) {
- const {workout, editing, onChange, open, onOpen, onRemoveExercise, previous, onFinish, onPause, onCancel, pausing, error, restRemaining, onRest, onSkipRest, searchOpen, substituteIndex, onOpenSearch, onCloseSearch, query, onQuery, results, onChoose, searchLoading, searchError} = p;
+ const {workout, editing, onChange, open, onOpen, onMoveExercise, onRemoveExercise, previous, onFinish, onPause, onCancel, pausing, error, restRemaining, onRest, onSkipRest, searchOpen, substituteIndex, onOpenSearch, onCloseSearch, query, onQuery, results, onChoose, searchLoading, searchError} = p;
  const [overview, setOverview] = useState(false);
  const [review, setReview] = useState(false);
  const dialog = useRef<HTMLElement>(null), heading = useRef<HTMLDivElement>(null);
@@ -93,7 +95,7 @@ export function WorkoutSessionView(p: Props) {
     <div><dt>Volume lifted</dt><dd>{formatStat(totalVolume)} <small>kg</small></dd></div>
    </dl>
    <p>Reps and volume include checked sets only.</p>
-  </section>}<div className="session-overview-list">{workout.exercises.map((x,i) => {const state=progress(x);return <button type="button" key={i} aria-current={open===i ? 'step' : undefined} onClick={() => {setOverview(false);navigate(i);}}><span className="session-exercise-number">{String(i+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{state.checked} of {state.total} sets checked · {state.label}</small>{open===i && <small className="session-selected-label">Selected</small>}</span>{state.label === 'Completed' && <svg className="session-overview-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}</button>;})}</div>{review && <button type="button" className="session-review-finish" disabled={pausing} onClick={onFinish}>{editing ? 'Save changes' : 'Finish workout'}</button>}</> : <><input type="search" aria-label={substituteIndex===null ? 'Search exercises' : 'Search replacement exercise'} value={query} onChange={e => onQuery(e.target.value)} placeholder="Search exercises…"/><div className="session-search-results">{searchLoading ? <p role="status">Searching…</p> : searchError ? <p role="alert">{searchError}</p> : results.length ? results.map(exercise => <button type="button" key={exercise.id} onClick={() => onChoose(exercise)}><span><b>{exercise.name}</b><small>{[muscle(exercise.primary_muscle),exercise.equipment].filter(Boolean).join(' · ')}</small></span><span>{substituteIndex===null ? '＋' : 'Replace'}</span></button>) : <p>{query.trim().length<2 ? 'Type at least two letters to find an exercise.' : 'No exercises found. Try another name.'}</p>}</div></>}
+  </section>}{workout.exercises.length > 1 && <p className="session-order-hint">Use the arrows to change exercise order.</p>}<div className="session-overview-list">{workout.exercises.map((x,i) => {const state=progress(x);return <div className="session-overview-row" key={`${x.exercise_id ?? x.cached_exercise_id ?? x.name}-${workout.exercises.slice(0,i).filter(entry => (entry.exercise_id ?? entry.cached_exercise_id ?? entry.name) === (x.exercise_id ?? x.cached_exercise_id ?? x.name)).length}`}><button type="button" aria-current={open===i ? 'step' : undefined} onClick={() => {setOverview(false);navigate(i);}}><span className="session-exercise-number">{String(i+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{state.checked} of {state.total} sets checked · {state.label}</small>{open===i && <small className="session-selected-label">Selected</small>}</span>{state.label === 'Completed' && <svg className="session-overview-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}</button>{workout.exercises.length > 1 && <ExerciseOrderControls name={x.name} index={i} count={workout.exercises.length} disabled={pausing} onMove={onMoveExercise}/>}</div>;})}</div>{review && <button type="button" className="session-review-finish" disabled={pausing} onClick={onFinish}>{editing ? 'Save changes' : 'Finish workout'}</button>}</> : <><input type="search" aria-label={substituteIndex===null ? 'Search exercises' : 'Search replacement exercise'} value={query} onChange={e => onQuery(e.target.value)} placeholder="Search exercises…"/><div className="session-search-results">{searchLoading ? <p role="status">Searching…</p> : searchError ? <p role="alert">{searchError}</p> : results.length ? results.map(exercise => <button type="button" key={exercise.id} onClick={() => onChoose(exercise)}><span><b>{exercise.name}</b><small>{[muscle(exercise.primary_muscle),exercise.equipment].filter(Boolean).join(' · ')}</small></span><span>{substituteIndex===null ? '＋' : 'Replace'}</span></button>) : <p>{query.trim().length<2 ? 'Type at least two letters to find an exercise.' : 'No exercises found. Try another name.'}</p>}</div></>}
   </section></div>}
  </section>;
 }
