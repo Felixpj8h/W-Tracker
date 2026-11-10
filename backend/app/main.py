@@ -27,7 +27,7 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, func, select, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria
 
@@ -169,7 +169,7 @@ class WorkoutSet(Base):
     reps: Mapped[int] = mapped_column(Integer, default=0)
     exertion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    is_warmup: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_warmup: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class BodyweightEntry(OwnedRecord, Base):

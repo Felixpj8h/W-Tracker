@@ -26,7 +26,7 @@ beforeEach(() => {
   setGoogleIdToken('PRIVATE_TOKEN');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => responseFor(url) })));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); setGoogleIdToken(''); localStorage.clear(); window.history.replaceState(null, '', '/'); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setGoogleIdToken(''); localStorage.clear(); window.history.replaceState(null, '', '/'); });
 
 const clickPage = async (page: string) => {
   fireEvent.click(screen.getAllByRole('button', { name: page })[0]);
@@ -72,6 +72,8 @@ describe('Public demo workspace', () => {
   });
 
   it('keeps the normal dashboard, calendar and mobile navigation layouts', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 14, 12));
     render(<App/>);
     await screen.findByText('Weekly volume');
     expect(screen.getByText('Current weight')).toBeTruthy();

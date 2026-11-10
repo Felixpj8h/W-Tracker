@@ -219,6 +219,44 @@ def test_demo_calendar_shows_only_public_owner_day_labels(public_demo):
     assert "OTHER_PRIVATE_LABEL" not in response.text
 
 
+def test_demo_calendar_cancellation_suppresses_only_the_scheduled_occurrence(public_demo):
+    client, engine, ids = public_demo
+    cancelled = date(2026, 11, 2)
+    completed = cancelled + timedelta(days=7)
+    next_occurrence = completed + timedelta(days=7)
+    routine_id = ids[OWNER]["routine"]
+    workout_id = ids[OWNER]["workout"]
+    with Session(engine) as db:
+        plan = db.scalar(select(m.WeeklyPlan).where(m.WeeklyPlan.owner_email == OWNER))
+        plan.starts_on = cancelled
+        plan.days[0].weekday = cancelled.weekday()
+        assignment = db.scalar(select(m.CalendarAssignment).where(m.CalendarAssignment.owner_email == OWNER))
+        assignment.day = cancelled
+        assignment.workout_override = json.dumps({"cancelled": True})
+        workout = db.get(m.Workout, workout_id)
+        workout.performed_on = completed
+        label = m.CalendarLabel(owner_email=OWNER, name="Travel", color="rose")
+        db.add(label)
+        db.flush()
+        db.add(m.CalendarAssignment(owner_email=OWNER, day=completed, routine_id=routine_id,
+                                    workout_override=json.dumps({"cancelled": True})))
+        db.add(m.CalendarDayLabel(owner_email=OWNER, day=completed, label_id=label.id))
+        db.commit()
+
+    response = client.get("/api/v1/demo/calendar?year=2026&month=11")
+    assert response.status_code == 200
+    days = {day["date"]: day for day in response.json()["days"]}
+    for day, status in ((cancelled, "empty"), (completed, "completed")):
+        occurrence = days[day.isoformat()]
+        assert occurrence["status"] == status
+        assert occurrence["routine_id"] is None
+        assert occurrence["routine_name"] is None
+        assert occurrence["routine_override"] is None
+    assert days[completed.isoformat()]["workout_id"] == workout_id
+    assert days[completed.isoformat()]["label"]["name"] == "Travel"
+    assert days[next_occurrence.isoformat()]["routine_id"] == routine_id
+
+
 def test_demo_rate_limit_ignores_spoofed_forwarded_ip(public_demo):
     client, _engine, _ids = public_demo
     m._rate_limit("testclient", "demo-read", 1)

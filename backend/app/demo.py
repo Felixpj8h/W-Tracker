@@ -311,11 +311,7 @@ def plan(db: Session = Depends(demo_db)):
     return public_plan(db.scalar(select(m.WeeklyPlan).order_by(m.WeeklyPlan.id.desc())))
 
 
-def public_override(assignment, db):
-    if not isinstance(assignment, m.CalendarAssignment) or not assignment.workout_override:
-        return None
-    import json
-    data = json.loads(assignment.workout_override)
+def public_override(assignment, data, db):
     exercises = []
     for e in data["exercises"]:
         exercise = db.get(m.Exercise, e["exercise_id"])
@@ -341,7 +337,15 @@ def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12
         day = first + timedelta(days=offset)
         scheduled = assignments.get(day) or (weekly.get(day.weekday()) if item and day >= item.starts_on else None)
         done = completed.get(day)
-        override = public_override(scheduled, db)
+        override = None
+        if isinstance(scheduled, m.CalendarAssignment) and scheduled.workout_override:
+            data = json.loads(scheduled.workout_override)
+            if not isinstance(data, dict):
+                raise ValueError("Invalid planned workout override")
+            if data.get("cancelled"):
+                scheduled = None
+            else:
+                override = public_override(scheduled, data, db)
         days.append(CalendarDay(date=day, routine_id=scheduled.routine_id if scheduled else None,
             routine_name=override.name if override else scheduled.routine.name if scheduled else None,
             routine_override=override, status="completed" if done else ("upcoming" if day >= date.today() else "missed") if scheduled else "empty",

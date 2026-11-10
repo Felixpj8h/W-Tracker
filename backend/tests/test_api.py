@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 import threading
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import pytest
 
@@ -18,7 +18,7 @@ main_module.engine = engine
 main_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def _close_test_database():
     yield
     engine.dispose()
@@ -758,8 +758,11 @@ def test_calendar_move_preserves_override_and_only_moves_one_occurrence():
 
 def test_calendar_move_completed_workout_preserves_log():
     reset_db()
+    started_at = datetime(2026, 10, 1, 12)
+    completed_at = started_at + timedelta(seconds=123)
     with main_module.SessionLocal() as db:
-        workout = main_module.Workout(name="Logged upper", performed_on=main_module.date(2026, 10, 1), completed=True, note="Keep this note", duration_seconds=123)
+        workout = main_module.Workout(name="Logged upper", performed_on=date(2026, 10, 1), completed=True,
+                                      note="Keep this note", started_at=started_at, completed_at=completed_at)
         db.add(workout)
         db.commit()
         workout_id = workout.id
@@ -768,7 +771,8 @@ def test_calendar_move_completed_workout_preserves_log():
         workout = db.get(main_module.Workout, workout_id)
         assert str(workout.performed_on) == "2026-10-02"
         assert workout.note == "Keep this note"
-        assert workout.duration_seconds == 123
+        assert workout.started_at == started_at
+        assert workout.completed_at == completed_at
         assert workout.completed
 
 
