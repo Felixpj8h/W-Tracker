@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 import threading
 import tempfile
+from datetime import date
 from pathlib import Path
 import pytest
 
@@ -26,6 +27,25 @@ def _close_test_database():
 app.state.disable_catalogue_refresh = True
 app.state.disable_auth = True
 client = TestClient(app)
+
+
+def test_warmup_and_superset_round_trip_without_training_credit():
+    reset_db()
+    payload = {"name": "Paired", "performed_on": date.today().isoformat(), "exercises": [
+        {"name": "Squat", "muscle_group": "Legs", "superset_id": "pair-one", "sets": [
+            {"weight": 100, "reps": 5, "completed": True, "is_warmup": True},
+            {"weight": 60, "reps": 8, "completed": True}]},
+        {"name": "Lunge", "superset_id": "pair-one", "sets": []},
+    ]}
+    created = client.post('/api/v1/workouts', json=payload)
+    assert created.status_code == 200
+    workout = created.json()
+    assert [item['superset_id'] for item in workout['exercises']] == ['pair-one', 'pair-one']
+    assert workout['exercises'][0]['sets'][0]['is_warmup'] is True
+    saved = next(item for item in client.get('/api/v1/workouts').json() if item['id'] == workout['id'])
+    assert saved['exercises'][0]['sets'][0]['is_warmup'] is True
+    dashboard = client.get('/api/v1/dashboard').json()
+    assert dashboard['total_current_volume'] == 60 * 8
 
 
 def test_all_wger_muscles_map_to_dashboard_groups():

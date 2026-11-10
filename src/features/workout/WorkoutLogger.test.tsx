@@ -13,6 +13,40 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.clearA
 const original: Workout = { id: 42, name: 'Upper', completed: true, performed_on: '2026-10-18', exercises: [] };
 const props = { folders: [], active: [], start: vi.fn(), startAdHoc: vi.fn(), setWorkout: vi.fn(), editing: true, finish: vi.fn(), saveEdit: vi.fn() };
 
+it('adds a warm-up before working sets and preserves it on remount', () => {
+    let saved: Workout = { ...original, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8, completed: true }] }] };
+    function Harness({ initial }: { initial: Workout }) {
+        const [workout, update] = useState(initial);
+        return <WorkoutLogger {...props} workout={workout} setWorkout={next => { saved = next; update(next); }}/>;
+    }
+    const view = render(<Harness initial={saved}/>);
+    fireEvent.click(screen.getByRole('button', { name: /Add warm-up set/ }));
+    expect(saved.exercises[0].sets?.map(set => Boolean(set.is_warmup))).toEqual([true, false]);
+    expect(screen.getByText('Warm-up')).toBeTruthy();
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toBe('1 of 1 sets completed');
+    view.unmount();
+    render(<Harness initial={saved}/>);
+    expect(screen.getByText('Warm-up')).toBeTruthy();
+});
+
+it('pairs an existing exercise, switches to it, and unlinks both', () => {
+    let saved: Workout = { ...original, exercises: [{ name: 'Squat', sets: [] }, { name: 'Lunge', sets: [] }] };
+    function Harness() {
+        const [workout, update] = useState(saved);
+        return <WorkoutLogger {...props} workout={workout} setWorkout={next => { saved = next; update(next); }}/>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('button', { name: /Add superset/ }));
+    expect(screen.queryByRole('button', { name: 'Lunge' })).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search exercises' }), { target: { value: 'Lunge' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Pair with Lunge in this workout' }));
+    expect(saved.exercises[0].superset_id).toBe(saved.exercises[1].superset_id);
+    fireEvent.click(screen.getByRole('button', { name: 'Switch exercise' }));
+    expect(screen.getByRole('button', { name: 'Switch exercise' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink superset' }));
+    expect(saved.exercises.every(item => item.superset_id === null)).toBe(true);
+});
+
 it('pauses an active session with the latest workout without finishing it', async () => {
     const pause = vi.fn().mockResolvedValue(undefined);
     const activeWorkout = { ...original, completed: false, note: 'Latest changes' };

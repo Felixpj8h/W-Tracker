@@ -78,7 +78,7 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
                 for workout in db.scalars(select(main.Workout).where(main.Workout.completed == True, main.Workout.performed_on >= start).order_by(main.Workout.performed_on)).all():
                     for item in workout.exercises:
                         if item.cached_exercise_id != exercise_id: continue
-                        sets = [{"weight": x.weight, "reps": x.reps, "exertion": x.exertion} for x in item.sets]
+                        sets = [{"weight": x.weight, "reps": x.reps, "exertion": x.exertion} for x in item.sets if not x.is_warmup]
                         sessions.append({"performed_on": str(workout.performed_on), "workout_name": workout.name, "sets": sets, "volume": sum(x["weight"] * x["reps"] for x in sets), "best_weight": max((x["weight"] for x in sets), default=0)})
                 return {"exercise": main.exercise_out(exercise), "sessions": sessions[-30:]}
             if name == "get_training_summary":
@@ -86,8 +86,8 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
                 workouts = db.scalars(select(main.Workout).where(main.Workout.completed == True, main.Workout.performed_on >= start).order_by(main.Workout.performed_on)).all(); muscle_sets: defaultdict[str, int] = defaultdict(int); volume = 0.0
                 for workout in workouts:
                     for item in workout.exercises:
-                        volume += sum(entry.weight * entry.reps for entry in item.sets)
-                        for muscle in main.dashboard_muscles(item): muscle_sets[muscle] += len(item.sets)
+                        volume += sum(entry.weight * entry.reps for entry in item.sets if not entry.is_warmup)
+                        for muscle in main.dashboard_muscles(item): muscle_sets[muscle] += sum(not entry.is_warmup for entry in item.sets)
                 weights = db.scalars(select(main.BodyweightEntry).where(main.BodyweightEntry.recorded_on >= start).order_by(main.BodyweightEntry.recorded_on)).all()
                 return {"from": str(start), "to": str(date.today()), "completed_sessions": len(workouts), "total_volume": volume, "sets_by_muscle": dict(muscle_sets), "bodyweight": [{"date": str(x.recorded_on), "weight": x.weight} for x in weights[-30:]]}
             if name in {"propose_create_routine", "propose_update_routine"}:

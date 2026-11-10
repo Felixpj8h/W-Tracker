@@ -24,6 +24,7 @@ export type Item = {
     target_weight?: number;
     rest_seconds?: number;
     note?: string;
+    superset_id?: string | null;
     planned?: {
         exercise_id?: number;
         cached_exercise_id?: number;
@@ -34,6 +35,7 @@ export type Item = {
     };
     sets?: {
         completed?: boolean;
+        is_warmup?: boolean;
         weight: number;
         reps: number;
         exertion?: number;

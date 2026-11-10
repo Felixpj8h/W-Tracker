@@ -13,12 +13,13 @@ import { moveItem } from '../../shared/lib/moveItem';
 export function WorkoutLogger({ workout, folders, active, start, startAdHoc, setWorkout, editing, finish, saveEdit, cancel, pause }: { workout: Workout | null; folders: Folder[]; active: Workout[]; start: (r: Routine) => void; startAdHoc: () => Promise<void>; setWorkout: (x: Workout) => void; editing: boolean; finish: (x: Workout) => Promise<void>; saveEdit: (x: Workout) => Promise<void>; cancel?: (x: Workout) => Promise<void>; pause?: (x: Workout) => Promise<void> }) {
     const [q, setQ] = useState(''), [results, setResults] = useState<Exercise[]>([]), [open, setOpen] = useState(0), [progressByExercise, setProgressByExercise] = useState<Record<number, ExerciseProgress>>({}), [restUntil, setRestUntil] = useState<number | null>(null), [now, setNow] = useState(Date.now), [extraExerciseOpen, setExtraExerciseOpen] = useState(false);
     const [substituteIndex, setSubstituteIndex] = useState<number | null>(null);
+    const [supersetSource, setSupersetSource] = useState<number | null>(null);
     const [pausing, setPausing] = useState(false);
     const [pauseError, setPauseError] = useState('');
     const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState('');
-    const closeSearch = useCallback(() => { setSubstituteIndex(null); setQ(''); setResults([]); setExtraExerciseOpen(false); }, []);
+    const closeSearch = useCallback(() => { setSubstituteIndex(null); setSupersetSource(null); setQ(''); setResults([]); setExtraExerciseOpen(false); }, []);
     const latestWorkout = useRef(workout);
     const pendingEdit = useRef<Workout | null>(null);
     const endingSession = useRef(false);
@@ -143,12 +144,15 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         const replaced = substituteIndex === null ? null : workout.exercises[substituteIndex];
         const next = { exercise_id: exercise.id, name: exercise.name, primary_muscle: exercise.primary_muscle, secondary_muscles: exercise.secondary_muscles, muscle_group: exercise.muscle_group,
             rest_seconds: replaced?.rest_seconds ?? 90,
-            sets: replaced ? (replaced.sets?.length ? replaced.sets.map(set => ({ weight: 0, reps: set.reps })) : [{ weight: 0, reps: 0 }]) : [{ weight: 0, reps: 0 }] };
-        setWorkout({ ...workout, exercises: substituteIndex === null ? [...workout.exercises, next] : workout.exercises.map((item, index) => index === substituteIndex ? next : item) });
+            sets: replaced ? (replaced.sets?.length ? replaced.sets.map(set => ({ weight: 0, reps: set.reps, is_warmup: set.is_warmup })) : [{ weight: 0, reps: 0 }]) : [{ weight: 0, reps: 0 }] };
+        const pairId = supersetSource === null ? null : crypto.randomUUID();
+        const exercises = substituteIndex === null ? [...workout.exercises, { ...next, superset_id: pairId }] : workout.exercises.map((item, index) => index === substituteIndex ? { ...next, superset_id: item.superset_id } : item);
+        if (pairId !== null && supersetSource !== null) exercises[supersetSource] = { ...exercises[supersetSource], superset_id: pairId };
+        setWorkout({ ...workout, exercises });
         selectExercise(substituteIndex ?? workout.exercises.length);
         setOpen(substituteIndex ?? workout.exercises.length);
         if (substituteIndex !== null) setRestUntil(null);
-        setSubstituteIndex(null); setQ(''); setResults([]); setExtraExerciseOpen(false);
+        setSubstituteIndex(null); setSupersetSource(null); setQ(''); setResults([]); setExtraExerciseOpen(false);
     };
     const moveExercise = (from: number, to: number) => {
         const exercises = moveItem(workout.exercises, from, to);
@@ -161,7 +165,8 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         setWorkout({ ...workout, exercises });
     };
     const removeExercise = () => {
-        const exercises = workout.exercises.filter((_, index) => index !== selectedIndex);
+        const removedPair = workout.exercises[selectedIndex]?.superset_id;
+        const exercises = workout.exercises.filter((_, index) => index !== selectedIndex).map(item => removedPair && item.superset_id === removedPair ? { ...item, superset_id: null } : item);
         const nextIndex = Math.max(0, Math.min(selectedIndex, exercises.length - 1));
         positionRef.current = { ...positionRef.current, index: nextIndex, identity: exerciseIdentity(exercises[nextIndex]) };
         setOpen(nextIndex);
@@ -198,9 +203,10 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     };
     const remaining = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
     return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} onMoveExercise={moveExercise} onRemoveExercise={removeExercise} previous={previous}
+        onPair={(index) => { const id = crypto.randomUUID(); setWorkout({...workout, exercises: workout.exercises.map((item, i) => i === selectedIndex || i === index ? {...item, superset_id:id} : item)}); }}
         onFinish={() => void finishSession()} onPause={!editing && pause ? () => void pauseSession() : undefined}
         onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} error={pauseError || saveError}
         restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}
-        searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} onOpenSearch={index => { setSubstituteIndex(index); setQ(''); setResults([]); setSearchError(''); setExtraExerciseOpen(true); }}
+        searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} supersetSearch={supersetSource !== null} onOpenSearch={(index, forSuperset = false) => { setSubstituteIndex(index); setSupersetSource(forSuperset ? selectedIndex : null); setQ(''); setResults([]); setSearchError(''); setExtraExerciseOpen(true); }}
         onCloseSearch={closeSearch} query={q} onQuery={setQ} results={results} onChoose={addExercise} searchLoading={searchLoading} searchError={searchError}/>;
 }

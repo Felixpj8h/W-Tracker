@@ -156,6 +156,7 @@ class WorkoutExercise(Base):
     position: Mapped[int] = mapped_column(Integer)
     note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     rest_seconds: Mapped[int] = mapped_column(Integer, default=90)
+    superset_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     sets: Mapped[list["WorkoutSet"]] = relationship(cascade="all, delete-orphan", order_by="WorkoutSet.position")
 
 
@@ -168,6 +169,7 @@ class WorkoutSet(Base):
     reps: Mapped[int] = mapped_column(Integer, default=0)
     exertion: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_warmup: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class BodyweightEntry(OwnedRecord, Base):
@@ -373,10 +375,11 @@ class SharedWorkoutImportIn(SharedWorkoutContentIn):
 class LoggedSetIn(BaseModel):
     weight: float = Field(ge=0); reps: int = Field(ge=0); exertion: Optional[float] = Field(None, ge=0, le=10)
     completed: bool = False
+    is_warmup: bool = False
 
 
 class WorkoutExerciseIn(BaseModel):
-    exercise_id: Optional[int] = None; name: Optional[str] = Field(None, max_length=180); primary_muscle: Optional[str] = Field(None, max_length=80); secondary_muscles: list[str] = Field(default_factory=list, max_length=20); muscle_group: Optional[str] = Field(None, max_length=20); note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); sets: list[LoggedSetIn] = Field(default_factory=list, max_length=100)
+    exercise_id: Optional[int] = None; name: Optional[str] = Field(None, max_length=180); primary_muscle: Optional[str] = Field(None, max_length=80); secondary_muscles: list[str] = Field(default_factory=list, max_length=20); muscle_group: Optional[str] = Field(None, max_length=20); note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); superset_id: Optional[str] = Field(None, max_length=40); sets: list[LoggedSetIn] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="before")
     @classmethod
@@ -809,11 +812,15 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN note VARCHAR(1000)")
         if "rest_seconds" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
+        if "superset_id" not in workout_exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN superset_id VARCHAR(40)")
         workout_set_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_sets)")}
         if "exertion" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
         if "completed" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN completed BOOLEAN NOT NULL DEFAULT 0")
+        if "is_warmup" not in workout_set_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN is_warmup BOOLEAN NOT NULL DEFAULT 0")
         workout_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
         if "note" not in workout_columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN note VARCHAR(1000)")
@@ -1314,7 +1321,7 @@ def workout_out(workout: Workout) -> dict:
         primary = canonical_muscle(e.primary_muscle) or "Unmapped"
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "position": s.position} for s in e.sets]}
+        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
     return {"id": workout.id, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
@@ -1325,8 +1332,8 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
         if item.exercise_id and not cached: raise HTTPException(404, "Exercise not found")
         primary = cached.primary_muscle if cached else canonical_muscle(item.primary_muscle)
         secondary = cached.secondary_muscles if cached else "|".join(stored_secondary_muscles("|".join(item.secondary_muscles)))
-        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=primary, secondary_muscles=secondary, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(primary)), position=pos, note=item.note, rest_seconds=item.rest_seconds)
-        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed) for i, s in enumerate(item.sets)]
+        wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=primary, secondary_muscles=secondary, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(primary)), position=pos, note=item.note, rest_seconds=item.rest_seconds, superset_id=item.superset_id)
+        wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed, is_warmup=s.is_warmup) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 
 
@@ -1627,7 +1634,7 @@ def exercise_progress(exercise_id: int, exclude_workout_id: Optional[int] = None
         for item in workout.exercises:
             matched_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
             if matched_id != exercise_id: continue
-            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets]
+            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets if not s.is_warmup]
             volume = sum(s["weight"] * s["reps"] for s in sets)
             best_weight = max((s["weight"] for s in sets), default=0)
             estimated_1rm = max((s["weight"] * (1 + s["reps"] / 30) for s in sets if s["reps"] > 0), default=0)
@@ -1649,7 +1656,7 @@ def workout_exercise_progress(workout_id: int, db: Session = Depends(get_db)):
         for item in workout.exercises:
             exercise_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
             if exercise_id not in sessions: continue
-            sets = [{"weight": entry.weight, "reps": entry.reps, "exertion": entry.exertion} for entry in item.sets]
+            sets = [{"weight": entry.weight, "reps": entry.reps, "exertion": entry.exertion} for entry in item.sets if not entry.is_warmup]
             volume = sum(entry["weight"] * entry["reps"] for entry in sets)
             best_weight = max((entry["weight"] for entry in sets), default=0)
             estimated_1rm = max((entry["weight"] * (1 + entry["reps"] / 30) for entry in sets if entry["reps"] > 0), default=0)
@@ -1714,10 +1721,10 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
             if not included: continue
             for exercise in workout.exercises:
                 if exercise.muscle_group in bucket:
-                    bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets) / scale
-                    set_bucket[exercise.muscle_group] += len(exercise.sets) / scale
+                    bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets if not s.is_warmup) / scale
+                    set_bucket[exercise.muscle_group] += sum(not s.is_warmup for s in exercise.sets) / scale
                 for muscle in dashboard_muscles(exercise):
-                    muscle_set_bucket[muscle] += len(exercise.sets) / scale
+                    muscle_set_bucket[muscle] += sum(not s.is_warmup for s in exercise.sets) / scale
     weights = list_weights(db) if include_bodyweight else []
     # Demo mode deliberately uses a fixed 14-point window so older real or
     # earlier demo entries cannot distort the sample trend line.
@@ -1750,10 +1757,10 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
     workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
     for workout in workouts:
         for exercise in workout.exercises:
-            volume = sum(entry.weight * entry.reps for entry in exercise.sets)
+            volume = sum(entry.weight * entry.reps for entry in exercise.sets if not entry.is_warmup)
             # A completed bodyweight/zero-load set still trains a muscle. Its
             # reps become the visual score when there is no load volume.
-            activation = volume or max(1, sum(entry.reps for entry in exercise.sets))
+            activation = volume or max(1, sum(entry.reps for entry in exercise.sets if not entry.is_warmup))
             cached = db.get(Exercise, exercise.cached_exercise_id) if exercise.cached_exercise_id else None
             # Historical workouts retain the muscles recorded at logging time.
             # Catalogue edits or incomplete catalogue rows must not erase them.

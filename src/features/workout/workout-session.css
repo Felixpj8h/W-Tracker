@@ -42,6 +42,12 @@
 .workout-session .session-set-labels{padding:14px 0 6px;font-size:11px;letter-spacing:.07em;font-weight:600;color:var(--muted)}
 .workout-session .session-set-row{margin:0;padding:8px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent);border-radius:0;font-size:16px;transition:background-color .15s ease}
 .workout-session .session-set-row.completed{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.workout-session .session-set-row.warmup{grid-template-columns:68px repeat(3,minmax(0,1fr)) 44px}
+.workout-session .session-set-row.warmup>span:first-child{font-size:11px;font-weight:700;color:var(--muted)}
+.workout-session .session-superset{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;font-size:13px}
+.workout-session .session-superset button{min-height:36px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--field,var(--bg));color:var(--accent-dark);cursor:pointer}
+.workout-session .session-superset>div{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%}
+.workout-session .session-add-warmup{display:block;min-height:40px;margin:6px 0 8px;padding:6px 0;border:0;background:transparent;color:var(--accent-dark);font-size:13px;font-weight:650;cursor:pointer}
 .workout-session .session-set-row>input:not([type=checkbox]){width:100%;min-width:0;height:44px;padding:8px 3px;border:1px solid var(--border);border-radius:6px;background:var(--field,var(--bg));color:var(--text);font-size:18px;line-height:1.2;text-align:center;font-variant-numeric:tabular-nums;box-shadow:none;scroll-margin-block:140px}
 .workout-session .session-set-row>input::placeholder{color:var(--muted);opacity:.65}
 .workout-session .session-set-row>input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
