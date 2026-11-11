@@ -15,10 +15,12 @@ RUN sed -i 's|/etc/nginx/conf.d/\*.conf|/tmp/default.conf|' /etc/nginx/nginx.con
 USER 101
 # Hosting injects its private service address at runtime. /tmp also works with
 # the read-only filesystem used by the local Compose deployment.
-ENV BACKEND_ADDRESS=backend:8000 \
+ENV TRUSTED_EDGE_CIDR=127.0.0.1/32 \
+    TRUSTED_EDGE_HEADER=X-Forwarded-For \
+    BACKEND_ADDRESS=backend:8000 \
     NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
     NGINX_ENVSUBST_OUTPUT_DIR=/tmp \
-    NGINX_ENVSUBST_FILTER=^(BACKEND_ADDRESS|NGINX_LOCAL_RESOLVERS)$
+    NGINX_ENVSUBST_FILTER=^(BACKEND_ADDRESS|NGINX_LOCAL_RESOLVERS|TRUSTED_EDGE_CIDR|TRUSTED_EDGE_HEADER)$
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

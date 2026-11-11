@@ -4,6 +4,7 @@ services:
       context: ./backend
     environment:
       APP_ENV: production
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-127.0.0.1}
       DATABASE_URL: sqlite:////data/workout_tracker.db
       ENABLE_API_DOCS: "false"
       DEMO_ENABLED: ${DEMO_ENABLED:-false}
@@ -44,6 +45,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      TRUSTED_EDGE_CIDR: ${TRUSTED_EDGE_CIDR:-127.0.0.1/32}
+      TRUSTED_EDGE_HEADER: ${TRUSTED_EDGE_HEADER:-X-Forwarded-For}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

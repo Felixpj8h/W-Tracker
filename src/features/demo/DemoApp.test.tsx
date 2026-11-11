@@ -13,7 +13,7 @@ const responseFor = (url: string) => {
   if (url.includes('/dashboard/body-map')) return { muscles: [] };
   if (url.includes('/dashboard')) return dash;
   if (url.includes('/folders')) return [{ id: 1, name: 'Public folder', routines: [routine] }];
-  if (url.includes('/workouts')) return [workout];
+  if (url.includes('/workouts')) return { items: [workout], next_cursor: null, months: ['2026-10'], total_sessions: 1, total_volume: 480 };
   if (url.includes('/calendar')) return { plan: null, days: [{ date: '2026-10-13', routine_id: 1, routine_name: 'Public routine', status: 'completed', workout_name: 'Public workout' }] };
   throw new Error(`Unexpected request: ${url}`);
 };
@@ -34,6 +34,38 @@ const clickPage = async (page: string) => {
 };
 
 describe('Public demo workspace', () => {
+  it('loads calendar details even when the workout is outside the history page', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 13, 12));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      let data: unknown = responseFor(url);
+      if (url.includes('/workouts')) data = { items: [], next_cursor: null, months: ['2026-10'], total_sessions: 1, total_volume: 480 };
+      if (url.endsWith('/workouts/1')) data = workout;
+      if (url.includes('/calendar')) data = { plan: null, days: [{ date: '2026-10-13', workout_id: 1, routine_id: null, routine_name: null, status: 'completed', workout_name: 'Public workout' }] };
+      return { ok: true, json: async () => data };
+    }));
+    render(<App/>);
+    await screen.findByText('Weekly volume');
+    await clickPage('Calendar');
+    fireEvent.click(await screen.findByRole('button', { name: 'View workout' }));
+    expect(screen.getByRole('dialog', { name: 'Workout details' }).textContent).toContain('Public workout');
+    expect(fetch).toHaveBeenCalledWith('/api/v1/demo/workouts/1', expect.objectContaining({ method: 'GET', credentials: 'omit' }));
+  });
+
+  it('keeps dashboard activity independent of history search filters', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 14, 12));
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () =>
+      url.includes('q=Unmatched') ? { items: [], next_cursor: null, months: ['2026-10'], total_sessions: 0, total_volume: 0 } : responseFor(url) })));
+    render(<App/>);
+    await screen.findByText('Weekly volume');
+    await clickPage('History');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search workouts or exercises' }), { target: { value: 'Unmatched' } });
+    await screen.findByText(/0 matching sessions/);
+    await clickPage('Dashboard');
+    expect(await screen.findByRole('button', { name: /Public workout/ })).toBeTruthy();
+  });
+
   it('uses only credential-free public GETs and keeps every page read only', async () => {
     const before = localStorage.getItem('workout-active-session');
     render(<App/>);

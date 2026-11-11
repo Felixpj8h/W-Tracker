@@ -24,6 +24,7 @@ def public_demo(tmp_path, monkeypatch):
     monkeypatch.setenv("DEMO_ENABLED", "true")
     monkeypatch.setenv("DEMO_OWNER_EMAIL", OWNER)
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client")
+    monkeypatch.setenv("PUBLIC_ORIGIN", "https://testserver")
     monkeypatch.setenv("ALLOWED_EMAILS", OWNER)
     monkeypatch.setattr(m.app.state, "disable_auth", False, raising=False)
     monkeypatch.setattr(m, "WGER_MUSCLES", None)
@@ -57,7 +58,7 @@ def public_demo(tmp_path, monkeypatch):
                     "exercises": [{"exercise_id": exercise.id, "planned_sets": 2, "note": "PRIVATE_NESTED_NOTE"}]}))
             db.add_all([plan, assignment])
         db.commit()
-    browser = TestClient(m.app)
+    browser = TestClient(m.app, base_url="https://testserver")
     yield browser, engine, ids
     browser.close()
     if demo._engine is not None:
@@ -102,6 +103,73 @@ def test_public_bodyweight_is_scoped_live_and_read_only(public_demo):
     data = client.get("/api/v1/demo/dashboard").json()
     assert data["latest_weight"] is None
     assert data["weight_series"] == []
+
+
+def test_public_history_is_paged_scoped_and_uses_bounded_queries(public_demo):
+    client, engine, ids = public_demo
+    with Session(engine) as db:
+        for index in range(135):
+            db.add(m.Workout(owner_email=OWNER, name=f"Paged {index}", completed=True,
+                performed_on=date.today(), exercises=[m.WorkoutExercise(name="Bench", position=0,
+                    cached_exercise_id=ids["exercise"], sets=[m.WorkoutSet(position=0, weight=50, reps=5)])]))
+        db.commit()
+    statements = []
+    readonly = demo.readonly_engine()
+    def capture(_connection, _cursor, statement, *_args):
+        statements.append(statement)
+    event.listen(readonly, "before_cursor_execute", capture)
+    try:
+        page = client.get("/api/v1/demo/workouts").json()
+        assert len(page["items"]) == 25
+        assert page["total_sessions"] == 136
+        assert len(statements) <= 10
+        identities = [item["id"] for item in page["items"]]
+        while page["next_cursor"]:
+            page = client.get("/api/v1/demo/workouts", params={"cursor": page["next_cursor"]}).json()
+            identities.extend(item["id"] for item in page["items"])
+        assert len(identities) == len(set(identities)) == 136
+        statements.clear()
+        progress = client.get(f"/api/v1/demo/workouts/{ids[OWNER]['workout']}/exercise-progress")
+        assert progress.status_code == 200
+        assert len(next(iter(progress.json().values()))["sessions"]) <= 100
+        assert len(statements) <= 12
+    finally:
+        event.remove(readonly, "before_cursor_execute", capture)
+    assert client.get("/api/v1/demo/workouts", params={"q": "%"}).json()["total_sessions"] == 0
+    assert client.get("/api/v1/demo/workouts", params={"q": "Paged 134"}).json()["total_sessions"] == 1
+    assert client.get("/api/v1/demo/workouts", params={"limit": 101}).status_code == 422
+    assert client.get("/api/v1/demo/workouts", params={"week": str(date.today())}).json()["total_sessions"] == 136
+    assert client.get("/api/v1/demo/workouts", params={"week": str(date.today() - timedelta(days=7))}).json()["total_sessions"] == 0
+    with Session(engine) as db:
+        db.add(m.Workout(owner_email=OWNER, name="ØKT", completed=True, performed_on=date.today()))
+        db.commit()
+    assert client.get("/api/v1/demo/workouts", params={"q": "økt"}).json()["total_sessions"] == 1
+
+
+def test_proxy_middleware_ignores_forwarding_from_untrusted_peers(public_demo):
+    import time
+    from collections import deque
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    ip = "198.51.100.20"
+    m.RATE_LIMIT_BUCKETS[(ip, "demo-read")] = deque([time.monotonic()] * 120)
+    wrapped = ProxyHeadersMiddleware(m.app, trusted_hosts=["10.0.0.10"])
+    with TestClient(wrapped, client=(ip, 1234)) as browser:
+        for forwarded in (ip, f"203.0.113.45, {ip}"):
+            response = browser.get("/api/v1/demo/workouts", headers={"X-Forwarded-For": forwarded})
+            assert response.status_code == 429
+
+
+def test_workout_progress_does_not_publish_unlinked_catalogue_matches(public_demo):
+    client, engine, ids = public_demo
+    with Session(engine) as db:
+        exercise = db.scalar(select(m.WorkoutExercise).where(
+            m.WorkoutExercise.workout_id == ids[OWNER]["workout"]))
+        exercise.cached_exercise_id = None
+        db.commit()
+    response = client.get(f"/api/v1/demo/workouts/{ids[OWNER]['workout']}/exercise-progress")
+    assert response.status_code == 200
+    assert response.json() == {}
 
 
 def test_public_projection_is_scoped_private_field_free_and_no_side_effects(public_demo, monkeypatch):
@@ -182,7 +250,7 @@ def test_disabled_or_missing_configuration_fails_closed(public_demo, monkeypatch
 def test_reads_are_live_and_existing_authenticated_edits_work(public_demo):
     client, engine, ids = public_demo
     client.cookies.set(m.SESSION_COOKIE, m._session_value({"email": OWNER, "name": "Felix", "given_name": "Felix"}))
-    response = client.put(f"/api/v1/folders/1", json={"name": "Updated publicly"}, headers={"Origin": "http://testserver"})
+    response = client.put(f"/api/v1/folders/1", json={"name": "Updated publicly"}, headers={"Origin": "https://testserver"})
     assert response.status_code == 200
     assert "Updated publicly" in client.get("/api/v1/demo/folders").text
     assert client.get("/api/v1/session").json()["email"] == OWNER

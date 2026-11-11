@@ -2,6 +2,7 @@ import type { Item } from '../exercises/types';
 
 export type Workout = {
     id?: number;
+    revision?: number;
     routine_id?: number | null;
     name: string;
     performed_on: string;

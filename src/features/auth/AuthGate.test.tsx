@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from './AuthGate';
 
@@ -29,5 +29,21 @@ describe('Session restoration', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     render(<AuthGate>{() => <div>Workspace</div>}</AuthGate>);
     expect(await screen.findByRole('button', { name: 'Retry connection' })).toBeTruthy();
+  });
+
+  it('keeps the workspace closed and offers retry when server logout fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ email: 'athlete@example.com', name: 'Athlete' }) })
+      .mockRejectedValueOnce(new TypeError('Offline'))
+      .mockResolvedValue({ ok: true, json: async () => ({ saved: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AuthGate>{() => <div>Private workspace</div>}</AuthGate>);
+    await screen.findByText('Private workspace');
+    await act(async () => window.dispatchEvent(new Event('google-sign-out')));
+    const retry = await screen.findByRole('button', { name: 'Retry sign out' });
+    expect(screen.queryByText('Private workspace')).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry sign out' })).toBeNull());
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/session/logout'))).toHaveLength(2);
   });
 });

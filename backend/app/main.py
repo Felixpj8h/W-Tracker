@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections import deque
-import base64
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import ipaddress
-import hmac
 import json
 import logging
 import os
@@ -27,9 +25,9 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria, selectinload
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
@@ -48,25 +46,27 @@ RATE_LIMIT_LOCK = threading.Lock()
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 SESSION_COOKIE = "w_tracker_session"
 SESSION_LIFETIME_SECONDS = 24 * 60 * 60
-SESSION_SECRET = os.getenv("SESSION_SECRET", "").encode() or secrets.token_bytes(32)
 
 
 def _session_value(identity: dict[str, str]) -> str:
-    payload = json.dumps({**identity, "expires": int(time.time()) + SESSION_LIFETIME_SECONDS}, separators=(",", ":")).encode()
-    encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
-    signature = hmac.new(SESSION_SECRET, encoded.encode(), hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
+    token = secrets.token_urlsafe(32)
+    with SessionLocal() as db:
+        db.execute(delete(BrowserSession).where(BrowserSession.expires <= int(time.time())))
+        db.add(BrowserSession(token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            identity=json.dumps(identity), expires=int(time.time()) + SESSION_LIFETIME_SECONDS))
+        db.commit()
+    return token
 
 
 def _session_identity(value: str) -> dict[str, str] | None:
+    if not value or len(value) > 128:
+        return None
     try:
-        encoded, signature = value.split(".", 1)
-        expected = hmac.new(SESSION_SECRET, encoded.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-        if int(payload["expires"]) <= time.time():
-            return None
+        with SessionLocal() as db:
+            item = db.get(BrowserSession, hashlib.sha256(value.encode()).hexdigest())
+            if item is None or item.revoked or item.expires <= time.time():
+                return None
+            payload = json.loads(item.identity)
         allowed = {email.strip().lower() for email in os.getenv("ALLOWED_EMAILS", "").split(",") if email.strip()}
         if payload["email"] not in allowed:
             return None
@@ -77,6 +77,14 @@ def _session_identity(value: str) -> dict[str, str] | None:
 
 class Base(DeclarativeBase):
     pass
+
+
+class BrowserSession(Base):
+    __tablename__ = "browser_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    identity: Mapped[str] = mapped_column(Text)
+    expires: Mapped[int] = mapped_column(Integer, index=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class OwnedRecord:
@@ -137,6 +145,7 @@ class Workout(OwnedRecord, Base):
     name: Mapped[str] = mapped_column(String(120))
     performed_on: Mapped[date] = mapped_column(Date, default=date.today)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -391,6 +400,8 @@ class WorkoutExerciseIn(BaseModel):
 
 
 class WorkoutIn(BaseModel):
+    revision: Optional[int] = Field(default=None, ge=1)
+    intent: Literal["draft", "edit"] = "draft"
     name: str = Field(min_length=1, max_length=120); performed_on: date; note: Optional[str] = Field(None, max_length=1000); exercises: list[WorkoutExerciseIn] = Field(max_length=100)
 
 
@@ -562,8 +573,9 @@ def authenticate_request(request: Request) -> dict[str, str]:
             if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
                 origin = request.headers.get("origin", "")
                 public_origin = os.getenv("PUBLIC_ORIGIN", "").rstrip("/")
-                request_origin = f"{request.url.scheme}://{request.url.netloc}"
-                trusted_origins = {public_origin, request_origin, *configured_origins}
+                trusted_origins = {value for value in (public_origin, *configured_origins) if value}
+                if APP_ENV == "development":
+                    trusted_origins.update({"http://localhost:5173", "http://testserver"})
                 is_development_origin = bool(development_origin_regex and re.fullmatch(development_origin_regex, origin))
                 if origin not in trusted_origins and not is_development_origin:
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid request origin.")
@@ -781,10 +793,24 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     if APP_ENV == "production":
+        origin = urlsplit(os.getenv("PUBLIC_ORIGIN", ""))
+        if origin.scheme != "https" or not origin.hostname or origin.username or origin.password or origin.path or origin.query or origin.fragment:
+            raise RuntimeError("PUBLIC_ORIGIN must be an HTTPS origin without a path")
+        for value in configured_origins:
+            parsed = urlsplit(value)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+                raise RuntimeError("Production ALLOWED_ORIGINS must contain exact HTTPS origins")
         if not getattr(app.state, "disable_catalogue_refresh", False):
             start_catalogue_refresh_background()
         return
     Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
+        if "revision" not in columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+    from .database_security import install_folder_guards
+    with engine.begin() as connection:
+        install_folder_guards(connection)
     # Lightweight backwards-compatible migration for existing local SQLite files.
     with engine.begin() as connection:
         columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(routine_exercises)")}
@@ -926,7 +952,17 @@ def session(request: Request):
 
 
 @app.post("/api/v1/session/logout")
-def logout():
+def logout(request: Request):
+    origin = request.headers.get("origin", "")
+    trusted = {value for value in (os.getenv("PUBLIC_ORIGIN", "").rstrip("/"), *configured_origins) if value}
+    if APP_ENV == "development":
+        trusted.update({"http://localhost:5173", "http://testserver"})
+    if origin not in trusted and not (development_origin_regex and re.fullmatch(development_origin_regex, origin)):
+        raise HTTPException(403, "Invalid request origin.")
+    token = request.cookies.get(SESSION_COOKIE, "")
+    with SessionLocal() as db:
+        db.execute(update(BrowserSession).where(BrowserSession.token_hash == hashlib.sha256(token.encode()).hexdigest()).values(revoked=True))
+        db.commit()
     response = JSONResponse({"saved": True})
     response.delete_cookie(SESSION_COOKIE, path="/api/v1")
     return response
@@ -1071,6 +1107,15 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
     if not proposal or not conversation: raise HTTPException(404, "Proposal not found")
     if proposal.status == "applied": return saved_response(ai_proposal_out(proposal))
     if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
+    claimed = db.execute(update(AIChangeProposal).where(AIChangeProposal.id == proposal_id,
+        AIChangeProposal.status == "pending").values(status="applying"),
+        execution_options={"synchronize_session": False}).rowcount
+    if not claimed:
+        db.rollback()
+        db.refresh(proposal)
+        if proposal.status == "applied":
+            return saved_response(ai_proposal_out(proposal))
+        raise HTTPException(409, f"Proposal is {proposal.status}")
     try:
         raw = json.loads(proposal.payload)
         if proposal.operation == "create_routine":
@@ -1137,7 +1182,16 @@ def reject_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor
     if not proposal or not conversation: raise HTTPException(404, "Proposal not found")
     if proposal.status == "rejected": return saved_response(ai_proposal_out(proposal))
     if proposal.status != "pending": raise HTTPException(409, f"Proposal is {proposal.status}")
-    proposal.status = "rejected"; proposal.resolved_at = datetime.utcnow(); db.commit(); db.refresh(proposal)
+    claimed = db.execute(update(AIChangeProposal).where(AIChangeProposal.id == proposal_id,
+        AIChangeProposal.status == "pending").values(status="rejected", resolved_at=datetime.utcnow()),
+        execution_options={"synchronize_session": False}).rowcount
+    if not claimed:
+        db.rollback()
+        db.refresh(proposal)
+        if proposal.status == "rejected":
+            return saved_response(ai_proposal_out(proposal))
+        raise HTTPException(409, f"Proposal is {proposal.status}")
+    db.commit(); db.refresh(proposal)
     return saved_response(ai_proposal_out(proposal))
 
 
@@ -1207,6 +1261,8 @@ def list_folders(db: Session = Depends(get_db)):
 
 
 def populate_routine(routine: Routine, payload: RoutineIn, db: Session):
+    if payload.folder_id is not None and db.get(RoutineFolder, payload.folder_id) is None:
+        raise HTTPException(404, "Folder not found")
     routine.name, routine.folder_id = payload.name, payload.folder_id
     routine.exercises.clear()
     for pos, choice in enumerate(payload.exercises):
@@ -1322,7 +1378,7 @@ def workout_out(workout: Workout) -> dict:
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
         return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
-    return {"id": workout.id, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
+    return {"id": workout.id, "revision": workout.revision, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
 def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
@@ -1350,17 +1406,38 @@ def create_workout_draft(payload: WorkoutDraftIn, db: Session = Depends(get_db))
     return saved_response(workout_out(workout))
 
 
+def claim_workout(workout_id: int, payload: WorkoutIn, db: Session):
+    workout = db.get(Workout, workout_id)
+    if workout is None:
+        raise HTTPException(404, "Workout not found")
+    if payload.revision is None:
+        raise HTTPException(409, "Reload this workout before saving. A revision is required.")
+    conditions = [Workout.id == workout_id, Workout.owner_email == workout.owner_email,
+                  Workout.revision == payload.revision]
+    if payload.intent == "draft":
+        conditions.append(Workout.completed == False)
+    claimed = db.execute(update(Workout).where(*conditions).values(revision=Workout.revision + 1),
+                         execution_options={"synchronize_session": False}).rowcount
+    if not claimed:
+        db.rollback()
+        raise HTTPException(409, "This workout changed. Reload it before saving again.")
+    db.refresh(workout)
+    return workout
+
+
 @app.put("/api/v1/workouts/{workout_id}")
 def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
-    workout = db.get(Workout, workout_id)
-    if not workout: raise HTTPException(404, "Workout not found")
-    populate_workout(workout, payload, db); workout.completed = True; workout.completed_at = datetime.utcnow(); db.commit(); return saved_response(workout_out(workout))
+    workout = claim_workout(workout_id, payload, db)
+    populate_workout(workout, payload, db)
+    if not workout.completed:
+        workout.completed_at = datetime.utcnow()
+    workout.completed = True
+    db.commit(); return saved_response(workout_out(workout))
 
 
 @app.patch("/api/v1/workouts/{workout_id}")
 def update_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
-    workout = db.get(Workout, workout_id)
-    if not workout: raise HTTPException(404, "Workout not found")
+    workout = claim_workout(workout_id, payload, db)
     populate_workout(workout, payload, db)
     db.commit(); db.refresh(workout)
     return saved_response(workout_out(workout))
@@ -1518,7 +1595,14 @@ def move_calendar_workout(payload: CalendarMoveIn, db: Session = Depends(get_db)
     if calendar_schedule(db, payload.target) or db.scalar(select(Workout).where(Workout.completed == True, Workout.performed_on == payload.target)):
         raise HTTPException(409, "That day already has a workout. Choose an empty day.")
     if completed:
-        completed[0].performed_on = payload.target
+        workout = completed[0]
+        moved = db.execute(update(Workout).where(Workout.id == workout.id,
+            Workout.owner_email == workout.owner_email, Workout.revision == workout.revision)
+            .values(performed_on=payload.target, revision=Workout.revision + 1),
+            execution_options={"synchronize_session": False}).rowcount
+        if not moved:
+            db.rollback()
+            raise HTTPException(409, "This workout changed. Reload the calendar before moving it.")
     else:
         target = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == payload.target))
         if not target:
@@ -1591,7 +1675,7 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
     from calendar import monthrange
     plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
     first = date(year, month, 1); last = date(year, month, monthrange(year, month)[1])
-    completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
+    completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
     planned = {item.weekday: item for item in plan.days} if plan else {}
     assignments = {item.day: item for item in db.scalars(select(CalendarAssignment).where(CalendarAssignment.day >= first, CalendarAssignment.day <= last)).all() if item.routine is not None}
     labels = {item.day: item.label for item in db.scalars(select(CalendarDayLabel).where(CalendarDayLabel.day >= first, CalendarDayLabel.day <= last)).all() if item.label is not None}
@@ -1616,11 +1700,11 @@ def legacy_exercise_ids(db: Session, names: set[str]) -> dict[str, int]:
     return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
 
 
-def progress_workouts(db: Session, exclude_workout_id: Optional[int] = None):
+def progress_workouts(db: Session, exclude_workout_id: Optional[int] = None, limit: Optional[int] = None):
     query = select(Workout).where(Workout.completed == True)
     if exclude_workout_id is not None:
         query = query.where(Workout.id != exclude_workout_id)
-    return db.scalars(query.order_by(Workout.performed_on.desc(), Workout.completed_at.desc(), Workout.created_at.desc(), Workout.id.desc())).all()
+    return db.scalars(query.order_by(Workout.performed_on.desc(), Workout.completed_at.desc(), Workout.created_at.desc(), Workout.id.desc()).limit(db.info.get("history_limit", limit)).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets))).all()
 
 
 @app.get("/api/v1/exercises/{exercise_id}/progress")
@@ -1708,7 +1792,7 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
     current_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}; previous_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}
     has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
-    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= min(week_start, *comparison_starts), Workout.performed_on < max(week_end, *(start + timedelta(days=days) for start in comparison_starts)))).all()
+    workouts = db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= min(week_start, *comparison_starts), Workout.performed_on < max(week_end, *(start + timedelta(days=days) for start in comparison_starts)))).all()
     for workout in workouts:
         in_current = week_start <= workout.performed_on < week_end
         in_previous = any(start <= workout.performed_on < start + timedelta(days=days) for start in comparison_starts)
@@ -1754,7 +1838,7 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
     # Some older/demo rows only know a broad group (for example "Legs"). Keep
     # that data useful by spreading it across the Wger regions for that group.
     broad_group_volume: defaultdict[str, float] = defaultdict(float)
-    workouts = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
+    workouts = db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
     for workout in workouts:
         for exercise in workout.exercises:
             volume = sum(entry.weight * entry.reps for entry in exercise.sets if not entry.is_warmup)

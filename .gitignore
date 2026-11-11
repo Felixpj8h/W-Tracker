@@ -21,6 +21,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+/AGENTS.md
 backend/logs/
 
 # Editor directories and files

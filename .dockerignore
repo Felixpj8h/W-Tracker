@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 node_modules
+.venv
+tmp
 dist
 .pytest_cache
 **/.pytest_cache

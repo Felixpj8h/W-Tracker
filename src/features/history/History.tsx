@@ -7,8 +7,16 @@ import { HistoryAnalysis } from './HistoryAnalysis';
 import { duration } from '../../shared/lib/format';
 import { DashboardIcon } from '../dashboard/DashboardIcon';
 
-export function History({ data, edit, refresh, note, repeat, readOnly = false }: { data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void>; readOnly?: boolean }) {
-    const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(''), [month, setMonth] = useState('all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
+export function History({ data, edit, refresh, note, repeat, readOnly = false, pagination }: { pagination?: { q: string; month: string; months: string[]; total: number; volume: number; busy: boolean; more: boolean; filter: (query: string, month: string) => void; loadMore: () => void }; data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void>; readOnly?: boolean }) {
+    const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(pagination?.q ?? ''), [month, setMonth] = useState(pagination?.month ?? 'all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());
+    const filter = useRef(pagination?.filter);
+    filter.current = pagination?.filter;
+    const initialFilters = useRef(true);
+    useEffect(() => {
+        if (initialFilters.current) { initialFilters.current = false; return; }
+        const timer = setTimeout(() => filter.current?.(query, month), 300);
+        return () => clearTimeout(timer);
+    }, [query, month]);
     const lastSelectedId = useRef<number | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRoot = useOutsideDismiss<HTMLDivElement>(menuOpen, () => setMenuOpen(false));
@@ -20,7 +28,7 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
     useEffect(() => { document.body.classList.toggle('history-session-open', detailOpen); return () => document.body.classList.remove('history-session-open'); }, [detailOpen]);
     useEffect(() => { if (selectedId === null && detailOpen && lastSelectedId.current !== null) { setDetailOpen(false); setSelectedId(lastSelectedId.current); } }, [selectedId, detailOpen]);
     const completed = data.filter(workout => workout.completed && !optimisticallyDeleted.has(workout.id ?? -1));
-    const months = [...new Set(completed.map(workout => workout.performed_on.slice(0, 7)))];
+    const months = pagination?.months ?? [...new Set(completed.map(workout => workout.performed_on.slice(0, 7)))];
     const filtered = completed.filter(workout => (month === 'all' || workout.performed_on.startsWith(month)) && `${workout.name} ${workout.exercises.map(item => item.name).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
     const selected = filtered.find(workout => workout.id === selectedId) ?? filtered[0] ?? null;
     const groups = filtered.reduce<Record<string, Workout[]>>((all, workout) => { const key = workout.performed_on.slice(0, 7); (all[key] ??= []).push(workout); return all; }, {});
@@ -44,7 +52,7 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
         if (readOnly || !selected) return;
         setNoteSaving(true);
         try {
-            await api(`/workouts/${selected.id}`, { method: 'PATCH', body: JSON.stringify({ ...selected, note: noteDraft.trim() }) });
+            await api(`/workouts/${selected.id}`, { method: 'PATCH', body: JSON.stringify({ ...selected, intent: "edit", note: noteDraft.trim() }) });
             await refresh();
             setNoteOpen(false);
             note('Note saved');
@@ -53,11 +61,12 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false }:
         } finally { setNoteSaving(false); }
     };
     return <>
-        <PageHeader><h1 className="history-page-title">Workout history</h1></PageHeader>
+        <PageHeader><h1 className="history-page-title">Workout history</h1></PageHeader>{pagination && <p>{pagination.total} matching sessions · {pagination.volume.toLocaleString()} kg total volume. Charts show loaded sessions.</p>}
         <div className="history-tabs" role="tablist" aria-label="History view">
             <button type="button" role="tab" aria-selected={view === 'sessions'} className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>Sessions</button>
             <button type="button" role="tab" aria-selected={view === 'analysis'} className={view === 'analysis' ? 'active' : ''} onClick={() => setView('analysis')}>Analysis</button>
         </div>
+        {pagination?.more && <button disabled={pagination.busy} onClick={pagination.loadMore}>{pagination.busy ? "Loading…" : "Load more"}</button>}
         {view === 'analysis' ? <HistoryAnalysis completed={completed}/> : <>
             <section className="history-toolbar" aria-label="Filter sessions">
                 <label className="history-search"><span className="visually-hidden">Search workouts or exercises</span><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search workouts or exercises"/></label>

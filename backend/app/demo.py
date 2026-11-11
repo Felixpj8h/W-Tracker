@@ -10,8 +10,8 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import create_engine, event, select
-from sqlalchemy.orm import Session, with_loader_criteria
+from sqlalchemy import create_engine, event, select, func, or_, and_
+from sqlalchemy.orm import Session, with_loader_criteria, selectinload
 
 from . import main as m
 
@@ -61,6 +61,8 @@ def readonly_engine():
             @event.listens_for(_engine, "connect")
             def query_only(connection, _record):
                 connection.execute("PRAGMA query_only=ON")
+                connection.create_function("casefold", 1,
+                    lambda value: value.casefold() if value is not None else None, deterministic=True)
     return _engine
 
 
@@ -68,7 +70,7 @@ def demo_db():
     if not demo_enabled():
         raise HTTPException(404, "Demo unavailable.")
     owner = os.environ["DEMO_OWNER_EMAIL"].strip().lower()
-    with ReadOnlySession(bind=readonly_engine(), autoflush=False, info={"owner_email": owner}) as db:
+    with ReadOnlySession(bind=readonly_engine(), autoflush=False, info={"owner_email": owner, "history_limit": 100}) as db:
         yield db
 
 
@@ -267,13 +269,47 @@ def routine(routine_id: int, db: Session = Depends(demo_db)):
     return public_routine(item)
 
 
-@router.get("/workouts", response_model=list[Workout])
-def workouts(db: Session = Depends(demo_db)):
-    return [public_workout(w) for w in db.scalars(select(m.Workout).order_by(m.Workout.performed_on.desc(), m.Workout.id.desc()))]
+@router.get("/workouts")
+def workouts(limit: int = Query(25, ge=1, le=100), cursor: str | None = None,
+             q: str = Query("", max_length=180), month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+             week: date | None = None,
+             db: Session = Depends(demo_db)):
+    query = select(m.Workout)
+    if week is not None:
+        if not 2000 <= week.year <= 2100:
+            raise HTTPException(422, "Choose a week between 2000 and 2100")
+        query = query.where(m.Workout.performed_on >= week, m.Workout.performed_on < week + timedelta(days=7))
+    if q.strip():
+        term = "%" + q.strip().casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.where(or_(func.casefold(m.Workout.name).like(term, escape="\\"),
+            m.Workout.exercises.any(func.casefold(m.WorkoutExercise.name).like(term, escape="\\"))))
+    if month:
+        query = query.where(func.strftime("%Y-%m", m.Workout.performed_on) == month)
+    filtered = query.with_only_columns(m.Workout.id).subquery()
+    total = db.scalar(select(func.count()).select_from(filtered)) or 0
+    volume = db.scalar(select(func.sum(m.WorkoutSet.weight * m.WorkoutSet.reps))
+        .join(m.WorkoutExercise, m.WorkoutSet.workout_exercise_id == m.WorkoutExercise.id)
+        .where(m.WorkoutExercise.workout_id.in_(select(filtered.c.id)), m.WorkoutSet.is_warmup == False)) or 0
+    if cursor:
+        try:
+            day, identity = cursor.split(":", 1)
+            anchor, identity = date.fromisoformat(day), int(identity)
+        except (ValueError, TypeError):
+            raise HTTPException(422, "Invalid history cursor")
+        query = query.where(or_(m.Workout.performed_on < anchor,
+            and_(m.Workout.performed_on == anchor, m.Workout.id < identity)))
+    items = list(db.scalars(query.order_by(m.Workout.performed_on.desc(), m.Workout.id.desc()).limit(limit + 1)
+        .options(selectinload(m.Workout.exercises).selectinload(m.WorkoutExercise.sets))))
+    more = len(items) > limit
+    items = items[:limit]
+    months = list(db.scalars(select(func.strftime("%Y-%m", m.Workout.performed_on)).distinct().order_by(func.strftime("%Y-%m", m.Workout.performed_on).desc())))
+    return {"items": [public_workout(w) for w in items],
+        "next_cursor": f"{items[-1].performed_on}:{items[-1].id}" if more else None,
+        "months": months, "total_sessions": total, "total_volume": volume}
 
 
 def completed_workout(db, workout_id):
-    item = db.get(m.Workout, workout_id)
+    item = db.scalar(select(m.Workout).where(m.Workout.id == workout_id).options(selectinload(m.Workout.exercises).selectinload(m.WorkoutExercise.sets)))
     if item is None:
         raise HTTPException(404, "Workout not found")
     return item
@@ -372,5 +408,7 @@ def progress(exercise_id: int, exclude_workout_id: int | None = None, db: Sessio
 @router.get("/workouts/{workout_id:int}/exercise-progress", response_model=dict[str, Progress])
 def workout_progress(workout_id: int, db: Session = Depends(demo_db)):
     item = completed_workout(db, workout_id)
-    return {str(e.cached_exercise_id): public_progress(e.cached_exercise_id, db, workout_id)
-            for e in item.exercises if e.cached_exercise_id is not None}
+    published_ids = {str(exercise.cached_exercise_id) for exercise in item.exercises
+                     if exercise.cached_exercise_id is not None}
+    return {key: Progress(**value) for key, value in m.workout_exercise_progress(workout_id, db).items()
+            if key in published_ids}

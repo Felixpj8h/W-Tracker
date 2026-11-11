@@ -8,10 +8,22 @@ import type { Workout } from './types';
 import { useState } from 'react';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn().mockResolvedValue({}), API: '/api/v1' }));
-afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 const original: Workout = { id: 42, name: 'Upper', completed: true, performed_on: '2026-10-18', exercises: [] };
 const props = { folders: [], active: [], start: vi.fn(), startAdHoc: vi.fn(), setWorkout: vi.fn(), editing: true, finish: vi.fn(), saveEdit: vi.fn() };
+
+it('uses the acknowledged background-save revision after resuming', async () => {
+    vi.useFakeTimers();
+    const active = { ...original, completed: false, revision: 1 };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...active, revision: 2 }) }));
+    const view = render(<WorkoutLogger {...props} editing={false} workout={active}/>);
+    await act(async () => window.dispatchEvent(new Event('pagehide')));
+    view.rerender(<WorkoutLogger {...props} editing={false} workout={{ ...active, name: 'Resumed' }}/>);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    const save = vi.mocked(api).mock.calls.find(([path, options]) => path === '/workouts/42' && options?.method === 'PATCH');
+    expect(JSON.parse(save![1]!.body as string)).toMatchObject({ revision: 2, name: 'Resumed', intent: 'draft' });
+});
 
 it('adds a warm-up before working sets and preserves it on remount', () => {
     let saved: Workout = { ...original, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8, completed: true }] }] };
@@ -153,7 +165,7 @@ it('debounces edits to completed workouts and preserves completion', async () =>
     await act(() => vi.advanceTimersByTimeAsync(399));
     expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
     await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify(latest) });
+    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, intent: "edit" }) });
     expect(props.saveEdit).not.toHaveBeenCalled();
 });
 
@@ -163,7 +175,7 @@ it('saves a pending completed-workout edit when leaving before the delay', () =>
     const latest = { ...original, note: 'Updated note' };
     view.rerender(<WorkoutLogger {...props} workout={latest}/>);
     view.unmount();
-    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify(latest) });
+    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, intent: "edit" }) });
 });
 
 it('looks past zero-weight and empty sessions for the latest recorded weight', async () => {
@@ -344,7 +356,7 @@ it('removes the only exercise, stops its timer and autosaves an empty workout', 
     expect(screen.getByRole('button', {name:'＋ Add exercise'})).toBeTruthy();
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(document.activeElement).toBe(screen.getByRole('button', {name:'＋ Add exercise'}));
-    expect(api).toHaveBeenCalledWith('/workouts/42', {method:'PATCH', body:JSON.stringify({...navigationWorkout,exercises:[]})});
+    expect(api).toHaveBeenCalledWith('/workouts/42', {method:'PATCH', body:JSON.stringify({...navigationWorkout,exercises:[], intent:"draft"})});
 });
 
 it('shows cross-routine last weight for an older workout without exercise ID links', async () => {

@@ -47,9 +47,11 @@ SESSION_SECRET=your_long_random_secret
 ID token and rejects accounts outside this allowlist. `/api/v1/health` remains
 public for deployment health checks.
 
-`SESSION_SECRET` signs browser-session cookies. Use a unique random value and
-keep it stable across backend restarts. The cookie is shared by app tabs and
-expires when the browser session ends or after 24 hours, whichever comes first.
+Browser sessions use random tokens backed by revocable database records.
+Logout revokes the session shared by app tabs. The cookie expires when the
+browser session ends or after 24 hours, whichever comes first. Sessions survive
+backend restarts while their database records remain valid. `SESSION_SECRET` is
+retained as a legacy deployment setting.
 
 The backend reads these settings from its process environment. Before starting
 it directly with Uvicorn, load them from the project-level `.env` file:
@@ -183,3 +185,7 @@ uv pip compile backend/requirements-dev.in --generate-hashes --python-version 3.
 
 CI runs frontend tests, lint, production builds, npm and Python vulnerability
 audits, backend tests, migrations, and both container builds.
+
+## Security upgrade
+
+See [the security remediation notes](docs/security-remediation.md) for the session and workout API changes, proxy configuration, migration verification, and coordinated release and recovery steps.

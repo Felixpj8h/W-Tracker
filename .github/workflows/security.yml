@@ -50,3 +50,4 @@ jobs:
       - run: docker build -t wtracker-backend backend
       # Exercise runtime substitution and the read-only Compose filesystem.
       - run: docker run --rm --read-only --tmpfs /tmp --tmpfs /var/cache/nginx -e BACKEND_ADDRESS=127.0.0.1:8000 wtracker-web nginx -t
+      - run: python scripts/check_security_stack.py --web-image wtracker-web --backend-image wtracker-backend

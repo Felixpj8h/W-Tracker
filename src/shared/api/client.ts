@@ -1,4 +1,4 @@
-import { authHeaders } from '../../features/auth/auth';
+import { authHeaders, sessionGeneration, sessionIsCurrent, sessionSignal } from '../../features/auth/auth';
 
 export const API = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -23,13 +23,17 @@ const finishBackendWriteAfterPaint = (failed: boolean) => {
 };
 
 export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+    const generation = sessionGeneration();
+    if (!sessionIsCurrent(generation)) throw Error('Sign in again before continuing.');
+    const signal = opts?.signal ? AbortSignal.any([opts.signal, sessionSignal()]) : sessionSignal();
     const isWrite = Boolean(opts?.method && opts.method.toUpperCase() !== 'GET');
     const optimisticWorkoutDelete = opts?.method?.toUpperCase() === 'DELETE' ? path.match(/^\/workouts\/(\d+)$/)?.[1] : undefined;
     if (isWrite) { if (pendingBackendWrites === 0) backendWriteFailed = false; pendingBackendWrites += 1; announceBackendWrites(); }
     if (optimisticWorkoutDelete) window.dispatchEvent(new CustomEvent('optimistic-workout-delete', { detail: { id: Number(optimisticWorkoutDelete), deleted: true } }));
     let failed = false;
     try {
-        const response = await fetch(API + path, { ...opts, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
+        const response = await fetch(API + path, { ...opts, signal, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
+        if (!sessionIsCurrent(generation)) throw Error('Your account changed. Sign in again.');
         if (response.status === 401) window.dispatchEvent(new Event('google-auth-expired'));
         if (!response.ok) {
             const body = await response.json().catch(() => null);
@@ -39,6 +43,7 @@ export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
             throw Error(`HTTP ${response.status}: ${detail}`);
         }
         const payload = await response.json();
+        if (!sessionIsCurrent(generation)) throw Error('Your account changed. Sign in again.');
         // A successful HTTP response is sufficient for older API versions that
         // predate the optional `saved` acknowledgement. Only roll optimistic UI
         // back when the server explicitly reports that persistence failed.

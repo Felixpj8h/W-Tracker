@@ -125,6 +125,7 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     }).json()
     draft = client.post(f"/api/v1/routines/{routine['id']}/start").json()
     response = client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "revision": draft["revision"],
         "name": draft["name"], "performed_on": draft["performed_on"],
         "exercises": [{"exercise_id": chest["id"], "sets": [{"weight": 60, "reps": 8}] * 3}],
     })
@@ -209,6 +210,7 @@ def test_completed_workout_note_can_be_saved_and_read():
         "name": "Full body", "performed_on": "2026-09-25", "exercises": [],
     }).json()
     updated = client.patch(f"/api/v1/workouts/{created['id']}", json={
+        "revision": created["revision"], "intent": "edit",
         "name": "Full body", "performed_on": "2026-09-25",
         "note": "Felt strong today", "exercises": [],
     })
@@ -227,6 +229,7 @@ def test_dashboard_counts_sets_for_each_individual_muscle_worked():
         exercise_id = exercise.id
     draft = client.post("/api/v1/workouts/draft", json={"name": "Push", "performed_on": str(main_module.date.today())}).json()
     client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "revision": draft["revision"],
         "name": "Push", "performed_on": str(main_module.date.today()),
         "exercises": [{"exercise_id": exercise_id, "sets": [{"weight": 60, "reps": 8}] * 3}],
     })
@@ -251,6 +254,7 @@ def test_drafts_can_be_resumed_and_progress_is_available():
     draft = client.post("/api/v1/workouts/draft", json={"name": "Quick session", "performed_on": "2026-09-02"}).json()
     assert client.get("/api/v1/workouts/active").json()[0]["id"] == draft["id"]
     finished = client.put(f"/api/v1/workouts/{draft['id']}", json={
+        "revision": draft["revision"],
         "name": "Quick session", "performed_on": "2026-09-02",
         "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 50, "reps": 10}]}],
     })
@@ -265,11 +269,13 @@ def test_workout_progress_is_fetched_in_one_batch():
     exercises = client.get("/api/v1/exercises").json()[:2]
     completed = client.post("/api/v1/workouts/draft", json={"name": "Previous", "performed_on": "2026-09-01"}).json()
     client.put(f"/api/v1/workouts/{completed['id']}", json={
+        "revision": completed["revision"],
         "name": "Previous", "performed_on": "2026-09-01",
         "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 40 + index * 10, "reps": 8}]} for index, exercise in enumerate(exercises)],
     })
     active = client.post("/api/v1/workouts/draft", json={"name": "Current", "performed_on": "2026-09-02"}).json()
     client.patch(f"/api/v1/workouts/{active['id']}", json={
+        "revision": active["revision"],
         "name": "Current", "performed_on": "2026-09-02",
         "exercises": [{"exercise_id": exercise["id"], "sets": [{"weight": 0, "reps": 8}]} for exercise in exercises],
     })
@@ -294,6 +300,7 @@ def test_saving_loaded_workout_preserves_history_across_routines(method):
     completed = client.put(f"/api/v1/workouts/{previous['id']}", json=previous)
     assert completed.status_code == 200
     loaded = completed.json()
+    loaded["intent"] = "edit"
     loaded["exercises"][0]["sets"][0]["weight"] = 65
     saved = getattr(client, method)(f"/api/v1/workouts/{previous['id']}", json=loaded)
     assert saved.status_code == 200
@@ -518,7 +525,7 @@ def test_browser_session_survives_google_token_expiry_and_logout(monkeypatch):
             entry = {"recorded_on": "2026-09-28", "weight": 80}
             assert browser.post("/api/v1/bodyweight", json=entry, headers={"Origin": "https://attacker.example"}).status_code == 403
             assert browser.post("/api/v1/bodyweight", json=entry, headers={"Origin": "http://testserver"}).status_code == 200
-            assert browser.post("/api/v1/session/logout").status_code == 200
+            assert browser.post("/api/v1/session/logout", headers={"Origin": "http://testserver"}).status_code == 200
             assert browser.get("/api/v1/session").status_code == 401
     finally:
         app.state.disable_auth = True
@@ -770,6 +777,7 @@ def test_calendar_move_completed_workout_preserves_log():
     with main_module.SessionLocal() as db:
         workout = db.get(main_module.Workout, workout_id)
         assert str(workout.performed_on) == "2026-10-02"
+        assert workout.revision == 2
         assert workout.note == "Keep this note"
         assert workout.started_at == started_at
         assert workout.completed_at == completed_at

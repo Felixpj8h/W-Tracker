@@ -1,3 +1,4 @@
+import { accountKey } from '../auth/auth';
 import type { Workout } from './types';
 import { cleanMuscleLabel } from '../exercises/muscles';
 import type { Routine } from '../routines/types';
@@ -7,14 +8,15 @@ export const ACTIVE_WORKOUT_KEY = 'workout-active-session';
 
 export const storedWorkout = (): Workout | null => {
     try {
-        const value = localStorage.getItem(ACTIVE_WORKOUT_KEY);
+        localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+        const value = localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY));
         if (!value) return null;
         const parsed = JSON.parse(value) as Workout;
         return parsed && !parsed.completed && parsed.id && Array.isArray(parsed.exercises)
             ? { ...parsed, exercises: parsed.exercises.map(item => ({ ...item, primary_muscle: cleanMuscleLabel(item.primary_muscle, item.secondary_muscles) })) }
             : null;
     } catch {
-        localStorage.removeItem(ACTIVE_WORKOUT_KEY);
+        localStorage.removeItem(accountKey(ACTIVE_WORKOUT_KEY));
         return null;
     }
 };
