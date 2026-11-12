@@ -134,7 +134,7 @@ def test_invalid_probability_is_technical_failure(invalid, sdk_mock):
     _, responses = sdk_mock
     responses.append(answer(software=invalid))
     result = policy.classify({"latest_message": "Synthetic"}, "input")
-    assert result.decision == "unavailable" and result.permits
+    assert result.decision == "unavailable" and not result.permits
     assert result.failure_type == "malformed_response_or_configuration"
 
 
@@ -144,16 +144,16 @@ def test_invalid_probability_is_technical_failure(invalid, sdk_mock):
     (ImportError("private text must not be logged"), "sdk_unavailable"),
     (ConnectionError("private text must not be logged"), "connection_or_sdk_error"),
 ])
-def test_technical_fail_open_is_logged_without_content(error, failure, sdk_mock, monkeypatch):
+def test_technical_failure_withholds_output_and_is_logged_without_content(error, failure, sdk_mock, monkeypatch):
     _, responses = sdk_mock
     responses.append(error)
     logs = []
     monkeypatch.setattr(policy.LOGGER, "warning", lambda *args: logs.append(args))
     result = policy.classify({"latest_message": "private synthetic health details"}, "input")
-    assert result.decision == "unavailable" and result.permits
+    assert result.decision == "unavailable" and not result.permits
     assert result.failure_type == failure
     assert "private" not in str(logs)
-    assert "degraded_enforcement" in str(logs)
+    assert "screening_unavailable" in str(logs)
 
 
 @pytest.mark.parametrize("status,failure", [(401, "authentication"), (403, "authentication"), (429, "rate_limit"), (503, "api_error")])
@@ -173,16 +173,16 @@ def test_missing_credentials_and_uncertainty_are_distinct(monkeypatch, sdk_mock)
     assert uncertain.failure_type is None and uncertain.reply == policy.CLARIFICATION
     monkeypatch.delenv("TYPESAFE_API_KEY")
     missing = policy.classify({}, "input")
-    assert missing.decision == "unavailable" and missing.permits
+    assert missing.decision == "unavailable" and not missing.permits
     assert missing.failure_type == "missing_credentials"
 
 
 @pytest.mark.parametrize("key", ["synthetic key", "synthetic\nkey", "synthetic\x7fkey", "nøkkel"])
-def test_invalid_credentials_fail_open_without_sdk_call(key, sdk_mock, monkeypatch):
+def test_invalid_credentials_withhold_output_without_sdk_call(key, sdk_mock, monkeypatch):
     seen, _ = sdk_mock
     monkeypatch.setenv("TYPESAFE_API_KEY", key)
     result = policy.classify({}, "input")
-    assert result.decision == "unavailable" and result.permits
+    assert result.decision == "unavailable" and not result.permits
     assert result.failure_type == "invalid_credentials" and not seen
 
 
@@ -259,7 +259,7 @@ def response(text="", calls=None):
 def test_math_source_survives_screening_streaming_and_storage(flow):
     text = "That is 128 g of protein.\n\n$$\n" + r"\text{80 kg} \times 1.6\text{ g/kg} = 128\text{ g}" + "\n$$"
     flow.interactions.append(response(text))
-    flow.decisions.extend(["allow", "allow"])
+    flow.decisions.extend(["allow"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert "".join(event["text"] for event in events if event["type"] == "text.delta") == text
     assert flow.saved[0][2] == text
@@ -268,25 +268,30 @@ def test_math_source_survives_screening_streaming_and_storage(flow):
 
 def test_capabilities_turn_after_refusal_is_screened_independently(flow):
     flow.decisions.append("block")
+    flow.interactions.append(response("Rejected programming help"))
     refused = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert any(event.get("text") == policy.REFUSAL for event in refused)
-    assert not flow.provider_calls
+    assert len(flow.provider_calls) == 1
 
     reply = "You can ask about training, nutrition, recovery, general health and Jern workout features."
-    flow.decisions.extend(["allow", "allow"])
+    flow.decisions.extend(["allow"])
     flow.interactions.append(response(reply))
     events = list(chatBot.stream_coach_turn(1, 3, "test@example.com"))
     assert "".join(event["text"] for event in events if event["type"] == "text.delta") == reply
     assert flow.saved[-1][2] == reply
-    assert len(flow.provider_calls) == 1
+    assert len(flow.provider_calls) == 2
 
 
-@pytest.mark.parametrize("decision,reply", [("block", policy.REFUSAL), ("uncertain", policy.CLARIFICATION)])
-def test_input_rejection_precedes_gemini_and_tools(flow, decision, reply):
-    flow.decisions.append(decision)
+def test_contextual_request_goes_directly_to_coach_before_output_screening(flow, monkeypatch):
+    context = {"latest_message": "whats the science behind this?", "recent_context": []}
+    monkeypatch.setattr(chatBot, "_classification_input", lambda *_: context)
+    flow.interactions.append(response("Rest days allow recovery between training sessions."))
+    flow.decisions.append("allow")
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
-    assert not flow.provider_calls and not flow.executed
-    assert flow.saved[0][2] == reply
+    assert len(flow.provider_calls) == 1
+    assert [stage for stage, _ in flow.states] == ["output"]
+    assert flow.states[0][1]["request_context"] == context
+    assert flow.saved[0][2] == "Rest days allow recovery between training sessions."
     assert events[-1]["type"] == "message.completed"
 
 
@@ -294,24 +299,36 @@ def test_input_rejection_precedes_gemini_and_tools(flow, decision, reply):
 def test_generated_code_is_never_streamed_or_saved(flow, decision):
     code = "```python\nprint('synthetic rejected code')\n```"
     flow.interactions.append(response(code))
-    flow.decisions.extend(["allow", decision])
+    flow.decisions.extend([decision])
     if decision == "uncertain":
         flow.interactions.append(response(code))
         flow.decisions.append("uncertain")
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert code not in str(events) and code not in str(flow.saved)
     assert flow.saved[0][2] in (policy.REFUSAL, policy.OUTPUT_UNCERTAIN)
-    assert flow.states[1][1]["response"] == code
+    assert flow.states[0][1]["response"] == code
+
+
+@pytest.mark.parametrize("calls", [[], [{"type": "function_call", "name": "get_weekly_plan", "id": "read", "arguments": {}}]])
+def test_unavailable_screening_never_releases_output_or_executes_tools(flow, calls):
+    text = "Unverified generated content"
+    flow.interactions.append(response(text, calls))
+    flow.decisions.append("unavailable")
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert not flow.executed
+    assert text not in str(events) and text not in str(flow.saved)
+    assert flow.saved[0][2] == policy.OUTPUT_UNAVAILABLE
+    assert not any(event["type"].startswith(("tool.", "proposal.")) for event in events)
 
 
 def test_tool_only_step_keeps_request_context_and_executes_after_screening(flow):
     call = {"type": "function_call", "name": "get_weekly_plan", "id": "read", "arguments": {}}
     flow.interactions.extend([response(calls=[call]), response("Include rest days between hard sessions.")])
-    flow.decisions.extend(["allow", "allow", "allow"])
+    flow.decisions.extend(["allow", "allow"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
-    state = flow.states[1][1]
+    state = flow.states[0][1]
     assert state["response"] == "" and state["generation_kind"] == "tool_step"
-    assert state["request_context"] == flow.states[0][1]
+    assert state["request_context"] == {"latest_message": "Build a routine", "recent_context": []}
     assert state["tool_calls"][0]["name"] == "get_weekly_plan"
     assert len(flow.executed) == 1
     assert events[-1]["type"] == "message.completed"
@@ -325,7 +342,7 @@ def test_uncertain_tool_step_is_discarded_and_regenerated_before_execution(flow)
         response("I will review your weekly training plan.", [accepted]),
         response("Balance hard sessions with rest days."),
     ])
-    flow.decisions.extend(["allow", "uncertain", "allow", "allow"])
+    flow.decisions.extend(["uncertain", "allow", "allow"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert len(flow.executed) == 1  # only the regenerated batch ran
     assert flow.saved[0][2] == "Balance hard sessions with rest days."
@@ -336,7 +353,7 @@ def test_uncertain_tool_step_is_discarded_and_regenerated_before_execution(flow)
 def test_output_uncertainty_retry_is_bounded_and_never_executes_calls(flow):
     call = {"type": "function_call", "name": "get_weekly_plan", "id": "read", "arguments": {}}
     flow.interactions.extend([response(calls=[call]), response(calls=[call])])
-    flow.decisions.extend(["allow", "uncertain", "uncertain"])
+    flow.decisions.extend(["uncertain", "uncertain"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert len(flow.provider_calls) == 2 and not flow.executed
     assert flow.saved[0][2] == policy.OUTPUT_UNCERTAIN
@@ -346,7 +363,7 @@ def test_output_uncertainty_retry_is_bounded_and_never_executes_calls(flow):
 
 def test_regeneration_cannot_bypass_blocked_output(flow):
     flow.interactions.extend([response("Uncertain output"), response("Rejected coding instructions")])
-    flow.decisions.extend(["allow", "uncertain", "block"])
+    flow.decisions.extend(["uncertain", "block"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert flow.saved[0][2] == policy.REFUSAL and not flow.executed
     assert "Rejected coding instructions" not in str(events)
@@ -361,22 +378,21 @@ def test_all_arguments_are_checked_before_any_tool_executes(flow):
         }},
     ]
     flow.interactions.append(response("Looks good", calls))
-    flow.decisions.extend(["allow", "block"])
+    flow.decisions.extend(["block"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert not flow.executed
-    assert flow.states[1][1]["tool_calls"][1]["arguments"] == calls[1]["arguments"]
+    assert flow.states[0][1]["tool_calls"][1]["arguments"] == calls[1]["arguments"]
     assert not any(e["type"].startswith(("tool.", "proposal.")) for e in events)
     assert "Coding advice" not in str(flow.saved)
 
 
-@pytest.mark.parametrize("decision", ["allow", "unavailable"])
-def test_valid_proposals_and_technical_fail_open_keep_confirmation_flow(flow, decision):
+def test_valid_screened_proposals_keep_confirmation_flow(flow):
     args = {"routine": {"name": "Upper A", "exercises": []}, "summary": "Create Upper A", "reasoning": "Fits your schedule"}
     flow.interactions.extend([
         response(calls=[{"type": "function_call", "name": "propose_create_routine", "id": "good", "arguments": args}]),
         response("Your proposal is ready to review and confirm."),
     ])
-    flow.decisions.extend([decision, decision, decision])
+    flow.decisions.extend(["allow", "allow"])
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert len(flow.executed) == 1 and flow.executed[0][1] == args
     assert any(e["type"] == "proposal.created" for e in events)
@@ -384,14 +400,13 @@ def test_valid_proposals_and_technical_fail_open_keep_confirmation_flow(flow, de
     assert events[-1]["type"] == "message.completed"
 
 
-@pytest.mark.parametrize("stage", ["input", "output"])
-def test_cancellation_during_classification_prevents_release(flow, monkeypatch, stage):
+def test_cancellation_during_output_screening_prevents_release(flow, monkeypatch):
     cancelled = Event()
     flow.interactions.append(response("A checked workout response"))
 
     def classify(_state, current):
-        if current == stage:
-            cancelled.set()
+        assert current == "output"
+        cancelled.set()
         return policy.Assessment("allow")
 
     monkeypatch.setattr(chatBot, "classify", classify)
@@ -403,7 +418,7 @@ def test_cancellation_during_classification_prevents_release(flow, monkeypatch, 
 
 def test_cancel_between_chunks_and_cancel_scope_replacement(flow):
     flow.interactions.append(response("A" * 200))
-    flow.decisions.extend(["allow", "allow"])
+    flow.decisions.extend(["allow"])
     event = chatBot.begin_cancel_scope(1)
     stream = chatBot.stream_coach_turn(1, 2, "test@example.com", event.is_set)
     assert next(stream)["type"] == "message.started"
@@ -537,7 +552,7 @@ def test_rejected_proposal_arguments_never_reach_database(database, monkeypatch)
         "routine": {"name": "synthetic rejected code", "exercises": []}, "summary": "Create routine", "reasoning": "unrelated instructions",
     }}]
     monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=SimpleNamespace(create=lambda **_: response(calls=calls))))
-    assessments = iter([policy.Assessment("allow"), policy.Assessment("block")])
+    assessments = iter([policy.Assessment("block")])
     monkeypatch.setattr(chatBot, "classify", lambda *_: next(assessments))
     events = list(chatBot.stream_coach_turn(cid, mid, "a@test.example"))
     with factory(info={"owner_email": "a@test.example"}) as db:
@@ -567,7 +582,7 @@ def test_valid_screened_proposal_persists_and_still_requires_confirmation(databa
     stages = []
     monkeypatch.setattr(chatBot, "classify", lambda _state, stage: stages.append(stage) or policy.Assessment("allow"))
     events = list(chatBot.stream_coach_turn(cid, mid, owner))
-    assert stages == ["input", "output", "output"]
+    assert stages == ["output", "output"]
     with factory(info={"owner_email": owner}) as db:
         assert db.query(main.Routine).count() == 0
         proposal = db.query(main.AIChangeProposal).one()
@@ -595,7 +610,7 @@ def test_generated_summaries_are_checked_before_storage(database, monkeypatch, d
     chatBot._maybe_summarize(cid, owner)
     assert states == [({"response": summary}, "summary")]
     with factory(info={"owner_email": owner}) as db:
-        assert db.get(main.AIConversation, cid).summary == (summary if decision in ("allow", "unavailable") else "Previous checked summary")
+        assert db.get(main.AIConversation, cid).summary == (summary if decision == "allow" else "Previous checked summary")
 
 
 def test_live_report_counts_false_positives_negatives_and_uncertainty_separately():
@@ -604,5 +619,5 @@ def test_live_report_counts_false_positives_negatives_and_uncertainty_separately
         ("allow", "block"), ("allow", "uncertain"), ("block", "allow"), ("block", "unavailable"), ("block", "uncertain"),
     ]]
     result = report(rows)
-    assert result["false_positives"] == 1 and result["false_negatives"] == 2
+    assert result["false_positives"] == 1 and result["false_negatives"] == 1
     assert result["allowed_but_uncertain"] == 1

@@ -27,7 +27,7 @@ def report(rows):
     allowed = [row for row in rows if row["expected"] == "allow"]
     blocked = [row for row in rows if row["expected"] == "block"]
     fp = sum(row["actual"] == "block" for row in allowed)
-    fn = sum(row["actual"] in ("allow", "unavailable") for row in blocked)
+    fn = sum(row["actual"] == "allow" for row in blocked)
     return {
         "examples": len(rows), "outcomes": dict(Counter(row["actual"] for row in rows)),
         "false_positives": fp, "allowed_examples": len(allowed),
@@ -42,6 +42,7 @@ def report(rows):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Make paid TypeSafe calls using synthetic examples")
+    parser.add_argument("--include-input", action="store_true", help="Also run legacy input-classifier diagnostics; production only screens output")
     args = parser.parse_args()
     if not args.live:
         parser.error("Pass --live to opt into paid requests. This is separate from mocked automated tests.")
@@ -49,6 +50,8 @@ def main():
     if not os.getenv("TYPESAFE_API_KEY", "").strip():
         parser.error("Set backend TYPESAFE_API_KEY before running the live evaluation.")
     cases = json.loads((Path(__file__).parent / "evaluations" / "topic_cases.json").read_text(encoding="utf-8"))
+    if not args.include_input:
+        cases = [case for case in cases if case["stage"] != "input"]
     rows = []
     for case in cases:
         result = classify(state_for(case), case["stage"])

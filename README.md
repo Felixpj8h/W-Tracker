@@ -16,7 +16,8 @@ python -m pip install -r requirements.txt
 ### Configure the AI coach
 
 The AI coach uses Google's Gemini API for conversation and TypeSafe Jev for
-independent backend topic classification of inputs and generated outputs.
+independent backend screening of generated replies and tool calls. Requests go
+directly to the coach; Jev checks the buffered generation before release or execution.
 Copy `.env.example` to `.env`, then add both API keys. The `.env` file is ignored by Git and must not be
 committed.
 
@@ -35,9 +36,9 @@ TYPESAFE_MODEL=jev-latest
 ```
 
 Only backend settings use these keys; never prefix either secret with `VITE_`.
-Technical classifier failures deliberately fail open and are logged as degraded
-enforcement. Uncertain classifications ask for clarification. This configuration
-does not guarantee that unrelated output is impossible. See
+Technical classifier failures withhold generated content and tool execution.
+Uncertain output gets one internal regeneration attempt. Only approved output is
+released; classifier judgments still need ongoing evaluation. See
 [coach topic policy](docs/coach-topic-policy.md) for thresholds, privacy,
 verification limits, and the optional live synthetic evaluation.
 

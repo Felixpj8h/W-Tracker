@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.main as main_module
+from app import chatBot, topic_policy
 from app.main import Base, app, group_for
 
 
@@ -441,6 +442,7 @@ class _FakeGeminiClient:
 
 
 def test_ai_conversation_stream_is_persisted_and_uses_sse(monkeypatch):
+    monkeypatch.setattr(chatBot, "classify", lambda *_: topic_policy.Assessment("allow"))
     reset_db()
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     monkeypatch.setenv("GEMINI_MODEL", "test-model")
@@ -458,6 +460,7 @@ def test_ai_conversation_stream_is_persisted_and_uses_sse(monkeypatch):
 
 
 def test_ai_retry_reuses_latest_user_message(monkeypatch):
+    monkeypatch.setattr(chatBot, "classify", lambda *_: topic_policy.Assessment("allow"))
     reset_db()
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     conversation = client.post("/api/v1/ai/conversations", json={"title": "Coach"}).json()

@@ -146,7 +146,7 @@ def _conversation_input(conversation_id: int, owner_email: str) -> list[dict]:
 
 
 def _classification_input(conversation_id: int, user_message_id: int, owner_email: str) -> dict:
-    """Resolve ownership and the exact latest request before any provider/tool call."""
+    """Build owned request/history context for output screening, without an input gate."""
     from . import main
     with main.SessionLocal(info={"owner_email": owner_email}) as db:
         if not db.get(main.AIConversation, conversation_id):
@@ -271,13 +271,9 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             yield {"type": "message.interrupted"}
             return
         request_context = _classification_input(conversation_id, user_message_id, owner_email)
-        assessment = classify(request_context, "input")
         if is_cancelled and is_cancelled():
             _mark_interrupted(conversation_id, owner_email, "Response stopped.")
             yield {"type": "message.interrupted"}
-            return
-        if not assessment.permits:
-            yield from _policy_reply(conversation_id, owner_email, assessment)
             return
         client = _client(); history = _conversation_input(conversation_id, owner_email); metadata: dict[str, Any] = {"tool_rounds": 0}
         proposal_created = False

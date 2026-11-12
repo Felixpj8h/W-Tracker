@@ -5,6 +5,11 @@ Gemini remains the conversational model. The backend uses the official
 to classify independently. No classification JSON is requested from Gemini.
 This change is local work; it has not been deployed.
 
+Production has no separate input-classification gate. The coach interprets the
+request with its normal context, and Jev screens each complete generated response
+and tool batch before release or execution. Legacy input-classification examples
+remain available only for explicit evaluation diagnostics.
+
 ## Settings
 
 Set `TYPESAFE_API_KEY` in the root `.env` for local development or the backend
@@ -29,11 +34,11 @@ allowed-topic probability is uncertainty, not unavailability.
 
 ## Scope and decisions
 
-Both directions use training, nutrition, recovery, fitness-related health,
+Output screening uses training, nutrition, recovery, general health,
 courtesy/application help, out-of-scope and unclear categories. Allowed content
 includes sports training, workout routines, fitness progress, nutrition/recipes,
 calories/macros, hydration/supplements, recovery/sleep/fatigue/soreness, general
-health education directly connected to fitness or nutrition, brief greetings,
+health education without requiring an exercise connection, brief greetings,
 thanks, and help using workout features. Courtesy/help also includes questions
 and explanations about the coach's purpose, capabilities, limitations, supported
 topics, example requests and usage, including contextual follow-ups after a refusal
@@ -50,20 +55,20 @@ counts toward the same scope threshold; independent hazard checks still apply.
 General health education is allowed without an exercise connection. The coach
 gives broad possible contributors, avoids diagnosis and recommends a doctor for
 persistent or worsening symptoms. Urgent-care advice is conditional on serious
-warning signs. This applies to both input and output screening; it does not
+warning signs. Output screening preserves this scope; it does not
 permit unrelated tasks or programming help.
 
 Intermediate tool-only generations are screened using the tool operations,
-their complete arguments and the accepted request supplied as untrusted context.
+their complete arguments and the current request supplied as untrusted context.
 Empty reply text during a tool step is normal. No operation name or previously
-accepted request bypasses the independent hazard checks. Topic thresholds are
+user request bypasses the independent hazard checks. Topic thresholds are
 unchanged. On uncertain output the full generation is discarded and regenerated
 once before any calls run or text is released. A second uncertain output returns
 an internal response-failure message, rather than asking the user to clarify a
-request that already passed input screening. Blocked output is refused without
-retry; truly unclear input still receives a clarification.
+request. Blocked output is refused without retry. The coach itself can ask a
+targeted clarification when the user's meaning is genuinely unclear.
 
-Input screening receives the complete preceding chat for short conversations,
+The output screen's request context includes the complete preceding chat for short conversations,
 bounded to the latest 32 completed messages and 24,000 content characters for
 longer chats. The latest request is a separate field; later messages are excluded.
 It also receives up to three recently displayed proposal cards from this owned
@@ -82,17 +87,24 @@ arithmetic, nutrition calculations, workout tables and the app's workout tools
 remain allowed. An allowed primary category never cancels an independent
 software, out-of-scope, or instruction-override signal.
 
+The output screen also enforces whole-request refusal: for a latest request
+combining workout advice with a laptop recommendation, even a workout-only answer
+or read-tool call is withheld. A refusal with brief redirection is allowed.
+The latest request is distinguished from historical refused requests; older
+history never makes a new legitimate question a violation by itself.
+
 | Outcome | Application behavior |
 | --- | --- |
-| `allow` | Continue to generation, execution or release |
+| `allow` | Release the screened text or execute the screened tool batch |
 | `block` | Stop and return a fixed short refusal |
-| `uncertain` | Stop and ask a fixed short clarification question |
-| `unavailable` | Continue under the user's selected technical fail-open policy; log degraded enforcement |
+| `uncertain` | Discard the generation and regenerate once; withhold a second uncertain result and show a fixed failure message |
+| `unavailable` | Withhold generated text and tools; return a fixed verification-unavailable message |
 
 Missing/invalid credentials, authentication/permission errors, rate limits,
-timeouts, connection/SDK errors and malformed responses all use the technical
-fail-open policy. They never become an assertion that content is safe. This
-configuration cannot guarantee that unrelated content will never be released.
+timeouts, connection/SDK errors and malformed responses all withhold unverified
+content and tool execution. Only an explicit `allow` permits release. The same
+rule applies to storing generated summaries. Classifier judgments remain
+probabilistic and do not guarantee perfect detection of every violation.
 
 The SDK has a 3-second HTTP timeout, one retry after the initial attempt,
 0.1-second initial backoff capped at 0.2 seconds, and a 7-second retry budget.
@@ -104,11 +116,9 @@ synchronous provider/SDK call.
 
 ## Backend checkpoints
 
-1. Check the exact user message and up to two recent completed messages before
-   Gemini, snapshot tools or model-directed tools run. Context is bounded to
-   2,000 characters per earlier message and used only for references such as
-   “yes”. Explicit new fitness questions are assessed independently of earlier
-   unrelated requests. Conversation and message ownership are checked first.
+1. Check conversation/message ownership and build request/history/proposal
+   context. Send the request directly to Gemini; there is no Jev call or topic
+   decision at this point. Existing application reads assemble the snapshot.
 2. Buffer each complete Gemini generation, including its text, steps and every
    proposed tool call. Classify all fields together in one Jev request before
    any text delta, model-directed execution, or proposal persistence. One bad
@@ -118,20 +128,41 @@ synchronous provider/SDK call.
    messages, routine names, notes and tool results remain untrusted context.
 
 Each checkpoint batches one Choice and three independent Nouls into one request.
-Input questions assess what the user requests. Output questions assess what the
-coach actually supplies; a short refusal mentioning coding is permitted.
+Output questions assess what the coach actually supplies and whether that behavior
+respects whole-request refusal rules; a short refusal mentioning coding is permitted.
 Rejected generated content is never streamed, saved to chat history/proposals,
-or included in application logs. Only fixed application refusal/clarification
+or included in application logs. Only fixed application refusal/failure
 text is persisted for those outcomes. Incoming user messages are still kept in
 their conversation as before. Existing stored content is not retroactively
 classified or removed.
 
 Logs contain stage, category, option/hazard probabilities, decision, model,
-failure type, and degraded-enforcement status. Raw chat/health content, exception
+failure type, and screening-unavailable status. Raw chat/health content, exception
 bodies and secrets are omitted. The classifier service receives the content it
 must assess; evaluate its external data handling before operational use.
 
 ## Verification
+
+Output-only verification on 12 November 2026: the complete backend suite passed
+254 tests. The final live Jev run passed 39/39 checks (13 cases repeated three
+times), including tool-only reads, unsafe arguments, mixed-request partial
+answers and reads, refusals, capabilities after refusal, and proposal rationale.
+Unavailable screening is tested to release neither generated text nor tool calls;
+uncertain output retains one bounded regeneration, and summaries also require
+explicit approval before storage.
+
+Nine live coach turns used the actual backend with a synthetic pending proposal
+and an in-memory database. The science follow-up, protein calculation, headache
+question, coding/override refusals and both capabilities questions completed.
+The mixed-request response was withheld by Jev and replaced with a refusal.
+The weekly-plan advice turn reached the tool-round limit while searching the
+deliberately sparse exercise catalogue. An isolated repeat reproduced that search
+loop; a populated three-routine/weekly-plan/catalogue fixture then returned useful
+weekly-plan advice after a screened read. This tool-budget edge case remains;
+it was not an input or output classifier rejection. No proposals were applied or
+new proposals created in these live checks. No input-classifier calls occurred.
+These checks use synthetic data and do not constitute browser testing or verify
+the scientific accuracy of the generated coaching advice.
 
 Run backend checks from `backend`:
 
@@ -145,7 +176,7 @@ fixtures, withheld output, proposal persistence, valid proposals, cancellation,
 ownership and technical failure handling. They do not establish actual Jev
 accuracy. Existing provider retry and proposal-confirmation tests also run.
 
-The separate evaluation uses 44 synthetic examples, no user health/chat data,
+The separate evaluation uses synthetic output examples, no user health/chat data,
 no Gemini calls, and no database writes. It makes paid TypeSafe calls only when
 explicitly invoked:
 
@@ -153,11 +184,15 @@ explicitly invoked:
 python evaluate_topics.py --live
 ```
 
+By default only output cases run. `--include-input` also runs legacy input
+diagnostics, which do not represent a gate in the production coach flow.
+
 It prints example IDs, expected/actual decisions, probabilities, false-positive
 and false-negative counts/rates, and uncertainty/unavailability counts.
 A false positive is a blocked allowed example. A false negative is a prohibited
-example released as `allow` or `unavailable`. Allowed-but-uncertain examples are
-reported separately as friction. Degraded runs exit with code 2 and must not be
+example released as `allow`. Unavailable screening withholds output and is counted
+separately, not as an unsafe release. Allowed-but-uncertain examples are
+reported separately as friction. Unavailable runs exit with code 2 and must not be
 presented as real model accuracy. Review results per stage, expand the corpus,
 calibrate thresholds and rerun after model changes. No live accuracy numbers
 are claimed from mocked decisions.

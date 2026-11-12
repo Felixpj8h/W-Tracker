@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import chatBot
+from app import chatBot, topic_policy
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +17,7 @@ def classification_request(monkeypatch):
     # These unit tests isolate the provider contract; database ownership and
     # classifier enforcement are exercised in test_topic_policy.py.
     monkeypatch.setattr(chatBot, "_classification_input", lambda *_: {"latest_message": "Review my training", "recent_context": []})
+    monkeypatch.setattr(chatBot, "classify", lambda *_: topic_policy.Assessment("allow"))
 
 
 def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):

@@ -2,6 +2,10 @@
 
 ## 12 November 2026
 
+- Remove the separate coach input-classification gate. Screen complete generated
+  replies and tool batches before release or execution, retain whole-request
+  refusals, and withhold output when screening is unavailable.
+
 - Include chat history and previously displayed workout proposals in coach topic
   screening so follow-up questions retain their meaning, with bounded context
   for long chats and the existing ownership and topic restrictions preserved.
