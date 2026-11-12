@@ -25,6 +25,36 @@ it('uses the acknowledged background-save revision after resuming', async () => 
     expect(JSON.parse(save![1]!.body as string)).toMatchObject({ revision: 2, name: 'Resumed', intent: 'draft' });
 });
 
+it('shares an in-flight background save with autosave and finish', async () => {
+    vi.useFakeTimers();
+    const active = { ...original, completed: false, revision: 1 };
+    let resolveBackground!: (value: Response) => void;
+    const background = new Promise<Response>(resolve => { resolveBackground = resolve; });
+    const fetch = vi.fn().mockReturnValue(background);
+    vi.stubGlobal('fetch', fetch);
+    const finish = vi.fn().mockResolvedValue(undefined);
+    render(<WorkoutLogger {...props} editing={false} workout={active} finish={finish}/>);
+    fireEvent(window, new Event('pagehide'));
+    fireEvent(window, new Event('pagehide'));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /Finish workout/ }));
+    expect(finish).not.toHaveBeenCalled();
+    await act(async () => resolveBackground({ ok: true, json: async () => ({ ...active, revision: 2 }) } as Response));
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ revision: 2 }));
+    expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
+});
+
+it('does not reuse another workout\'s acknowledged revision', async () => {
+    vi.useFakeTimers();
+    const view = render(<WorkoutLogger {...props} workout={{ ...original, revision: 1 }} acknowledgedRevision={9}/>);
+    view.rerender(<WorkoutLogger {...props} workout={{ ...original, id: 43, revision: 2 }}/>);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    const save = vi.mocked(api).mock.calls.find(([path, options]) => path === '/workouts/43' && options?.method === 'PATCH');
+    expect(JSON.parse(save![1]!.body as string).revision).toBe(2);
+});
+
 it('adds a warm-up before working sets and preserves it on remount', () => {
     let saved: Workout = { ...original, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8, completed: true }] }] };
     function Harness({ initial }: { initial: Workout }) {

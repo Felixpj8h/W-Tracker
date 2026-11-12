@@ -2,6 +2,9 @@
 
 ## 12 November 2026
 
+- Retain acknowledged workout revisions when reopening the logger and coordinate
+  background saves with autosave/finish so the client does not conflict with its
+  own successful writes. Preserve revision checks against external changes.
 - Allow questions about the coach's capabilities, supported topics and usage by
   meaning, including contextual follow-ups after refusals; align Gemini's prompt
   and add evaluation cases while retaining coding and mixed-request restrictions.

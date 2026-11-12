@@ -91,6 +91,30 @@ it('retains an acknowledged revision when later edits update the cached draft', 
     expect(JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY))!)).toMatchObject({ name: 'New unsynced edit', revision: 2 });
 });
 
+it('keeps acknowledged revisions when navigating away and reopening the logger', async () => {
+    const draft = { ...cancellationWorkout, revision: 1 };
+    let serverRevision = 1;
+    localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(draft));
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (path === '/workouts/active') return [draft];
+        if (path === '/workouts/42' && options?.method === 'PATCH') {
+            const payload = JSON.parse(options.body as string);
+            if (payload.revision !== serverRevision) throw Error('HTTP 409: This workout changed.');
+            return { ...payload, revision: ++serverRevision };
+        }
+        return baseResponse(path);
+    });
+    render(<WorkoutApp user={athlete}/>);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Workout name' }), { target: { value: 'First save' } });
+    await waitFor(() => expect(serverRevision).toBe(2));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Dashboard' })[0]);
+    await screen.findByText('Dashboard content');
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Workout name' }), { target: { value: 'After returning' } });
+    await waitFor(() => expect(serverRevision).toBe(3));
+    expect(screen.queryByRole('alert')).toBeNull();
+});
+
 it('preserves local input at its original revision when the owned server draft changed', async () => {
     const draft = { ...cancellationWorkout, revision: 1, name: 'Unsynced local input' };
     localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(draft));

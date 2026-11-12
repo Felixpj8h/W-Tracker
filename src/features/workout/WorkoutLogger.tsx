@@ -10,10 +10,17 @@ import { routineMuscles } from '../routines/routineMuscles';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { moveItem } from '../../shared/lib/moveItem';
 
-export function WorkoutLogger({ workout, folders, active, start, startAdHoc, setWorkout, editing, finish, saveEdit, cancel, pause, onRevision }: { onRevision?: (id: number, revision: number) => void; workout: Workout | null; folders: Folder[]; active: Workout[]; start: (r: Routine) => void; startAdHoc: () => Promise<void>; setWorkout: (x: Workout) => void; editing: boolean; finish: (x: Workout) => Promise<void>; saveEdit: (x: Workout) => Promise<void>; cancel?: (x: Workout) => Promise<void>; pause?: (x: Workout) => Promise<void> }) {
+export function WorkoutLogger({ workout, folders, active, start, startAdHoc, setWorkout, editing, finish, saveEdit, cancel, pause, onRevision, acknowledgedRevision }: { acknowledgedRevision?: number; onRevision?: (id: number, revision: number) => void; workout: Workout | null; folders: Folder[]; active: Workout[]; start: (r: Routine) => void; startAdHoc: () => Promise<void>; setWorkout: (x: Workout) => void; editing: boolean; finish: (x: Workout) => Promise<void>; saveEdit: (x: Workout) => Promise<void>; cancel?: (x: Workout) => Promise<void>; pause?: (x: Workout) => Promise<void> }) {
     const generation = useRef(sessionGeneration());
-    const revision = useRef(workout?.revision);
-    useEffect(() => { revision.current = workout?.revision; }, [workout?.id, workout?.revision]);
+    const revision = useRef(Math.max(workout?.revision ?? 0, acknowledgedRevision ?? 0) || undefined);
+    const revisionWorkoutId = useRef(workout?.id);
+    useEffect(() => {
+        const known = Math.max(workout?.revision ?? 0, acknowledgedRevision ?? 0);
+        // A remounted editor can receive an older workout object after our own
+        // successful save. Retain only revisions acknowledged for this workout.
+        revision.current = Math.max(known, revisionWorkoutId.current === workout?.id ? revision.current ?? 0 : 0) || undefined;
+        revisionWorkoutId.current = workout?.id;
+    }, [workout?.id, workout?.revision, acknowledgedRevision]);
     const [q, setQ] = useState(''), [results, setResults] = useState<Exercise[]>([]), [open, setOpen] = useState(0), [progressByExercise, setProgressByExercise] = useState<Record<number, ExerciseProgress>>({}), [restUntil, setRestUntil] = useState<number | null>(null), [now, setNow] = useState(Date.now), [extraExerciseOpen, setExtraExerciseOpen] = useState(false);
     const [substituteIndex, setSubstituteIndex] = useState<number | null>(null);
     const [supersetSource, setSupersetSource] = useState<number | null>(null);
@@ -134,7 +141,10 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     }, [workout, editing, pausing, save]);
     useEffect(() => () => {
         const pending = pendingEdit.current;
-        if (pending?.id && sessionIsCurrent(generation.current)) void save(pending).catch(() => undefined);
+        if (pending?.id && sessionIsCurrent(generation.current)) {
+            if (pendingSave.current) void pendingSave.current.catch(() => undefined).then(() => save(pending)).catch(() => undefined);
+            else void save(pending).catch(() => undefined);
+        }
     }, []);
     useEffect(() => {
         const saveBeforeSuspend = () => {
@@ -142,7 +152,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             if (!current?.id || endingSession.current || !sessionIsCurrent(generation.current)) return;
             if (!editing && !current.completed) localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify({ ...current, revision: revision.current }));
             if (pendingSave.current) return;
-            void fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...current, revision: revision.current, intent: editing ? "edit" : "draft" }), keepalive: true }).then(async response => {
+            const request = fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...current, revision: revision.current, intent: editing ? "edit" : "draft" }), keepalive: true }).then(async response => {
                 if (!response.ok) throw Error(`HTTP ${response.status}. Reload before saving again.`);
                 const result = await response.json() as Workout;
                 if (!sessionIsCurrent(generation.current)) return;
@@ -152,7 +162,12 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
                 }
                 const latest = latestWorkout.current;
                 if (!editing && latest?.id === current.id) localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify({ ...latest, revision: revision.current }));
-            }).catch(error => { if (sessionIsCurrent(generation.current)) setSaveError(String(error)); });
+            });
+            // visibilitychange and pagehide can fire together. Keepalive saves
+            // share the same queue as autosave and finish/pause operations.
+            pendingSave.current = request;
+            void request.catch(error => { if (sessionIsCurrent(generation.current)) setSaveError(String(error)); })
+                .finally(() => { if (pendingSave.current === request) pendingSave.current = null; });
         };
         const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); };
         document.addEventListener('visibilitychange', onVisibilityChange);
