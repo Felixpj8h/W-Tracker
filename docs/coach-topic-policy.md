@@ -20,7 +20,7 @@ classifier settings. Never use frontend `VITE_` variables for either secret.
 | `TYPESAFE_TOPIC_MIN` | `0.7` | Inclusive minimum probability of the selected allowed category |
 
 These values are provisional and have **not** been calibrated against real Jev
-results for W-Tracker. For a Noul, `noul` is the probability itself. For a Choice,
+results for Jern. For a Noul, `noul` is the probability itself. For a Choice,
 the application reads `probabilities[choice]`, not `confidence`. A hazard above
 the safe maximum but below the blocking minimum yields `uncertain`. Exactly
 0.3 is safe; exactly 0.7 blocks a hazard. Missing/invalid distributions or

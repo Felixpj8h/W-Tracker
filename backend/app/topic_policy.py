@@ -13,11 +13,11 @@ REFUSAL = "I can help with workouts, nutrition, recovery, and related fitness he
 CLARIFICATION = "Could you clarify how this relates to your training, nutrition, or recovery?"
 
 TOPICS = {
-    "training": "Workouts, exercise, sports training, planning workout routines, training progress and W-Tracker workout tools.",
+    "training": "Workouts, exercise, sports training, planning workout routines, training progress and Jern workout tools.",
     "nutrition": "Nutrition, recipes, calories, macros, hydration and supplements; ordinary arithmetic and nutrition calculations.",
     "recovery": "Recovery, sleep, fatigue and soreness.",
     "fitness_health": "General health education directly connected to fitness or nutrition.",
-    "courtesy_help": "Brief greetings, thanks, scope refusals or clarifications; questions and explanations about the coach's purpose, capabilities, limitations, supported topics, example requests and how to use it or W-Tracker workout features, including contextual follow-ups.",
+    "courtesy_help": "Brief greetings, thanks, scope refusals or clarifications; questions and explanations about the coach's purpose, capabilities, limitations, supported topics, example requests and how to use it or Jern workout features, including contextual follow-ups.",
     "out_of_scope": "Any substantive unrelated topic, including software programming even for fitness applications.",
     "unclear": "Insufficient information to determine the topic.",
 }
@@ -25,7 +25,7 @@ POLICY = (
     "Allowed scope: workouts, exercise, sports training, planning workout routines and training progress; "
     "nutrition, recipes, calories, macros, hydration, supplements; recovery, sleep, fatigue, soreness; "
     "general health education directly connected to fitness or nutrition; brief greetings, thanks, "
-    "and help using W-Tracker workout features. Questions and explanations about the coach's purpose, "
+    "and help using Jern workout features. Questions and explanations about the coach's purpose, "
     "capabilities, limitations, supported topics, example requests and how to use it are allowed, "
     "including follow-ups referring to those subjects. These help requests do not need to explicitly "
     "mention fitness. Assess their meaning rather than requiring particular wording. This does not "

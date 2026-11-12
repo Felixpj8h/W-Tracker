@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Refine the Jern identity with a shared geometric SVG monogram and bold wordmark
+  across sidebar, mobile and sign-in, with theme-aware colors and matching app icons.
+
+- Rebrand the app to Jern across desktop/mobile headers, sign-in, browser and
+  install metadata, icons, API messages, coach prompts and topic policy, and docs.
+  Keep existing database paths, session cookies and deployment service IDs for
+  compatibility with saved data and running environments.
+
 ## 12 November 2026
 
 - Retain acknowledged workout revisions when reopening the logger and coordinate

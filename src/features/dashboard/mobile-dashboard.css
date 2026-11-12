@@ -9,9 +9,7 @@
   .dashboard-overview-page::-webkit-scrollbar,.dashboard-workspace .dashboard-analytics::-webkit-scrollbar,.dashboard-workspace .dashboard-lower::-webkit-scrollbar{display:none}
   .dashboard-overview-page .head{margin-bottom:20px;display:flex;flex-direction:column;align-items:stretch;gap:14px;margin:0 0 18px}
   .mobile-dashboard-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-  .mobile-dashboard-topbar>span{display:flex;align-items:center;gap:9px}
-  .mobile-dashboard-topbar>span>b{display:grid;place-items:center;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:18px;width:40px;height:40px}
-  .mobile-dashboard-topbar em{color:var(--text-primary);font-style:normal;font-weight:750;line-height:1.15;font-size:13px;letter-spacing:.03em}
+  .mobile-dashboard-topbar>span:not(.jern-logo){display:flex;align-items:center;gap:9px}
   .mobile-dashboard-topbar>span:nth-child(2){gap:2px;padding-left:13px;border-left:1px solid var(--border-subtle);display:none}
   .mobile-dashboard-topbar small{color:var(--text-primary);font-size:11px;font-weight:700}
   .mobile-dashboard-topbar time{color:var(--text-secondary);font-size:10px}

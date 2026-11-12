@@ -1,6 +1,3 @@
-This favicon was generated using the following font:
-
-- Font Title: Manrope
-- Font Author: undefined
-- Font Source: https://fonts.gstatic.com/s/manrope/v20/xn7_YHE41ni1AdIRqAuZuw1Bx9mbZk4aE-_F87jxeN7B.ttf
-- Font License: undefined)
+Jern uses an original geometric J monogram inspired by forged iron.
+The source mark is jern-mark.svg; favicon.svg adds the dark green icon tile.
+PNG and ICO versions mirror that artwork for browser and installed-app support.

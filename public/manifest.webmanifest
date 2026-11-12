@@ -1,6 +1,6 @@
 {
-  "name": "W-Tracker",
-  "short_name": "W-Tracker",
+  "name": "Jern",
+  "short_name": "Jern",
   "description": "Your personal workout tracker.",
   "start_url": "/",
   "display": "standalone",

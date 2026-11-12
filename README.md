@@ -1,13 +1,15 @@
-# Workout Tracker
+# Jern
 
 A local, Hevy-inspired workout tracker with routines, editable workout sessions, bodyweight logging, weekly muscle-group volume analytics, and Wger-powered exercise search.
 
 ## Run the app
 
+Replace `C:\path\to\Jern` below with your actual checkout path.
+
 Install the backend requirements:
 
 ```powershell
-cd C:\Users\felix\Desktop\Projects\W-Tracker\backend
+cd 'C:\path\to\Jern\backend'
 python -m pip install -r requirements.txt
 ```
 
@@ -19,7 +21,7 @@ Copy `.env.example` to `.env`, then add both API keys. The `.env` file is ignore
 committed.
 
 ```powershell
-cd C:\Users\felix\Desktop\Projects\W-Tracker
+cd 'C:\path\to\Jern'
 Copy-Item .env.example .env
 ```
 
@@ -67,7 +69,7 @@ The backend reads these settings from its process environment. Before starting
 it directly with Uvicorn, load them from the project-level `.env` file:
 
 ```powershell
-cd C:\Users\felix\Desktop\Projects\W-Tracker\backend
+cd 'C:\path\to\Jern\backend'
 $env:GEMINI_API_KEY = ((Get-Content ..\.env | Where-Object { $_ -match '^GEMINI_API_KEY=' }) -split '=', 2)[1].Trim()
 $env:GEMINI_MODEL = ((Get-Content ..\.env | Where-Object { $_ -match '^GEMINI_MODEL=' }) -split '=', 2)[1].Trim()
 ```
@@ -75,7 +77,7 @@ $env:GEMINI_MODEL = ((Get-Content ..\.env | Where-Object { $_ -match '^GEMINI_MO
 If you use Uvicorn directly, first change into `backend`. Running the command from another folder (such as `C:\\Windows\\System32`) causes `ModuleNotFoundError: No module named 'app'`:
 
 ```powershell
-cd C:\Users\felix\Desktop\Projects\W-Tracker\backend
+cd 'C:\path\to\Jern\backend'
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -128,7 +130,7 @@ Stop-Process -Id <OwningProcess>
 - Weekly volume is weight × reps, using Monday–Sunday weeks.
 - Volume is counted once against each exercise’s primary mapped muscle group: legs, back, core, chest, shoulders, or arms.
 - Exercise search is performed by FastAPI against Wger and cached locally. A small fallback catalogue is seeded for offline use.
-# W-Tracker
+# Jern
 
 ## Run on your Wi-Fi
 

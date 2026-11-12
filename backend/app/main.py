@@ -580,7 +580,7 @@ def authenticate_request(request: Request) -> dict[str, str]:
                 if origin not in trusted_origins and not is_development_origin:
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid request origin.")
             return identity
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to use the workout tracker.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to use Jern.")
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is missing.")
@@ -590,7 +590,7 @@ def authenticate_request(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is invalid or has expired. Sign in again.") from error
     email = str(token_info.get("email", "")).strip().lower()
     if token_info.get("email_verified") is not True or email not in allowed_emails:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This Google account does not have access to the workout tracker.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This Google account does not have access to Jern.")
     full_name = str(token_info.get("name", "")).strip()[:160]
     given_name = str(token_info.get("given_name", "")).strip()[:80]
     if not given_name and full_name:
@@ -690,7 +690,7 @@ def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 DOCS_ENABLED = os.getenv("ENABLE_API_DOCS", "true" if APP_ENV == "development" else "false").strip().lower() == "true"
 app = FastAPI(
-    title="Workout Tracker API",
+    title="Jern API",
     version="1.0.0",
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,

@@ -146,6 +146,6 @@ queries. The container runner is part of CI for future changes.
 
 Before production release, obtain the verified Railway ingress and backend peer
 addresses, back up the database, then follow the coordinated release procedure.
-The local wtracker-security-web and wtracker-security-backend images are
+The local jern-security-web and jern-security-backend images are
 verification artifacts. The web image uses a synthetic Google client ID. Build
 the release image with the real deployment configuration when deploying.

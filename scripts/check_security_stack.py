@@ -32,11 +32,11 @@ def wait_until_ready(container, command):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--web-image", default="wtracker-security-web")
-    parser.add_argument("--backend-image", default="wtracker-security-backend")
+    parser.add_argument("--web-image", default="jern-security-web")
+    parser.add_argument("--backend-image", default="jern-security-backend")
     args = parser.parse_args()
     suffix = uuid.uuid4().hex[:10]
-    network = f"wtracker-security-{suffix}"
+    network = f"jern-security-{suffix}"
     backend = network + "-backend"
     web = network + "-web"
     clients = []

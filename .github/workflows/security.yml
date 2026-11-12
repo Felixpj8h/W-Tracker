@@ -40,14 +40,14 @@ jobs:
       - run: python -m pip install --require-hashes -r requirements-dev.lock
       - run: python -m pytest -q
       - run: python -m pip_audit -r requirements.lock --require-hashes --disable-pip
-      - run: APP_ENV=production DATABASE_URL=sqlite:////tmp/wtracker-ci.db alembic -c alembic.ini upgrade head
+      - run: APP_ENV=production DATABASE_URL=sqlite:////tmp/jern-ci.db alembic -c alembic.ini upgrade head
 
   containers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --build-arg VITE_GOOGLE_CLIENT_ID=test-client.apps.googleusercontent.com -t wtracker-web .
-      - run: docker build -t wtracker-backend backend
+      - run: docker build --build-arg VITE_GOOGLE_CLIENT_ID=test-client.apps.googleusercontent.com -t jern-web .
+      - run: docker build -t jern-backend backend
       # Exercise runtime substitution and the read-only Compose filesystem.
-      - run: docker run --rm --read-only --tmpfs /tmp --tmpfs /var/cache/nginx -e BACKEND_ADDRESS=127.0.0.1:8000 wtracker-web nginx -t
-      - run: python scripts/check_security_stack.py --web-image wtracker-web --backend-image wtracker-backend
+      - run: docker run --rm --read-only --tmpfs /tmp --tmpfs /var/cache/nginx -e BACKEND_ADDRESS=127.0.0.1:8000 jern-web nginx -t
+      - run: python scripts/check_security_stack.py --web-image jern-web --backend-image jern-backend

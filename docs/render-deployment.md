@@ -1,4 +1,7 @@
-# Deploy W-Tracker on Render
+# Deploy Jern on Render
+
+Jern retains the existing `w-tracker-*` service IDs so existing deployments keep
+their service bindings and persistent disk. These IDs are infrastructure names.
 
 The root `render.yaml` creates two new Docker services in Frankfurt:
 

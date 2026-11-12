@@ -21,19 +21,6 @@
     text-align: center;
 }
 
-.auth-brand {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    margin: 0 auto 20px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, #326946, #79ad6b);
-    color: #fff;
-    font-size: 21px;
-    font-weight: 900;
-}
-
 .auth-card h1 {
     margin: 0;
     color: #17251e;

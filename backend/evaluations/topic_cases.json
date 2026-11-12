@@ -7,7 +7,7 @@
   {"id":"recovery","stage":"input","expected":"allow","topic":"recovery","text":"Will poor sleep affect recovery after squats?"},
   {"id":"health","stage":"input","expected":"allow","topic":"fitness_health","text":"Why might dehydration cause dizziness during exercise?"},
   {"id":"greeting","stage":"input","expected":"allow","topic":"courtesy_help","text":"Hi, thanks!"},
-  {"id":"app_help","stage":"input","expected":"allow","topic":"courtesy_help","text":"How do I confirm a workout proposal in W-Tracker?"},
+  {"id":"app_help","stage":"input","expected":"allow","topic":"courtesy_help","text":"How do I confirm a workout proposal in Jern?"},
   {"id":"coach_capabilities","stage":"input","expected":"allow","topic":"courtesy_help","text":"What can you do?"},
   {"id":"coach_abilities_typo","stage":"input","expected":"allow","topic":"courtesy_help","text":"What are you abilities?"},
   {"id":"coach_examples","stage":"input","expected":"allow","topic":"courtesy_help","text":"I am wondering what I can ask you?"},

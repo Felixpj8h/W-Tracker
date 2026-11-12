@@ -1,4 +1,5 @@
 import type { UserProfile } from './profile';
+import { JernLogo } from '../../shared/ui/JernLogo';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { setGoogleIdToken, authHeaders, activateAccount, invalidateAccount, broadcastAccountChange } from './auth';
 import { API } from '../../shared/api/client';
@@ -56,7 +57,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
             cancelled = true;
             controller.abort();
             setRestoring(false);
-            setAuthError('The tracker server took too long to respond. Retry your connection.');
+            setAuthError('The Jern server took too long to respond. Retry your connection.');
         }, 10000);
         void fetch(`${API}/session`, { credentials: 'include', signal: controller.signal }).then(async response => {
             if (cancelled || epoch !== authEpoch.current) return;
@@ -73,7 +74,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
                 setProfile(profileFromSession(body));
                 setToken('session');
             }
-        }).catch(() => { if (!cancelled) setAuthError(localDevelopment ? 'Cannot reach the local backend. Start it on port 8000, then retry.' : 'Cannot reach the tracker server. Retry your connection.'); }).finally(() => { window.clearTimeout(timeout); if (!cancelled) setRestoring(false); });
+        }).catch(() => { if (!cancelled) setAuthError(localDevelopment ? 'Cannot reach the local backend. Start it on port 8000, then retry.' : 'Cannot reach the Jern server. Retry your connection.'); }).finally(() => { window.clearTimeout(timeout); if (!cancelled) setRestoring(false); });
         return () => { cancelled = true; window.clearTimeout(timeout); controller.abort(); };
     }, [restoreAttempt, localDevelopment, skipRestore]);
 
@@ -106,7 +107,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
                     try {
                         const validation = await fetch(`${API}/session`, { credentials: 'include', headers: authHeaders() });
                         const body = await validation.json().catch(() => null) as { detail?: string; email?: string; name?: string; given_name?: string; picture?: string } | null;
-                        if (!validation.ok) throw new Error(body?.detail ?? 'This Google account cannot access the workout tracker.');
+                        if (!validation.ok) throw new Error(body?.detail ?? 'This Google account cannot access Jern.');
                         if (epoch !== authEpoch.current) return;
                         const authenticatedProfile = profileFromSession(body ?? {});
                         if (!authenticatedProfile.email) throw new Error('Google did not return an email address for this account.');
@@ -148,12 +149,11 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
     const demoButton = onExploreDemo && <button type="button" className="auth-demo" onClick={onExploreDemo}>Explore demo</button>;
     if (logoutPending || logoutFailed) return <main className="auth-shell"><section className="auth-card"><h1>Sign out</h1><p role="status">{logoutPending ? 'Signing out…' : 'Your server sign-out could not be confirmed. Retry when connected.'}</p>{logoutFailed && <button onClick={signOut}>Retry sign out</button>}</section></main>;
     if (token && profile) return children(profile);
-    if (localDevelopment) return <main className="auth-shell"><section className="auth-card"><div className="auth-brand">W</div><h1>Local workspace</h1><p>{restoring ? 'Connecting to the local backend…' : authError || 'The backend did not return a local user. Restart it in development mode.'}</p>{!restoring && <button type="button" className="primary" onClick={() => window.location.reload()}>Retry connection</button>}{demoButton}</section></main>;
+    if (localDevelopment) return <main className="auth-shell"><section className="auth-card"><JernLogo variant="auth" /><h1>Local workspace</h1><p>{restoring ? 'Connecting to the local backend…' : authError || 'The backend did not return a local user. Restart it in development mode.'}</p>{!restoring && <button type="button" className="primary" onClick={() => window.location.reload()}>Retry connection</button>}{demoButton}</section></main>;
     return (
         <main className="auth-shell">
             <section className="auth-card" aria-labelledby="auth-title">
-                <div className="auth-brand" aria-hidden="true">W</div>
-                <h1 id="auth-title">Workout Tracker</h1>
+                <h1 id="auth-title"><JernLogo variant="auth" /></h1>
                 <p>Sign in to your workspace.</p>
                 <div className="google-login" ref={googleButton} style={{ height: 48, maxHeight: 48, overflow: 'hidden', minWidth: 0 }}>
                     {restoring ? 'Restoring your session…' : checking ? 'Checking your account…' : !googleReady && !authError ? 'Loading Google sign-in…' : null}

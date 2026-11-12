@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "coach.log"
-LOGGER = logging.getLogger("wtracker.coach")
+LOGGER = logging.getLogger("jern.coach")
 
 if not LOGGER.handlers:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

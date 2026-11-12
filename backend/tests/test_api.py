@@ -12,7 +12,7 @@ import app.main as main_module
 from app.main import Base, app, group_for
 
 
-_test_database = tempfile.TemporaryDirectory(prefix="w-tracker-api-tests-")
+_test_database = tempfile.TemporaryDirectory(prefix="jern-api-tests-")
 engine = create_engine(f"sqlite:///{Path(_test_database.name) / 'workout_tracker.db'}", connect_args={"check_same_thread": False})
 main_module.engine = engine
 main_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, info={"owner_email": "test@example.com"})
