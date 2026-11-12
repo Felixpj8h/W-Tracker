@@ -17,7 +17,7 @@ TOPICS = {
     "nutrition": "Nutrition, recipes, calories, macros, hydration and supplements; ordinary arithmetic and nutrition calculations.",
     "recovery": "Recovery, sleep, fatigue and soreness.",
     "fitness_health": "General health education directly connected to fitness or nutrition.",
-    "courtesy_help": "Brief greetings, thanks, brief scope refusals or clarifications, and help using W-Tracker workout features.",
+    "courtesy_help": "Brief greetings, thanks, scope refusals or clarifications; questions and explanations about the coach's purpose, capabilities, limitations, supported topics, example requests and how to use it or W-Tracker workout features, including contextual follow-ups.",
     "out_of_scope": "Any substantive unrelated topic, including software programming even for fitness applications.",
     "unclear": "Insufficient information to determine the topic.",
 }
@@ -25,7 +25,12 @@ POLICY = (
     "Allowed scope: workouts, exercise, sports training, planning workout routines and training progress; "
     "nutrition, recipes, calories, macros, hydration, supplements; recovery, sleep, fatigue, soreness; "
     "general health education directly connected to fitness or nutrition; brief greetings, thanks, "
-    "and help using W-Tracker workout features. Ordinary arithmetic, nutrition calculations, workout "
+    "and help using W-Tracker workout features. Questions and explanations about the coach's purpose, "
+    "capabilities, limitations, supported topics, example requests and how to use it are allowed, "
+    "including follow-ups referring to those subjects. These help requests do not need to explicitly "
+    "mention fitness. Assess their meaning rather than requiring particular wording. This does not "
+    "allow requests to perform unrelated tasks or expand the coach's role beyond its permitted scope. "
+    "Ordinary arithmetic, nutrition calculations, workout "
     "tables and application workout tools are allowed. Software programming assistance, code generation, "
     "debugging, scripts, pseudocode and programming explanations are outside scope EVEN when framed "
     "as a fitness application or workout calculator. Any mixed allowed/unrelated task is outside scope. "
@@ -36,6 +41,9 @@ INPUT_INSTRUCTIONS = (
     POLICY + "Assess what the latest user message REQUESTS. Use recent_context only to resolve "
     "references such as 'yes' or 'make it shorter'. An explicit new fitness question is independent "
     "of earlier unrelated messages; do not mark it outside scope merely because of those messages. "
+    "A new question about the coach's permitted capabilities is also independent of an earlier "
+    "refused request. Use context to resolve follow-ups about capabilities or prior clarifications; "
+    "do not assume the user is repeating the refused task. "
 )
 OUTPUT_INSTRUCTIONS = (
     POLICY + "Assess what the coach ACTUALLY SUPPLIES in the complete response and ALL proposed "

@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 12 November 2026
 
+- Allow questions about the coach's capabilities, supported topics and usage by
+  meaning, including contextual follow-ups after refusals; align Gemini's prompt
+  and add evaluation cases while retaining coding and mixed-request restrictions.
 - Remove temporary classifier terminal prints and the phone-preview category
   watcher after debugging; retain structured diagnostic file logging.
 - Include the safe classifier failure reason in terminal debug output so a missing

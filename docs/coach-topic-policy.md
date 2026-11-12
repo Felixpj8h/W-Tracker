@@ -34,7 +34,12 @@ courtesy/application help, out-of-scope and unclear categories. Allowed content
 includes sports training, workout routines, fitness progress, nutrition/recipes,
 calories/macros, hydration/supplements, recovery/sleep/fatigue/soreness, general
 health education directly connected to fitness or nutrition, brief greetings,
-thanks, and help using workout features.
+thanks, and help using workout features. Courtesy/help also includes questions
+and explanations about the coach's purpose, capabilities, limitations, supported
+topics, example requests and usage, including contextual follow-ups after a refusal
+or clarification. Jev assesses their meaning; there is no phrase allowlist and
+no requirement to explicitly mention fitness. These help questions do not permit
+unrelated tasks, coding assistance or instruction overrides.
 
 Any substantive unrelated portion blocks the entire checkpoint. Software
 programming help, code generation, debugging, scripts, pseudocode and programming
@@ -106,7 +111,7 @@ fixtures, withheld output, proposal persistence, valid proposals, cancellation,
 ownership and technical failure handling. They do not establish actual Jev
 accuracy. Existing provider retry and proposal-confirmation tests also run.
 
-The separate evaluation uses 32 synthetic examples, no user health/chat data,
+The separate evaluation uses 44 synthetic examples, no user health/chat data,
 no Gemini calls, and no database writes. It makes paid TypeSafe calls only when
 explicitly invoked:
 
