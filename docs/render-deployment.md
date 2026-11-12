@@ -20,6 +20,10 @@ Render provides HTTPS for `workout.felixjohannessen.no`.
    - `ALLOWED_EMAILS`: comma-separated Google accounts allowed to use the app.
    - `GEMINI_API_KEY`: your Gemini API key.
    - `GEMINI_MODEL`: the model ID you use in your local configuration.
+   - `TYPESAFE_API_KEY`: a separate TypeSafe backend API key for topic classification.
+     `TYPESAFE_MODEL` defaults to `jev-latest`; the Blueprint also supplies provisional
+     topic probability thresholds. Missing/failed classification deliberately fails
+     open with degraded-enforcement logs. See [policy details](coach-topic-policy.md).
 4. Render generates `SESSION_SECRET` once and copies the Google client ID to
    the frontend build. Backend credentials belong only on the backend service.
    Your local `.env` is not uploaded or automatically read by Render.

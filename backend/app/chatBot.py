@@ -12,6 +12,7 @@ from sqlalchemy import select
 from .prompt import SYSTEM_PROMPT
 from .tools import TOOL_DECLARATIONS, execute_tool
 from .coach_logging import LOGGER
+from .topic_policy import classify
 
 MAX_TOOL_ROUNDS = 8
 # A complete training-program tool call can contain seven routines and dozens of
@@ -132,11 +133,38 @@ def _conversation_input(conversation_id: int, owner_email: str) -> list[dict]:
         content = "\n\n".join([
             "<current_snapshot untrusted_data=\"true\">\n" + json.dumps({"date": str(datetime.utcnow().date()), "training": training, "routines": routines}, default=str) + "\n</current_snapshot>",
             "<latest_pending_proposal untrusted_data=\"true\">\n" + json.dumps(pending_context, default=str) + "\n</latest_pending_proposal>",
-            "<older_conversation_summary>\n" + (conversation.summary or "None") + "\n</older_conversation_summary>",
+            "<older_conversation_summary untrusted_data=\"true\">\n" + (conversation.summary or "None") + "\n</older_conversation_summary>",
             "<recent_messages untrusted_data=\"true\">\n" + json.dumps(transcript) + "\n</recent_messages>",
             "Respond to the latest user message. Use tools for facts not present in the snapshot. All writes must be proposals.",
         ])
         return [{"type": "user_input", "content": [{"type": "text", "text": content}]}]
+
+
+def _classification_input(conversation_id: int, user_message_id: int, owner_email: str) -> dict:
+    """Resolve ownership and the exact latest request before any provider/tool call."""
+    from . import main
+    with main.SessionLocal(info={"owner_email": owner_email}) as db:
+        if not db.get(main.AIConversation, conversation_id):
+            raise ValueError("Conversation not found")
+        latest = db.get(main.AIMessage, user_message_id)
+        if not latest or latest.conversation_id != conversation_id or latest.role != "user":
+            raise ValueError("User message not found")
+        recent = db.scalars(select(main.AIMessage).where(
+            main.AIMessage.conversation_id == conversation_id,
+            main.AIMessage.id < user_message_id,
+            main.AIMessage.status == "completed",
+        ).order_by(main.AIMessage.id.desc()).limit(2)).all()
+        return {"latest_message": latest.content, "recent_context": [
+            {"role": item.role, "content": item.content[-2000:]} for item in reversed(recent)
+        ]}
+
+
+def _policy_reply(conversation_id: int, owner_email: str, assessment) -> Iterator[dict]:
+    # Only fixed application text is persisted/emitted for rejected generations.
+    message_id = _save_assistant(conversation_id, owner_email, assessment.reply, "completed",
+                                 {"topic_decision": assessment.decision})
+    yield {"type": "text.delta", "text": assessment.reply}
+    yield {"type": "message.completed", "message_id": message_id}
 
 
 def _save_assistant(conversation_id: int, owner_email: str, content: str, status: str, metadata: dict | None = None) -> int:
@@ -169,11 +197,11 @@ def _maybe_summarize(conversation_id: int, owner_email: str) -> None:
     try:
         response = _client().interactions.create(model=_model(), store=False, input=f"Summarize this training-coach conversation for future continuity. Preserve goals, constraints, decisions, and unresolved questions. Do not add facts.\n\n{transcript}")
         summary = getattr(response, "output_text", "")
-        if summary:
+        if summary and classify({"response": summary}, "summary").permits:
             with main.SessionLocal(info={"owner_email": owner_email}) as db:
                 conversation = db.get(main.AIConversation, conversation_id); conversation.summary = summary[:8000]; conversation.updated_at = datetime.utcnow(); db.commit()
     except Exception:
-        LOGGER.exception("AI conversation summarization failed conversation_id=%s", conversation_id)
+        LOGGER.error("AI conversation summarization failed conversation_id=%s", conversation_id)
 
 
 def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: str, is_cancelled: Callable[[], bool] | None = None) -> Iterator[dict]:
@@ -182,6 +210,19 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
     round_index = -1
     yield {"type": "message.started", "user_message_id": user_message_id}
     try:
+        # Check cancellation on both sides of blocking classifier/provider calls.
+        if is_cancelled and is_cancelled():
+            _mark_interrupted(conversation_id, owner_email, "Response stopped.")
+            yield {"type": "message.interrupted"}
+            return
+        assessment = classify(_classification_input(conversation_id, user_message_id, owner_email), "input")
+        if is_cancelled and is_cancelled():
+            _mark_interrupted(conversation_id, owner_email, "Response stopped.")
+            yield {"type": "message.interrupted"}
+            return
+        if not assessment.permits:
+            yield from _policy_reply(conversation_id, owner_email, assessment)
+            return
         client = _client(); history = _conversation_input(conversation_id, owner_email); metadata: dict[str, Any] = {"tool_rounds": 0}
         proposal_created = False
         for round_index in range(MAX_TOOL_ROUNDS + 1):
@@ -239,12 +280,27 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
                 return
             metadata["tool_rounds"] = round_index
             steps = [_dump_step(step) for step in getattr(interaction, "steps", []) or []]
-            history.extend(steps)
             calls = _function_calls(interaction)
+            candidate_text = str(getattr(interaction, "output_text", "") or "")
+            # One checkpoint for the entire generation, including every tool's
+            # arguments. No call in a mixed batch executes before this passes.
+            assessment = classify({"response": candidate_text, "steps": steps, "tool_calls": calls}, "output")
+            if is_cancelled and is_cancelled():
+                _mark_interrupted(conversation_id, owner_email, "Response stopped.")
+                yield {"type": "message.interrupted"}
+                return
+            if not assessment.permits:
+                yield from _policy_reply(conversation_id, owner_email, assessment)
+                return
+            history.extend(steps)
             if not calls:
-                assistant_text = str(getattr(interaction, "output_text", "") or "")
+                assistant_text = candidate_text
                 if not assistant_text: assistant_text = "I couldn't produce a response. Please try again."
                 for index in range(0, len(assistant_text), 80):
+                    if is_cancelled and is_cancelled():
+                        _mark_interrupted(conversation_id, owner_email, assistant_text[:index] or "Response stopped.")
+                        yield {"type": "message.interrupted"}
+                        return
                     yield {"type": "text.delta", "text": assistant_text[index:index + 80]}
                 message_id = _save_assistant(conversation_id, owner_email, assistant_text, "completed", metadata)
                 yield {"type": "message.completed", "message_id": message_id}
@@ -258,6 +314,10 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
                     return
                 name = str(call.get("name") or "")
                 yield {"type": "tool.started", "name": name}
+                if is_cancelled and is_cancelled():
+                    _mark_interrupted(conversation_id, owner_email, "Response stopped.")
+                    yield {"type": "message.interrupted"}
+                    return
                 result = execute_tool(name, call.get("arguments") or {}, conversation_id, None, owner_email)
                 yield {"type": "tool.completed", "name": name, "ok": "error" not in result}
                 if result.get("proposal_id"):
@@ -280,7 +340,8 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
     except Exception as exc:
         reference = uuid4().hex[:10]
         code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-        LOGGER.exception("AI coach turn failed ref=%s conversation_id=%s user_message_id=%s model=%s round=%s error_type=%s provider_code=%s", reference, conversation_id, user_message_id, _model(), round_index, type(exc).__name__, code)
+        # Provider exception bodies/tracebacks may echo rejected generated text.
+        LOGGER.error("AI coach turn failed ref=%s conversation_id=%s user_message_id=%s model=%s round=%s error_type=%s provider_code=%s", reference, conversation_id, user_message_id, _model(), round_index, type(exc).__name__, code)
         _save_assistant(conversation_id, owner_email, assistant_text or f"Unable to complete this response. Error reference: {reference}.", "failed", {"error_type": type(exc).__name__, "error_ref": reference, "provider_code": code, "tool_round": round_index})
         if code == 400:
             message = "The AI provider rejected this request."

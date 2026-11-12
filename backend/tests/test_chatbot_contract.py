@@ -3,12 +3,20 @@
 from types import SimpleNamespace
 import json
 from pathlib import Path
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import chatBot
+
+
+@pytest.fixture(autouse=True)
+def classification_request(monkeypatch):
+    # These unit tests isolate the provider contract; database ownership and
+    # classifier enforcement are exercised in test_topic_policy.py.
+    monkeypatch.setattr(chatBot, "_classification_input", lambda *_: {"latest_message": "Review my training", "recent_context": []})
 
 
 def test_tool_result_is_structured_json_for_gemini_25(monkeypatch):
@@ -211,17 +219,21 @@ def test_cancel_after_provider_response_prevents_tool_execution(monkeypatch):
         def model_dump(self, **_kwargs):
             return {"type": "function_call", "name": "propose_create_routine", "id": "call-1", "arguments": {}}
 
-    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(
-        interactions=SimpleNamespace(create=lambda **_kwargs: SimpleNamespace(steps=[FunctionCall()], output_text=""))
-    ))
+    cancelled = False
+
+    def create(**_kwargs):
+        nonlocal cancelled
+        cancelled = True
+        return SimpleNamespace(steps=[FunctionCall()], output_text="")
+
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=SimpleNamespace(create=create)))
     monkeypatch.setattr(chatBot, "_conversation_input", lambda *_args: [])
     executed = []
     monkeypatch.setattr(chatBot, "execute_tool", lambda *_args: executed.append(True))
     saved = {}
     monkeypatch.setattr(chatBot, "_mark_interrupted", lambda _id, _owner, text: saved.update(text=text))
 
-    checks = iter([False, True])
-    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com", is_cancelled=lambda: next(checks)))
+    events = list(chatBot.stream_coach_turn(1, 1, "test@example.com", is_cancelled=lambda: cancelled))
 
     assert executed == []
     assert saved["text"] == "Response stopped."

@@ -13,8 +13,9 @@ python -m pip install -r requirements.txt
 
 ### Configure the AI coach
 
-The AI coach uses Google's Gemini API. Copy `.env.example` to `.env`, then add
-your Gemini API key. The `.env` file is ignored by Git and must not be
+The AI coach uses Google's Gemini API for conversation and TypeSafe Jev for
+independent backend topic classification of inputs and generated outputs.
+Copy `.env.example` to `.env`, then add both API keys. The `.env` file is ignored by Git and must not be
 committed.
 
 ```powershell
@@ -27,7 +28,16 @@ Edit `.env` so it contains:
 ```dotenv
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
+TYPESAFE_API_KEY=your_typesafe_key_here
+TYPESAFE_MODEL=jev-latest
 ```
+
+Only backend settings use these keys; never prefix either secret with `VITE_`.
+Technical classifier failures deliberately fail open and are logged as degraded
+enforcement. Uncertain classifications ask for clarification. This configuration
+does not guarantee that unrelated output is impossible. See
+[coach topic policy](docs/coach-topic-policy.md) for thresholds, privacy,
+verification limits, and the optional live synthetic evaluation.
 
 ### Configure Google sign-in
 

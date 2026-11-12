@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Remove temporary classifier terminal prints and the phone-preview category
+  watcher after debugging; retain structured diagnostic file logging.
+- Include the safe classifier failure reason in terminal debug output so a missing
+  SDK or configuration issue can be distinguished from a topic classification.
+- Show backend category output live in the phone-preview terminal instead of
+  leaving redirected debug prints visible only in its log file.
+- Print the detected Jev category to the backend terminal for debugging, without
+  chat content or secrets; print `unavailable` when classification fails.
+- Add independent TypeSafe Jev input/output topic checks before coach replies or
+  model-directed tools are released, with clarification for uncertainty and logged
+  degraded enforcement on technical failures (fail open).
+- Buffer and screen generated tool arguments and conversation summaries; add
+  backend-only classifier settings, policy tests and an optional synthetic live evaluation.
 - Ignore the root `AGENTS.md` file so repository instructions stay local.
 
 ## 1.0 — 11 November 2026

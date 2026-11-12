@@ -41,6 +41,16 @@ services:
         sync: false
       - key: GEMINI_MODEL
         sync: false
+      - key: TYPESAFE_API_KEY
+        sync: false
+      - key: TYPESAFE_MODEL
+        value: jev-latest
+      - key: TYPESAFE_SAFE_MAX
+        value: "0.3"
+      - key: TYPESAFE_BLOCK_MIN
+        value: "0.7"
+      - key: TYPESAFE_TOPIC_MIN
+        value: "0.7"
 
   - type: web
     name: w-tracker-web
