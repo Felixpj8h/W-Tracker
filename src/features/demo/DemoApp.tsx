@@ -96,8 +96,8 @@ export function DemoApp({ exit }: { exit: () => void }) {
 
   const navigate = (next: Page) => { if (next === 'workout' || next === 'coach') return; setWorkout(undefined); setPage(next); };
   return <div className={`app demo-app ${dark ? 'dark' : ''}`}>
-    <Sidebar readOnly page={page} setPage={navigate} dark={dark} setDark={setDark} user={profile} exitDemo={exit}/>
-    <main className="workspace"><button onClick={() => { setHistoryFilters({ q: "", month: "all" }); setRetry(value => value + 1); }}>Refresh demo</button>
+    <Sidebar readOnly page={page} setPage={navigate} dark={dark} setDark={setDark} user={profile} exitDemo={exit} footerContent={<div className="demo-tools"><p>Exercise progress covers the most recent 100 completed workouts.</p><button type="button" onClick={() => { void refresh(); }}>Refresh demo</button></div>}/>
+    <main className="workspace">
       {error ? <div className="error" role="alert">{error} <button onClick={() => setRetry(value => value + 1)}>Retry demo</button></div> : loading ? <p role="status">Loading live training data…</p> : <>
         {page === 'dashboard' && <Dashboard readOnly dash={dash} history={overviewHistory} historyLoaded calendar={months[currentMonth]} firstName="Felix" log={() => undefined} saveWeight={refuseWrite} openCalendar={() => navigate('calendar')} openHistory={() => navigate('history')} openWorkout={setWorkout} targetPage={dashboardPage} onPageChange={setDashboardPage}/>}
         {page === 'routines' && <Routines readOnly folders={folders} refresh={refresh} start={() => undefined} note={() => undefined}/>}
@@ -105,7 +105,6 @@ export function DemoApp({ exit }: { exit: () => void }) {
         {page === 'history' && <History readOnly data={history} pagination={{ q: historyFilters.q, month: historyFilters.month, months: historyPage?.months ?? [], total: historyPage?.total_sessions ?? 0, volume: historyPage?.total_volume ?? 0, busy: historyBusy, more: Boolean(historyPage?.next_cursor), filter: (q, month) => { void fetchHistory(q, month); }, loadMore: () => { void fetchHistory(historyFilters.q, historyFilters.month, historyPage?.next_cursor); } }} edit={() => undefined} refresh={refresh} repeat={refuseWrite} note={() => undefined}/>}
       </>}
     </main>
-    <p>Exercise progress covers the most recent 100 completed workouts.</p>
     <MobileNavigation readOnly exitDemo={exit} page={page} setPage={navigate} dashboardPage={dashboardPage} setDashboardPage={setDashboardPage} dark={dark} setDark={setDark} logWorkout={() => undefined}/>
     {!error && !loading && workout && <WorkoutDetails readOnly workout={workout} close={() => setWorkout(undefined)}/>}
   </div>;

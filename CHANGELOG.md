@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix demo dashboard squeezing and overlapping controls by moving demo tools into
+  the sidebar and hiding unavailable weight-entry controls.
+
 - Refine the Jern identity with a shared geometric SVG monogram and bold wordmark
   across sidebar, mobile and sign-in, with theme-aware colors and matching app icons.
 

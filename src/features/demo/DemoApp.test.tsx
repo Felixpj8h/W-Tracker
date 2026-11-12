@@ -113,6 +113,10 @@ describe('Public demo workspace', () => {
     expect(screen.getByRole('button', { name: /80 kilograms/ })).toBeTruthy();
     expect(screen.queryByText('Private data')).toBeNull();
     expect(document.querySelector('.dashboard-weight')).toBeTruthy();
+    const refreshButton = screen.getByRole('button', { name: 'Refresh demo' });
+    expect(refreshButton.closest('.sidebar')).toBeTruthy();
+    expect(screen.getByText('Exercise progress covers the most recent 100 completed workouts.').closest('.sidebar')).toBeTruthy();
+    expect(document.querySelector('main.workspace')?.firstElementChild?.classList.contains('dashboard-shell')).toBe(true);
     expect(document.querySelector('.demo-banner')).toBeNull();
     expect(document.querySelector('.demo-body-map')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More pages' }));

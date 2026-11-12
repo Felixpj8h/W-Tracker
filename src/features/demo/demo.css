@@ -1,2 +1,8 @@
 /* The demo uses the same page layouts and styles as the personal workspace. */
 .demo-app button:disabled { cursor:not-allowed; }
+.demo-tools { margin-bottom:18px; }
+.demo-tools p { margin:0 0 10px; color:var(--muted); font-size:11px; line-height:1.5; }
+.demo-tools button { padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:var(--soft); color:var(--text); font-size:12px; font-weight:700; }
+.demo-app .dashboard-weight-actions > form,
+.demo-app .mobile-add-weight { display:none; }
+.demo-app .dashboard-section-head { flex-wrap:wrap; }
