@@ -14,7 +14,7 @@ const previous = addDays(current, -7);
 const dash: Dash = { latest_weight: { weight: 80, recorded_on: today() }, weight_series: [], total_current_volume: 100, total_previous_volume: 50, current_sessions: 1, previous_sessions: 0,
     volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 100, last_week_volume: 50 }], sets_by_muscle: [] };
 
-function setup() {
+function setup(profilePicture?: string) {
     const fetchMock = vi.fn(async (url: string) => {
         let data: unknown;
         if (url.includes('/body-map')) data = { muscles: [] };
@@ -26,10 +26,23 @@ function setup() {
         return { ok: true, json: async () => data };
     });
     vi.stubGlobal('fetch', fetchMock);
-    const view = render(<DashboardPanels dash={dash} history={[{ id: 1, name: 'Past workout', routine_id: 1, performed_on: previous, completed: true, exercises: [] }]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+    const view = render(<DashboardPanels dash={dash} history={[{ id: 1, name: 'Past workout', routine_id: 1, performed_on: previous, completed: true, exercises: [] }]} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
     fireEvent.click(screen.getByRole('button', { name: /This week/ }));
     return { fetchMock, view };
 }
+
+it('shows the Google photo in the mobile header and falls back on an image error', async () => {
+    const picture = 'https://lh3.googleusercontent.com/profile-photo';
+    const { view } = setup(picture);
+    const avatar = view.container.querySelector('.mobile-dashboard-topbar .profile-avatar')!;
+    const image = avatar.querySelector('img')!;
+    expect(image.getAttribute('src')).toBe(picture);
+    expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
+    fireEvent.error(image);
+    expect(avatar.querySelector('img')).toBeNull();
+    expect(avatar.textContent).toBe('A');
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+});
 
 it('browses weeks, updates stats and heatmap, and returns to the current week', async () => {
     const { fetchMock, view } = setup();

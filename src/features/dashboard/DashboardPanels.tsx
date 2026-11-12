@@ -1,4 +1,5 @@
 import type { Dash } from './types';
+import { ProfileAvatar } from '../../shared/ui/ProfileAvatar';
 import { JernLogo } from '../../shared/ui/JernLogo';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth } from '../calendar/types';
@@ -13,12 +14,13 @@ import { WeekSelector } from './WeekSelector';
 import { useWeekData } from './useWeekData';
 import { addDays, startOfWeek } from './week';
 
-export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, calendar, firstName, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false }: {
+export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false }: {
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
     calendar?: CalendarMonth;
     firstName: string;
+    profilePicture?: string;
     log: () => void;
     openCalendar: () => void;
     openHistory: () => void;
@@ -118,7 +120,7 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
     const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
     return <>
         <section className="dashboard-overview-page">
-        <div className="mobile-dashboard-topbar"><JernLogo variant="mobile" /><span><small>Today</small><time>{now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></span><i>{firstName.charAt(0).toUpperCase()}</i></div>
+        <div className="mobile-dashboard-topbar"><JernLogo variant="mobile" /><span><small>Today</small><time>{now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></span><ProfileAvatar firstName={firstName} picture={profilePicture}/></div>
         <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={_historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
         <section className="dashboard-metrics" aria-label="Training summary">

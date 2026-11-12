@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Show the signed-in Google profile photo in the mobile dashboard header, with
+  an initial fallback when no photo is available or loading fails.
+
+- Give Android install icons distinct Jern filenames so browsers can detect the
+  new monogram instead of retaining icons cached before the rebrand.
+
 - Fix demo dashboard squeezing and overlapping controls by moving demo tools into
   the sidebar and hiding unavailable weight-entry controls.
 
