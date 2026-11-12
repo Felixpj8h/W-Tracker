@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## 12 November 2026
+
+- Include chat history and previously displayed workout proposals in coach topic
+  screening so follow-up questions retain their meaning, with bounded context
+  for long chats and the existing ownership and topic restrictions preserved.
+
+- Screen tool-only coach steps in the context of the accepted request, retry
+  uncertain output once before any tools run, and avoid asking users to clarify
+  clear training requests when internal output screening is uncertain.
+
+- Answer implicit training requests and general health questions directly with
+  cautious, non-diagnostic guidance; retain coding, mixed-topic and role-override
+  refusals. Render coach equations with accessible math in live and saved replies,
+  and keep calculation results readable in plain text.
+
+- Interpret short coach requests in their workout context and combine confidence
+  across allowed topics to reduce unnecessary clarifications while retaining
+  independent checks for unrelated tasks, coding and role overrides.
+
+- Group changelog entries by the date changes were made and update repository
+  instructions to use dated headings for future changes.
 
 - Show the signed-in Google profile photo in the mobile dashboard header, with
   an initial fallback when no photo is available or loading fails.
@@ -18,8 +38,6 @@
   install metadata, icons, API messages, coach prompts and topic policy, and docs.
   Keep existing database paths, session cookies and deployment service IDs for
   compatibility with saved data and running environments.
-
-## 12 November 2026
 
 - Retain acknowledged workout revisions when reopening the logger and coordinate
   background saves with autosave/finish so the client does not conflict with its

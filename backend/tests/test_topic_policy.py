@@ -93,7 +93,33 @@ def test_noul_boundaries_and_hazard_precedence(field, value, expected):
 
 @pytest.mark.parametrize(("value", "expected"), [(0.699999, "uncertain"), (0.7, "allow"), (0.700001, "allow")])
 def test_topic_probability_boundaries(value, expected):
-    assert policy.decide(answer(topic_p=value), policy.Thresholds()).decision == expected
+    response = answer()
+    response.choices["topic"].probabilities = dict.fromkeys(policy.TOPICS, 0.0)
+    response.choices["topic"].probabilities.update(training=value, unclear=1 - value)
+    assert policy.decide(response, policy.Thresholds()).decision == expected
+
+
+@pytest.mark.parametrize("hazards,expected", [
+    ({}, "allow"), ({"outside_scope": 0.5}, "uncertain"),
+    ({"outside_scope": 0.8}, "block"), ({"software": 0.8}, "block"),
+    ({"override": 0.8}, "block"),
+])
+def test_confidence_split_across_allowed_topics(hazards, expected):
+    response = answer(**hazards)
+    response.choices["topic"].probabilities = dict.fromkeys(policy.TOPICS, 0.0)
+    response.choices["topic"].probabilities.update(
+        training=0.4, nutrition=0.25, recovery=0.25, unclear=0.1,
+    )
+    assert policy.decide(response, policy.Thresholds()).decision == expected
+
+
+def test_unclear_primary_topic_still_needs_clarification():
+    response = answer("unclear")
+    response.choices["topic"].probabilities = dict.fromkeys(policy.TOPICS, 0.0)
+    response.choices["topic"].probabilities.update(
+        unclear=0.28, training=0.25, nutrition=0.24, recovery=0.23,
+    )
+    assert policy.decide(response, policy.Thresholds()).decision == "uncertain"
 
 
 def test_category_and_custom_thresholds():
@@ -230,6 +256,31 @@ def response(text="", calls=None):
     return SimpleNamespace(output_text=text, steps=calls or [])
 
 
+def test_math_source_survives_screening_streaming_and_storage(flow):
+    text = "That is 128 g of protein.\n\n$$\n" + r"\text{80 kg} \times 1.6\text{ g/kg} = 128\text{ g}" + "\n$$"
+    flow.interactions.append(response(text))
+    flow.decisions.extend(["allow", "allow"])
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert "".join(event["text"] for event in events if event["type"] == "text.delta") == text
+    assert flow.saved[0][2] == text
+    assert flow.states[-1][1]["response"] == text
+
+
+def test_capabilities_turn_after_refusal_is_screened_independently(flow):
+    flow.decisions.append("block")
+    refused = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert any(event.get("text") == policy.REFUSAL for event in refused)
+    assert not flow.provider_calls
+
+    reply = "You can ask about training, nutrition, recovery, general health and Jern workout features."
+    flow.decisions.extend(["allow", "allow"])
+    flow.interactions.append(response(reply))
+    events = list(chatBot.stream_coach_turn(1, 3, "test@example.com"))
+    assert "".join(event["text"] for event in events if event["type"] == "text.delta") == reply
+    assert flow.saved[-1][2] == reply
+    assert len(flow.provider_calls) == 1
+
+
 @pytest.mark.parametrize("decision,reply", [("block", policy.REFUSAL), ("uncertain", policy.CLARIFICATION)])
 def test_input_rejection_precedes_gemini_and_tools(flow, decision, reply):
     flow.decisions.append(decision)
@@ -244,10 +295,61 @@ def test_generated_code_is_never_streamed_or_saved(flow, decision):
     code = "```python\nprint('synthetic rejected code')\n```"
     flow.interactions.append(response(code))
     flow.decisions.extend(["allow", decision])
+    if decision == "uncertain":
+        flow.interactions.append(response(code))
+        flow.decisions.append("uncertain")
     events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
     assert code not in str(events) and code not in str(flow.saved)
-    assert flow.saved[0][2] in (policy.REFUSAL, policy.CLARIFICATION)
+    assert flow.saved[0][2] in (policy.REFUSAL, policy.OUTPUT_UNCERTAIN)
     assert flow.states[1][1]["response"] == code
+
+
+def test_tool_only_step_keeps_request_context_and_executes_after_screening(flow):
+    call = {"type": "function_call", "name": "get_weekly_plan", "id": "read", "arguments": {}}
+    flow.interactions.extend([response(calls=[call]), response("Include rest days between hard sessions.")])
+    flow.decisions.extend(["allow", "allow", "allow"])
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    state = flow.states[1][1]
+    assert state["response"] == "" and state["generation_kind"] == "tool_step"
+    assert state["request_context"] == flow.states[0][1]
+    assert state["tool_calls"][0]["name"] == "get_weekly_plan"
+    assert len(flow.executed) == 1
+    assert events[-1]["type"] == "message.completed"
+
+
+def test_uncertain_tool_step_is_discarded_and_regenerated_before_execution(flow):
+    rejected = {"type": "function_call", "name": "get_weekly_plan", "id": "rejected", "arguments": {}}
+    accepted = {**rejected, "id": "accepted"}
+    flow.interactions.extend([
+        response(calls=[rejected]),
+        response("I will review your weekly training plan.", [accepted]),
+        response("Balance hard sessions with rest days."),
+    ])
+    flow.decisions.extend(["allow", "uncertain", "allow", "allow"])
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert len(flow.executed) == 1  # only the regenerated batch ran
+    assert flow.saved[0][2] == "Balance hard sessions with rest days."
+    assert policy.CLARIFICATION not in str(events)
+    assert all(step.get("id") != "rejected" for step in flow.provider_calls[-1]["input"])
+
+
+def test_output_uncertainty_retry_is_bounded_and_never_executes_calls(flow):
+    call = {"type": "function_call", "name": "get_weekly_plan", "id": "read", "arguments": {}}
+    flow.interactions.extend([response(calls=[call]), response(calls=[call])])
+    flow.decisions.extend(["allow", "uncertain", "uncertain"])
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert len(flow.provider_calls) == 2 and not flow.executed
+    assert flow.saved[0][2] == policy.OUTPUT_UNCERTAIN
+    assert policy.CLARIFICATION not in str(events)
+    assert events[-1]["type"] == "message.completed"
+
+
+def test_regeneration_cannot_bypass_blocked_output(flow):
+    flow.interactions.extend([response("Uncertain output"), response("Rejected coding instructions")])
+    flow.decisions.extend(["allow", "uncertain", "block"])
+    events = list(chatBot.stream_coach_turn(1, 2, "test@example.com"))
+    assert flow.saved[0][2] == policy.REFUSAL and not flow.executed
+    assert "Rejected coding instructions" not in str(events)
 
 
 def test_all_arguments_are_checked_before_any_tool_executes(flow):
@@ -344,6 +446,83 @@ def test_input_context_uses_exact_owned_message_and_only_recent_context(database
         chatBot._classification_input(conversation_id, message_id, "b@test.example")
     with pytest.raises(ValueError):
         chatBot._classification_input(conversation_id, message_id + 1, "a@test.example")
+
+
+def test_short_chat_history_is_kept_in_full(database):
+    main, factory = database
+    contents = ["Review my full-body training plan " + "x" * 2100,
+                "Consider adding accessory work.", "Can you add that?",
+                "The proposal is ready to review and confirm in the app."]
+    with factory(info={"owner_email": "a@test.example"}) as db:
+        conversation = main.AIConversation(owner_email="a@test.example", title="Coach")
+        db.add(conversation); db.flush()
+        for index, content in enumerate(contents + ["whats the science behind this?"]):
+            message = main.AIMessage(conversation_id=conversation.id, role="user" if index % 2 == 0 else "assistant",
+                                     content=content, status="completed")
+            db.add(message); db.flush()
+        db.commit(); cid, mid = conversation.id, message.id
+    state = chatBot._classification_input(cid, mid, "a@test.example")
+    assert [item["content"] for item in state["recent_context"]] == contents
+    assert not state["history_truncated"]
+    assert state["latest_message"] == "whats the science behind this?"
+
+
+@pytest.mark.parametrize("message_limit,char_limit", [(3, 1000), (32, 15)])
+def test_long_classifier_history_is_bounded_and_keeps_newest_context(database, monkeypatch, message_limit, char_limit):
+    main, factory = database
+    monkeypatch.setattr(chatBot, "CLASSIFICATION_HISTORY_MESSAGES", message_limit)
+    monkeypatch.setattr(chatBot, "CLASSIFICATION_HISTORY_CHARS", char_limit)
+    with factory(info={"owner_email": "a@test.example"}) as db:
+        conversation = main.AIConversation(owner_email="a@test.example", title="Coach")
+        db.add(conversation); db.flush()
+        for index in range(7):
+            message = main.AIMessage(conversation_id=conversation.id, role="user", content=f"message {index}", status="completed")
+            db.add(message); db.flush()
+        db.commit(); cid, mid = conversation.id, message.id
+    state = chatBot._classification_input(cid, mid, "a@test.example")
+    assert state["history_truncated"]
+    assert len(state["recent_context"]) <= message_limit
+    assert sum(len(item["content"]) for item in state["recent_context"]) <= char_limit
+    assert state["recent_context"][-1]["content"] == "message 5"
+
+
+def test_classifier_cards_are_owned_preceding_and_include_workout_details(database, monkeypatch):
+    main, factory = database
+    owner = "a@test.example"
+    with factory() as db:
+        own = main.AIConversation(owner_email=owner, title="Own")
+        other = main.AIConversation(owner_email="b@test.example", title="Other")
+        db.add_all([own, other]); db.flush()
+        previous = main.AIMessage(conversation_id=own.id, role="assistant", content="Proposal ready", status="completed")
+        db.add(previous); db.flush()
+        latest = main.AIMessage(conversation_id=own.id, role="user", content="whats the science behind this?", status="completed")
+        db.add(latest); db.flush()
+        future = main.AIMessage(conversation_id=own.id, role="assistant", content="Later proposal", status="completed")
+        db.add(future); db.flush()
+        for cid, message_id, summary in [(own.id, previous.id, "Three full-body sessions"),
+                                         (other.id, previous.id, "Other owner's proposal"),
+                                         (own.id, future.id, "Future proposal"),
+                                         (own.id, None, "Not displayed yet")]:
+            db.add(main.AIChangeProposal(conversation_id=cid, message_id=message_id,
+                operation="create_training_program", summary=summary, reasoning="Balance volume and recovery",
+                payload=json.dumps({"routines": [{"name": "Full Body A", "exercises": [{"exercise_id": 1, "planned_sets": 3}]}]}),
+                status="pending"))
+        db.commit(); cid, mid = own.id, latest.id
+    state = chatBot._classification_input(cid, mid, owner)
+    assert len(state["proposal_context"]) == 1
+    card = state["proposal_context"][0]
+    assert card["summary"] == "Three full-body sessions"
+    assert card["reasoning"] == "Balance volume and recovery"
+    assert card["payload"]["routines"][0]["name"] == "Full Body A"
+    assert not state["proposals_truncated"]
+    with pytest.raises(ValueError):
+        chatBot._classification_input(cid, mid, "b@test.example")
+
+    monkeypatch.setattr(chatBot, "CLASSIFICATION_PROPOSAL_CHARS", 100)
+    bounded = chatBot._classification_input(cid, mid, owner)
+    assert bounded["proposals_truncated"]
+    assert bounded["proposal_context"][0]["truncated"]
+    assert len(bounded["proposal_context"][0]["excerpt"]) <= 100
 
 
 def test_rejected_proposal_arguments_never_reach_database(database, monkeypatch):

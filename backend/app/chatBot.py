@@ -15,6 +15,11 @@ from .coach_logging import LOGGER
 from .topic_policy import classify
 
 MAX_TOOL_ROUNDS = 8
+MAX_OUTPUT_SCREEN_RETRIES = 1
+CLASSIFICATION_HISTORY_MESSAGES = 32
+CLASSIFICATION_HISTORY_CHARS = 24000
+CLASSIFICATION_PROPOSALS = 3
+CLASSIFICATION_PROPOSAL_CHARS = 24000
 # A complete training-program tool call can contain seven routines and dozens of
 # exercise prescriptions.  A 2K cap can truncate that JSON before Gemini has a
 # chance to close it, which the provider reports as `malformed_tool_call`.
@@ -153,17 +158,67 @@ def _classification_input(conversation_id: int, user_message_id: int, owner_emai
             main.AIMessage.conversation_id == conversation_id,
             main.AIMessage.id < user_message_id,
             main.AIMessage.status == "completed",
-        ).order_by(main.AIMessage.id.desc()).limit(2)).all()
-        return {"latest_message": latest.content, "recent_context": [
-            {"role": item.role, "content": item.content[-2000:]} for item in reversed(recent)
-        ]}
+        ).order_by(main.AIMessage.id.desc()).limit(CLASSIFICATION_HISTORY_MESSAGES + 1)).all()
+        history = []
+        remaining = CLASSIFICATION_HISTORY_CHARS
+        history_truncated = len(recent) > CLASSIFICATION_HISTORY_MESSAGES
+        for item in recent[:CLASSIFICATION_HISTORY_MESSAGES]:
+            if remaining <= 0:
+                history_truncated = True
+                break
+            content = item.content[-remaining:]
+            history_truncated |= len(content) < len(item.content)
+            history.append({"role": item.role, "content": content})
+            remaining -= len(content)
+        history.reverse()
+
+        # Cards live outside the transcript. Only include cards already attached
+        # to completed messages before this exact request, in this owned chat.
+        proposals = db.scalars(select(main.AIChangeProposal).join(
+            main.AIMessage, main.AIMessage.id == main.AIChangeProposal.message_id,
+        ).where(
+            main.AIChangeProposal.conversation_id == conversation_id,
+            main.AIMessage.conversation_id == conversation_id,
+            main.AIMessage.id < user_message_id,
+            main.AIMessage.role == "assistant",
+            main.AIMessage.status == "completed",
+        ).order_by(main.AIMessage.id.desc(), main.AIChangeProposal.id.desc())
+          .limit(CLASSIFICATION_PROPOSALS + 1)).all()
+        cards = []
+        remaining = CLASSIFICATION_PROPOSAL_CHARS
+        proposals_truncated = len(proposals) > CLASSIFICATION_PROPOSALS
+        for proposal in proposals[:CLASSIFICATION_PROPOSALS]:
+            card = {
+                "operation": proposal.operation, "status": proposal.status,
+                "summary": proposal.summary, "reasoning": proposal.reasoning,
+                "payload": json.loads(proposal.payload),
+            }
+            size = len(json.dumps(card, ensure_ascii=False))
+            if size > remaining:
+                # Retain a bounded excerpt rather than dropping the most recent
+                # card entirely. The classifier is told that this is incomplete.
+                cards.append({"excerpt": json.dumps(card, ensure_ascii=False)[:remaining], "truncated": True})
+                proposals_truncated = True
+                break
+            cards.append(card)
+            remaining -= size
+            if remaining <= 0:
+                proposals_truncated |= len(cards) < len(proposals)
+                break
+        cards.reverse()
+        return {
+            "latest_message": latest.content, "recent_context": history,
+            "history_truncated": history_truncated, "proposal_context": cards,
+            "proposals_truncated": proposals_truncated,
+        }
 
 
-def _policy_reply(conversation_id: int, owner_email: str, assessment) -> Iterator[dict]:
+def _policy_reply(conversation_id: int, owner_email: str, assessment, stage: str = "input") -> Iterator[dict]:
     # Only fixed application text is persisted/emitted for rejected generations.
-    message_id = _save_assistant(conversation_id, owner_email, assessment.reply, "completed",
-                                 {"topic_decision": assessment.decision})
-    yield {"type": "text.delta", "text": assessment.reply}
+    reply = assessment.reply_for(stage)
+    message_id = _save_assistant(conversation_id, owner_email, reply, "completed",
+                                 {"topic_decision": assessment.decision, "topic_stage": stage})
+    yield {"type": "text.delta", "text": reply}
     yield {"type": "message.completed", "message_id": message_id}
 
 
@@ -215,7 +270,8 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             _mark_interrupted(conversation_id, owner_email, "Response stopped.")
             yield {"type": "message.interrupted"}
             return
-        assessment = classify(_classification_input(conversation_id, user_message_id, owner_email), "input")
+        request_context = _classification_input(conversation_id, user_message_id, owner_email)
+        assessment = classify(request_context, "input")
         if is_cancelled and is_cancelled():
             _mark_interrupted(conversation_id, owner_email, "Response stopped.")
             yield {"type": "message.interrupted"}
@@ -225,6 +281,7 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             return
         client = _client(); history = _conversation_input(conversation_id, owner_email); metadata: dict[str, Any] = {"tool_rounds": 0}
         proposal_created = False
+        output_screen_retries = 0
         for round_index in range(MAX_TOOL_ROUNDS + 1):
             if is_cancelled and is_cancelled():
                 _mark_interrupted(conversation_id, owner_email, assistant_text or "Response stopped.")
@@ -284,13 +341,30 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             candidate_text = str(getattr(interaction, "output_text", "") or "")
             # One checkpoint for the entire generation, including every tool's
             # arguments. No call in a mixed batch executes before this passes.
-            assessment = classify({"response": candidate_text, "steps": steps, "tool_calls": calls}, "output")
+            assessment = classify({
+                "response": candidate_text, "steps": steps, "tool_calls": calls,
+                "generation_kind": "tool_step" if calls else "reply",
+                "request_context": request_context,
+            }, "output")
             if is_cancelled and is_cancelled():
                 _mark_interrupted(conversation_id, owner_email, "Response stopped.")
                 yield {"type": "message.interrupted"}
                 return
             if not assessment.permits:
-                yield from _policy_reply(conversation_id, owner_email, assessment)
+                if (assessment.decision == "uncertain"
+                        and output_screen_retries < MAX_OUTPUT_SCREEN_RETRIES
+                        and round_index < MAX_TOOL_ROUNDS):
+                    output_screen_retries += 1
+                    # Discard the entire rejected batch. Never execute calls or add
+                    # their IDs to history before a generation passes screening.
+                    history.append({"type": "user_input", "content": [{"type": "text", "text": (
+                        "The previous generation was withheld by output screening; no tools from it ran. "
+                        "Answer the latest user request within your permitted scope. If you need to "
+                        "retrieve workout data, briefly explain that training purpose alongside the "
+                        "read-tool calls. Do not ask the user to clarify an already clear request."
+                    )}]})
+                    continue
+                yield from _policy_reply(conversation_id, owner_email, assessment, "output")
                 return
             history.extend(steps)
             if not calls:

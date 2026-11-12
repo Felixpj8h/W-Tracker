@@ -12,8 +12,15 @@ from app.topic_policy import classify
 
 def state_for(case):
     if case["stage"] == "input":
-        return {"latest_message": case["text"], "recent_context": case.get("context", [])}
-    return {"response": case["text"], "tool_calls": case.get("calls", [])}
+        state = {"latest_message": case["text"], "recent_context": case.get("context", [])}
+        if "proposal_context" in case:
+            state["proposal_context"] = case["proposal_context"]
+        return state
+    state = {"response": case["text"], "tool_calls": case.get("calls", [])}
+    if "request_context" in case:
+        state.update(request_context=case["request_context"],
+                     generation_kind="tool_step" if state["tool_calls"] else "reply")
+    return state
 
 
 def report(rows):
