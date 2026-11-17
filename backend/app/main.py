@@ -272,7 +272,27 @@ class AIChangeProposal(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
-TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation)
+class HealthConnection(OwnedRecord, Base):
+    __tablename__ = "health_connections"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    __table_args__ = (UniqueConstraint("owner_email", name="uq_health_owner"),)
+    account_email: Mapped[str] = mapped_column(String(320))
+    tokens: Mapped[str] = mapped_column(Text)
+    scopes: Mapped[str] = mapped_column(Text)
+    snapshot: Mapped[str] = mapped_column(Text, default="{}")
+    fetched_at: Mapped[int] = mapped_column(Integer, default=0)
+    step_goal: Mapped[int] = mapped_column(Integer, default=8000)
+
+
+class HealthOAuthAttempt(OwnedRecord, Base):
+    __tablename__ = "health_oauth_attempts"
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    browser_hash: Mapped[str] = mapped_column(String(64))
+    verifier: Mapped[str] = mapped_column(String(128))
+    expires: Mapped[int] = mapped_column(Integer)
+
+
+TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation, HealthConnection, HealthOAuthAttempt)
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -728,7 +748,7 @@ async def require_google_auth(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store"
         return response
     is_api = request.url.path.startswith("/api/v1/")
-    is_public = request.url.path in {"/api/v1/health", "/api/v1/session/logout"} or request.method == "OPTIONS"
+    is_public = request.url.path in {"/api/v1/health", "/api/v1/session/logout", "/api/v1/health/google/callback"} or request.method == "OPTIONS"
     content_length = request.headers.get("content-length")
     if is_api and content_length and content_length.isdigit() and int(content_length) > 1_048_576:
         return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"detail": "Request body is too large."})
@@ -1998,3 +2018,6 @@ def create_demo_data(db: Session = Depends(get_db)):
 # Register public training projections after model and calculation definitions.
 from .demo import router as demo_router
 app.include_router(demo_router)
+
+from .health import router as health_router
+app.include_router(health_router)

@@ -1,3 +1,3 @@
 
 
-export type Page = 'dashboard' | 'routines' | 'workout' | 'coach' | 'calendar' | 'history';
+export type Page = 'dashboard' | 'routines' | 'workout' | 'coach' | 'calendar' | 'history' | 'health';

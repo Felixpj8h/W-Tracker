@@ -7,3 +7,4 @@ typesafe-sdk>=0.7.5,<0.8
 google-auth>=2.0,<3
 python-dotenv>=1.0,<2
 alembic>=1.14,<2
+cryptography>=50,<51

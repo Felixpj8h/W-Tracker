@@ -1,5 +1,22 @@
 # Changelog
 
+## 17 November 2026
+
+- Clarify Health setup requirements for the callback URL, complete encryption
+  key and backend restart so environment changes enable the connection.
+
+- Keep the Health connection screen compact with a small page title, one
+  connection card and concise status; remove promotional and repeated copy.
+
+- Add a dedicated Health page with daily steps and a personal goal, recorded
+  activity, sleep stages and seven-day trends, plus HRV and resting heart rate.
+  Share recovery summaries with the existing AI coach for advice without
+  automatically changing training plans.
+- Connect Google Health v4 with read-only consent, encrypted server-side tokens,
+  refresh and disconnect controls, account-bound OAuth, private cached summaries
+  and partial-permission handling. Add database migration and Cloud setup guide;
+  live access requires deployment credentials and Google authorization.
+
 ## 12 November 2026
 
 - Remove the separate coach input-classification gate. Screen complete generated
