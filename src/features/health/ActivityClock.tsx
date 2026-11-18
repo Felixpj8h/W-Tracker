@@ -109,8 +109,8 @@ export function ActivityClock({ today, sleep, workouts, mobile, summary }: {
     <svg ref={ref} data-reveal={visible} viewBox={mobile ? '-12 0 252 190' : '0 0 228 190'} role="img" aria-label={`Activity yesterday, ${yesterday}. ${description || 'No timed sessions recorded.'}`}>
       <defs>
         <mask id={maskId}>
-          <path className="health-clock-sweep" d="M114 158 A62 62 0 1 1 114 34 A62 62 0 1 1 114 158" pathLength="1"
-            strokeDasharray="1" fill="none" stroke="white" strokeWidth="17" />
+          <path className="health-clock-sweep" d="M114 158 A62 62 0 1 1 114 34 A62 62 0 1 1 114 158 Z" pathLength="1"
+            fill="none" stroke="white" strokeWidth="17" />
         </mask>
       </defs>
       <g mask={`url(#${maskId})`}>

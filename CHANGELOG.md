@@ -2,6 +2,8 @@
 
 ## 18 November 2026
 
+- Close the Activity clock's sweep cleanly so the finished ring has no gap at midnight.
+
 - Add all-time steps and days at the current target from synced Google Health history, and move desktop goal editing beside step progress.
 
 - Show just the question in coach chats started from Health while keeping the selected readings available to the coach.
