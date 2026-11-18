@@ -134,7 +134,7 @@ def _conversation_input(conversation_id: int, owner_email: str) -> list[dict]:
                 "payload": payload,
                 "exercise_names_by_id": names,
             }
-        transcript = [{"role": item.role, "content": item.content} for item in messages]
+        transcript = [{"role": item.role, "content": item.model_content} for item in messages]
         content = "\n\n".join([
             "<current_snapshot untrusted_data=\"true\">\n" + json.dumps({"date": str(datetime.utcnow().date()), "training": training, "routines": routines}, default=str) + "\n</current_snapshot>",
             "<latest_pending_proposal untrusted_data=\"true\">\n" + json.dumps(pending_context, default=str) + "\n</latest_pending_proposal>",
@@ -166,8 +166,9 @@ def _classification_input(conversation_id: int, user_message_id: int, owner_emai
             if remaining <= 0:
                 history_truncated = True
                 break
-            content = item.content[-remaining:]
-            history_truncated |= len(content) < len(item.content)
+            model_content = item.model_content
+            content = model_content[-remaining:]
+            history_truncated |= len(content) < len(model_content)
             history.append({"role": item.role, "content": content})
             remaining -= len(content)
         history.reverse()
@@ -207,7 +208,7 @@ def _classification_input(conversation_id: int, user_message_id: int, owner_emai
                 break
         cards.reverse()
         return {
-            "latest_message": latest.content, "recent_context": history,
+            "latest_message": latest.model_content, "recent_context": history,
             "history_truncated": history_truncated, "proposal_context": cards,
             "proposals_truncated": proposals_truncated,
         }
@@ -248,7 +249,7 @@ def _maybe_summarize(conversation_id: int, owner_email: str) -> None:
         messages = db.scalars(select(main.AIMessage).where(main.AIMessage.conversation_id == conversation_id, main.AIMessage.status == "completed").order_by(main.AIMessage.id)).all()
         if len(messages) <= 16: return
         older = messages[:-8]
-        transcript = "\n".join(f"{x.role}: {x.content}" for x in older)[-16000:]
+        transcript = "\n".join(f"{item.role}: {item.model_content}" for item in older)[-16000:]
     try:
         response = _client().interactions.create(model=_model(), store=False, input=f"Summarize this training-coach conversation for future continuity. Preserve goals, constraints, decisions, and unresolved questions. Do not add facts.\n\n{transcript}")
         summary = getattr(response, "output_text", "")

@@ -1,4 +1,4 @@
-import type { CoachEvent } from './types';
+import type { CoachEvent, CoachMessageInput } from './types';
 import { authHeaders } from '../auth/auth';
 
 export const base = import.meta.env.VITE_API_URL ?? '/api/v1';
@@ -36,8 +36,8 @@ export function createSseParser(onEvent: (event: CoachEvent) => void) {
   return { push(chunk: Uint8Array) { buffer += decoder.decode(chunk, { stream: true }); lines(); }, finish() { buffer += decoder.decode(); lines(true); } };
 }
 
-export async function streamMessage(id: number, content: string, signal: AbortSignal, onEvent: (event: CoachEvent) => void, retryMessageId?: number) {
-  const response = await fetch(`${base}/ai/conversations/${id}/${retryMessageId ? 'retry' : 'messages'}`, { method: 'POST', credentials: 'include', headers: authHeaders({ Accept: 'text/event-stream', 'Content-Type': 'application/json' }), body: JSON.stringify(retryMessageId ? { user_message_id: retryMessageId } : { content }), signal });
+export async function streamMessage(id: number, message: CoachMessageInput, signal: AbortSignal, onEvent: (event: CoachEvent) => void, retryMessageId?: number) {
+  const response = await fetch(`${base}/ai/conversations/${id}/${retryMessageId ? 'retry' : 'messages'}`, { method: 'POST', credentials: 'include', headers: authHeaders({ Accept: 'text/event-stream', 'Content-Type': 'application/json' }), body: JSON.stringify(retryMessageId ? { user_message_id: retryMessageId } : message), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(typeof body.detail === 'string' ? body.detail : `Coach request failed (${response.status})`);

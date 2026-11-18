@@ -9,7 +9,7 @@ import { MobileNavigation } from '../../app/MobileNavigation';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn() }));
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
-const overview = (): HealthOverview => ({ configured: true, connected: true, account_email: 'me@example.com', permissions: { activity: true, sleep: true, recovery: true }, step_goal: 8000, fetched_at: Date.now() / 1000, data: { days: [{ date: healthToday(), steps: null, active_minutes: null, sleep_minutes: 440, hrv: 56, resting_hr: 53 }], sleep: { date: healthToday(), start: null, end: null, minutes: 440, stages: [] }, workouts: [], warnings: {} } });
+const overview = (): HealthOverview => ({ configured: true, connected: true, account_email: 'me@example.com', permissions: { activity: true, sleep: true, recovery: true }, step_goal: 8000, step_totals: { total_steps: 0, goal_days: 0 }, fetched_at: Date.now() / 1000, data: { days: [{ date: healthToday(), steps: null, active_minutes: null, sleep_minutes: 440, hrv: 56, resting_hr: 53 }], sleep: { date: healthToday(), start: null, end: null, minutes: 440, stages: [] }, workouts: [], warnings: {} } });
 
 describe('Health page', () => {
   it('shows setup and keeps connection disabled without credentials', async () => {
@@ -33,6 +33,25 @@ describe('Health page', () => {
     expect(screen.getByRole('alert').textContent).toContain('Reconnect');
     expect(screen.getByRole('heading', { name: 'Recovery' })).toBeTruthy();
     expect(screen.getByText(/Last sync/)).toBeTruthy();
+  });
+  it('shows all-time step totals and edits the desktop goal beside progress', async () => {
+    const data = { ...overview(), step_totals: { total_steps: 45500, goal_days: 4 } };
+    const updated = { ...data, step_goal: 12000, step_totals: { total_steps: 45500, goal_days: 2 } };
+    vi.mocked(api).mockResolvedValueOnce(data).mockResolvedValueOnce(updated);
+    const { container } = render(<Health askCoach={vi.fn()} />);
+    const edit = await screen.findByRole('button', { name: 'Edit goal' });
+    expect(screen.queryByRole('tab', { name: 'Goal' })).toBeNull();
+    expect(screen.getByText('All-time steps').nextElementSibling?.textContent).toBe((45500).toLocaleString());
+    expect(screen.getByText('Days at current goal').nextElementSibling?.textContent).toBe('4');
+
+    const modal = container.querySelector<HTMLDialogElement>('.health-step-goal-dialog')!;
+    Object.assign(modal, { showModal: () => { modal.open = true; }, close: () => { modal.open = false; } });
+    fireEvent.click(edit);
+    const dialog = within(screen.getByRole('dialog', { name: 'Edit step goal' }));
+    fireEvent.change(dialog.getByRole('spinbutton', { name: 'Daily step goal' }), { target: { value: 12000 } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save goal' }));
+    expect(api).toHaveBeenLastCalledWith('/health/goal', { method: 'PATCH', body: '{"step_goal":12000}' });
+    await waitFor(() => expect(screen.getByText('Days at current goal').nextElementSibling?.textContent).toBe('2'));
   });
   it('switches the desktop baseline chart between recovery metrics', async () => {
     const data = overview();
@@ -100,11 +119,9 @@ describe('Health page', () => {
     const question = 'Am I getting close to my goal?\nSuggest a realistic next step.';
     fireEvent.change(dialog.getByRole('textbox', { name: /Your question/ }), { target: { value: question } });
     fireEvent.click(send);
-    expect(askCoach).toHaveBeenCalledTimes(1);
-    const sent = askCoach.mock.calls[0][0] as string;
-    expect(sent.startsWith(`${question}\n\n`)).toBe(true);
-    expect(JSON.parse(sent.split('\n').at(-1)!)).toEqual({
-      daily_step_goal: 8000, days: [{ date: healthToday(), steps: 7200 }],
+    expect(askCoach).toHaveBeenCalledExactlyOnceWith({
+      content: question,
+      health_context: { daily_step_goal: 8000, days: [{ date: healthToday(), steps: 7200 }] },
     });
     await waitFor(() => expect(modal.open).toBe(false));
   });

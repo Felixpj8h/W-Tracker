@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria, selectinload
@@ -46,6 +46,10 @@ RATE_LIMIT_LOCK = threading.Lock()
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 SESSION_COOKIE = "w_tracker_session"
 SESSION_LIFETIME_SECONDS = 24 * 60 * 60
+HEALTH_COACH_CONTEXT_SEPARATOR = (
+    "\n\nGive advice only. Do not create, change or apply a plan, diagnose, or invent readings. "
+    "Use my own history for comparisons.\nMy Google Health summary (null means unavailable):\n"
+)
 
 
 def _session_value(identity: dict[str, str]) -> str:
@@ -254,6 +258,14 @@ class AIMessage(Base):
     status: Mapped[str] = mapped_column(String(30), default="completed")
     provider_metadata: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @property
+    def model_content(self) -> str:
+        if self.role == "user":
+            context = json.loads(self.provider_metadata or "{}").get("health_context")
+            if context is not None:
+                return self.content + HEALTH_COACH_CONTEXT_SEPARATOR + json.dumps(context, separators=(",", ":"))
+        return self.content
 
 
 class AIChangeProposal(Base):
@@ -483,8 +495,27 @@ class AIConversationIn(BaseModel):
     title: str = Field(default="New conversation", min_length=1, max_length=160)
 
 
+class AIHealthReadingIn(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
+    date: date
+    steps: float | None = None
+    active_minutes: float | None = None
+    sleep_minutes: float | None = None
+    hrv: float | None = None
+    resting_hr: float | None = None
+
+
+class AIHealthContextIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: list[AIHealthReadingIn] = Field(min_length=1, max_length=7)
+    daily_step_goal: int | None = None
+
+
 class AIMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    health_context: AIHealthContextIn | None = None
 
 
 class AIRetryIn(BaseModel):
@@ -1008,10 +1039,28 @@ def ai_proposal_out(item: AIChangeProposal) -> dict:
     return {"id": item.id, "message_id": item.message_id, "operation": item.operation, "payload": payload, "exercise_names_by_id": exercise_names, "summary": item.summary, "reasoning": item.reasoning, "target_routine_id": item.target_routine_id, "target_version": item.target_version, "status": item.status, "created_at": item.created_at, "resolved_at": item.resolved_at}
 
 
+def _ai_message_display_content(message: AIMessage) -> str:
+    if message.role == "user":
+        # Earlier Health prompts stored the question and the readings together.
+        question, separator, readings = message.content.rpartition(HEALTH_COACH_CONTEXT_SEPARATOR)
+        if question and separator:
+            try:
+                AIHealthContextIn.model_validate_json(readings)
+            except ValidationError:
+                pass
+            else:
+                return question
+    return message.content
+
+
 def ai_conversation_out(item: AIConversation, include_messages: bool = True) -> dict:
     result = {"id": item.id, "title": item.title, "status": item.status, "created_at": item.created_at, "updated_at": item.updated_at}
     if include_messages:
-        result["messages"] = [{"id": message.id, "role": message.role, "content": message.content, "status": message.status, "created_at": message.created_at} for message in item.messages]
+        result["messages"] = [
+            {"id": message.id, "role": message.role, "content": _ai_message_display_content(message),
+             "status": message.status, "created_at": message.created_at}
+            for message in item.messages
+        ]
         result["proposals"] = [ai_proposal_out(proposal) for proposal in item.proposals]
     return result
 
@@ -1057,9 +1106,14 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     if not conversation: raise HTTPException(404, "Conversation not found")
     if conversation.status == "generating":
         if conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5): raise HTTPException(409, "Conversation is already generating a response")
-    message = AIMessage(conversation_id=conversation.id, role="user", content=payload.content.strip(), status="completed")
+    question = payload.content.strip()
+    metadata = {}
+    if payload.health_context is not None:
+        metadata["health_context"] = payload.health_context.model_dump(mode="json", exclude_unset=True)
+    message = AIMessage(conversation_id=conversation.id, role="user", content=question, status="completed",
+                        provider_metadata=json.dumps(metadata))
     db.add(message); conversation.status = "generating"; conversation.updated_at = datetime.utcnow()
-    if conversation.title == "New conversation": conversation.title = payload.content.strip()[:80]
+    if conversation.title == "New conversation": conversation.title = question[:80]
     db.commit(); db.refresh(message)
     persisted_conversation_id, persisted_message_id = conversation.id, message.id
     db.close()

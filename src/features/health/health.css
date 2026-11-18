@@ -246,6 +246,20 @@
 .health-step-insights dt { color: var(--muted); font-size: 11px; }
 .health-step-insights dd { margin: 4px 0 0; font-size: 16px; font-weight: 750; line-height: 1.2; }
 .health-step-insights dd small { color: var(--muted); font-size: 10px; font-weight: 550; }
+.health-step-progress-caption { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.health-edit-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.health-edit-goal:hover { background: var(--soft); color: var(--text); }
+.health-edit-goal svg { width: 13px; height: 13px; }
 .health-trend {
   display: grid;
   position: relative;
@@ -407,7 +421,7 @@
   font-size: 14px;
   letter-spacing: 0;
 }
-.health-mobile-stack .health-goal input { border: 1px solid var(--border); background: var(--field); color: var(--text); }
+.health-goal input { border: 1px solid var(--border); background: var(--field); color: var(--text); }
 .health-activity-clock {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -465,6 +479,10 @@
 
 .health-dialog::backdrop { background: #111713a0; }
 .health-dialog-heading h2 { margin: 0; font-size: 18px; }
+.health-step-goal-dialog { width: min(340px, calc(100% - 24px)); }
+.health-step-goal-dialog .health-edit-goal { font-size: 18px; line-height: 1; }
+.health-step-goal-dialog .health-goal { margin-top: 14px; }
+.health-step-goal-dialog .primary { min-height: 36px; padding: 6px 12px; font-size: 12px; }
 .health-dialog .health-muted { overflow-wrap: anywhere; }
 .health-coach-topics { display: grid; gap: 5px; border: 0; margin: 14px 0; padding: 0; }
 .health-coach-dialog .health-dialog-heading h2 { font-size: 20px; line-height: 1.2; letter-spacing: -.025em; }
@@ -532,6 +550,7 @@
     padding-inline: clamp(16px, 2vw, 28px) !important;
   }
   .health-connected { max-height: min(1240px, 92dvh); }
+  .health-step-today { max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
   .health-steps, .health-sleep { padding-left: 0; }
   .health-activity, .health-recovery { padding-right: 0; }
   .health-slide-activity, .health-slide-recovery { border-left: 1px solid var(--border-subtle, var(--border)); }
@@ -565,6 +584,7 @@
   .health-widget { padding-block: 8px; gap: 5px; }
   .health-pager { gap: 5px; }
   .health-stage-key > div { padding-block: 2px; }
+  .health-step-insights > div { padding-block: 4px; }
 }
 
 @media (max-width: 760px), (max-height: 540px) and (pointer: coarse) {

@@ -163,6 +163,55 @@ def test_provider_pagination_rollups_sleep_dates_and_partial_failure(monkeypatch
     assert len([v for v in requests if '/sleep/' in v.url.path]) == 2
 
 
+def test_step_history_import_and_goal_totals(health_client, monkeypatch):
+    today = date.today()
+    records = {today - timedelta(days=210): 10000, today - timedelta(days=101): 8000,
+               today - timedelta(days=2): 4000, today: 9000}
+    calls = []
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith('/steps/dataPoints'):
+            assert request.url.params['pageSize'] == '1'
+            before = date.fromisoformat(request.url.params['filter'].split('"')[1])
+            matching = [day for day in records if day < before]
+            if not matching:
+                return httpx.Response(200, json={'dataPoints': []})
+            day = max(matching)  # Do not assume that the API returns the oldest point first.
+            interval = {'civilStartTime': {'date': {'year': day.year, 'month': day.month, 'day': day.day}}}
+            return httpx.Response(200, json={'dataPoints': [{'steps': {'interval': interval}}]})
+        if path.endswith('/steps/dataPoints:dailyRollUp'):
+            body = json.loads(request.content)
+            start, end = (date(**body['range'][side]['date']) for side in ('start', 'end'))
+            calls.append((start, end))
+            assert 0 < (end - start).days <= 90
+            return httpx.Response(200, json={'rollupDataPoints': [
+                {'civilStartTime': {'date': {'year': day.year, 'month': day.month, 'day': day.day}},
+                 'steps': {'countSum': str(steps)}}
+                for day, steps in records.items() if start <= day < end
+            ]})
+        return httpx.Response(200, json={})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(h.httpx, 'Client', lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs))
+    save_connection(snapshot=json.dumps({'days': [{'date': today.isoformat(), 'steps': 1}]}))
+    path = '/api/v1/health'
+    assert health_client.get(f'{path}/overview').json()['step_totals'] is None
+    first = health_client.post(f'{path}/sync', json={'today': today.isoformat()}).json()
+    assert first['step_totals'] == {'total_steps': 31000, 'goal_days': 3}
+    assert len(first['data']['days']) == 7
+    assert 'step_history' not in first['data']
+    assert min(start for start, _ in calls) <= min(records)
+
+    calls.clear()
+    records[today] = 11000
+    second = health_client.post(f'{path}/sync', json={'today': today.isoformat()}).json()
+    assert second['step_totals'] == {'total_steps': 33000, 'goal_days': 3}
+    assert calls == [(today - timedelta(days=6), today + timedelta(days=1))]
+    goal = health_client.patch(f'{path}/goal', json={'step_goal': 10000}).json()
+    assert goal['step_totals'] == {'total_steps': 33000, 'goal_days': 2}
+
+
 def test_principal_sleep_not_nap_and_local_wake_day():
     interval = {"startTime": "2026-11-16T16:00:00Z", "endTime": "2026-11-16T23:30:00Z", "endUtcOffset": "7200s"}
     data = h.normalize({"sleep": [

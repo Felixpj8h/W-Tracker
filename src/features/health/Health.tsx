@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { api } from '../../shared/api/client';
+import type { CoachMessageInput } from '../coach/types';
 import { HealthIcon, HealthWidgets } from './HealthWidgets';
 import type { HealthOverview } from './types';
 import './health.css';
@@ -18,6 +19,7 @@ const coachTopics = [
   { id: 'recovery', label: 'Recovery', permission: 'recovery', fields: ['hrv', 'resting_hr'] },
 ] as const;
 type CoachTopic = (typeof coachTopics)[number];
+type AskCoach = (message: CoachMessageInput) => Promise<void>;
 
 function isCoachBackdrop(event: MouseEvent<HTMLDialogElement>) {
   if (event.target !== event.currentTarget) return false;
@@ -25,7 +27,7 @@ function isCoachBackdrop(event: MouseEvent<HTMLDialogElement>) {
   return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
 }
 
-function HealthCoach({ overview, askCoach }: { overview: HealthOverview; askCoach: (prompt: string) => Promise<void> }) {
+function HealthCoach({ overview, askCoach }: { overview: HealthOverview; askCoach: AskCoach }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const pressedBackdrop = useRef(false);
   const [selected, setSelected] = useState<CoachTopic['id'] | null>(null);
@@ -46,9 +48,8 @@ function HealthCoach({ overview, askCoach }: { overview: HealthOverview; askCoac
       days: days.map(day => ({ date: day.date, ...Object.fromEntries(topic.fields.map(field => [field, day[field]])) })),
     };
     const question = prompt.trim() || `Review my recent ${topic.id} and suggest one or two practical next steps.`;
-    const context = 'Give advice only. Do not create, change or apply a plan, diagnose, or invent readings. Use my own history for comparisons.';
     try {
-      await askCoach(`${question}\n\n${context}\nMy Google Health summary (null means unavailable):\n${JSON.stringify(summary)}`);
+      await askCoach({ content: question, health_context: summary });
       dialog.current?.close();
     } catch (err) {
       setError((err as Error).message || 'Could not open the coach. Try again.');
@@ -143,7 +144,7 @@ function ConnectionStatus({ overview, busy, connect, disconnect }: {
   </div>;
 }
 
-export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<void> }) {
+export function Health({ askCoach }: { askCoach: AskCoach }) {
   const [today, setToday] = useState(healthToday);
   const syncedDay = useRef(today);
   const [overview, setOverview] = useState<HealthOverview | null>(null);
@@ -189,7 +190,7 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
         setOverview(result);
         setGoal(result.step_goal);
         setLoading(false);
-        if (result.connected && (!result.fetched_at || Date.now() / 1000 - result.fetched_at > 300 ||
+        if (result.connected && (!result.fetched_at || (result.permissions.activity && result.step_totals === null) || Date.now() / 1000 - result.fetched_at > 300 ||
             healthToday(new Date(result.fetched_at * 1000)) !== healthToday())) {
           setBusy(true);
           syncedDay.current = healthToday();

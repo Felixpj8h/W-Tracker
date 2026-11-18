@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { coachJson, streamMessage } from './api';
-import type { Conversation, ConversationDetail, Proposal } from './types';
+import type { CoachMessageInput, Conversation, ConversationDetail, Proposal } from './types';
 
 export function useCoachController(onApplied: (operation: string) => void) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -69,8 +69,9 @@ export function useCoachController(onApplied: (operation: string) => void) {
     setActivity(current => ({ ...current, [id]: '' }));
     setProposalNotice(current => ({ ...current, [id]: '' }));
   }, []);
-  const send = useCallback(async (content: string, id?: number | null, retryMessageId?: number) => {
-    const trimmed = content.trim(); if (!trimmed || trimmed.length > 4000) return false;
+  const send = useCallback(async (input: string | CoachMessageInput, id?: number | null, retryMessageId?: number) => {
+    const message = typeof input === 'string' ? { content: input } : input;
+    const trimmed = message.content.trim(); if (!trimmed || trimmed.length > 4000) return false;
     let target = id ?? selectedId;
     if (target && active.current.has(target)) return false;
     if (!target) target = await create();
@@ -83,7 +84,7 @@ export function useCoachController(onApplied: (operation: string) => void) {
     setProposalNotice(current => ({ ...current, [key]: '' }));
     let settled = false;
     try {
-      await streamMessage(key, trimmed, controller.signal, event => {
+      await streamMessage(key, { ...message, content: trimmed }, controller.signal, event => {
         if (event.type === 'text.delta') { setDrafts(current => ({ ...current, [key]: (current[key] ?? '') + (event.text ?? '') })); setActivity(current => ({ ...current, [key]: 'writing_response' })); }
         if (event.type === 'tool.started') setActivity(current => ({ ...current, [key]: event.name ?? 'reviewing_results' }));
         if (event.type === 'tool.completed') setActivity(current => ({ ...current, [key]: 'reviewing_results' }));

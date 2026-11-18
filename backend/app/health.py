@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from . import main as m
@@ -30,6 +30,7 @@ SCOPES = {"activity": SCOPE_PREFIX + "activity_and_fitness.readonly",
           "recovery": SCOPE_PREFIX + "health_metrics_and_measurements.readonly"}
 COOKIE = "jern_health_oauth"
 CALLBACK_PATH = "/api/v1/health/google/callback"
+STEP_ROLLUP_DAYS = 90
 
 
 def cipher():
@@ -123,12 +124,18 @@ def overview(db: Session = Depends(m.get_db)):
 
 
 def output(item):
+    data = json.loads(item.snapshot) if item and item.snapshot != "{}" else None
+    history = data.pop("step_history", None) if data is not None else None
+    step_totals = None
+    if history is not None and SCOPES["activity"] in item.scopes.split():
+        counts = history["days"].values()
+        step_totals = {"total_steps": sum(counts), "goal_days": sum(steps >= item.step_goal for steps in counts)}
     return {"configured": configured(), "connected": item is not None,
             "account_email": item.account_email if item else None,
             "permissions": {key: bool(item and value in item.scopes.split()) for key, value in SCOPES.items()},
             "step_goal": item.step_goal if item else 8000,
             "fetched_at": item.fetched_at if item else None,
-            "data": json.loads(item.snapshot) if item and item.snapshot != "{}" else None}
+            "step_totals": step_totals, "data": data}
 
 
 @router.post("/google/connect")
@@ -263,17 +270,26 @@ def local_date(interval, end=False):
     return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=float(interval.get(side + "UtcOffset", "0s").removesuffix("s")))).date().isoformat()
 
 
+def step_counts(rows, start, end):
+    counts = {}
+    for point in rows:
+        day = iso_date(point.get("civilStartTime", {}).get("date"))
+        steps = number(point.get("steps", {}).get("countSum"))
+        if day and start <= day < end and steps is not None:
+            counts[day] = steps
+    return counts
+
+
 def normalize(results, today):
     days = { (today - timedelta(days=n)).isoformat(): {"date": (today - timedelta(days=n)).isoformat(),
             "steps": None, "active_minutes": None, "sleep_minutes": None, "hrv": None, "resting_hr": None} for n in reversed(range(7)) }
-    for metric, field, key in (("steps", "steps", "countSum"), ("active_minutes", "activeMinutes", None)):
-        for point in results.get(metric, []):
-            day = iso_date(point.get("civilStartTime", {}).get("date"))
-            if day not in days or field not in point:
-                continue
-            data = point[field]
-            value = number(data.get(key)) if key else sum(number(v.get("activeMinutesSum")) or 0 for v in data.get("activeMinutesRollupByActivityLevel", []))
-            days[day][metric] = value
+    for day, steps in step_counts(results.get("steps", []), min(days), (today + timedelta(days=1)).isoformat()).items():
+        days[day]["steps"] = steps
+    for point in results.get("active_minutes", []):
+        day = iso_date(point.get("civilStartTime", {}).get("date"))
+        if day in days and "activeMinutes" in point:
+            levels = point["activeMinutes"].get("activeMinutesRollupByActivityLevel", [])
+            days[day]["active_minutes"] = sum(number(level.get("activeMinutesSum")) or 0 for level in levels)
     for metric, field, key in (("hrv", "dailyHeartRateVariability", "averageHeartRateVariabilityMilliseconds"),
                                ("resting_hr", "dailyRestingHeartRate", "beatsPerMinute")):
         for point in results.get(metric, []):
@@ -313,42 +329,99 @@ def normalize(results, today):
             "sleep_intervals": [{key: item[key] for key in ("start", "end", "minutes", "stages")} for item in sleeps]}
 
 
+def daily_rollup(datatype, start, end):
+    def civil(day):
+        return {"date": {"year": day.year, "month": day.month, "day": day.day}}
+    return "POST", f"{BASE}/dataTypes/{datatype}/dataPoints:dailyRollUp", {"json": {
+        "range": {"start": civil(start), "end": civil(end)}, "windowSizeDays": 1}}
+
+
+def provider_pages(token, method, url, kwargs):
+    rows = []
+    with httpx.Client(timeout=20, headers={"Authorization": "Bearer " + token}) as client:
+        for _ in range(50):
+            body = provider_request(client, method, url, **kwargs)
+            rows.extend(body.get("rollupDataPoints", body.get("dataPoints", [])))
+            page = body.get("nextPageToken")
+            if not page:
+                return rows
+            kwargs.setdefault("json" if method == "POST" else "params", {})["pageToken"] = page
+    raise HTTPException(502, "Google Health returned too many records; retry later.")
+
+
 def fetch_data(token, scopes, today):
     start, end = today - timedelta(days=6), today + timedelta(days=1)
-    civil = lambda d: {"date": {"year": d.year, "month": d.month, "day": d.day}}
     tasks = []
     if SCOPES["activity"] in scopes:
         for label, datatype in (("steps", "steps"), ("active_minutes", "active-minutes")):
-            tasks.append((label, "POST", f"{BASE}/dataTypes/{datatype}/dataPoints:dailyRollUp", {"json": {
-                "range": {"start": civil(start), "end": civil(end)}, "windowSizeDays": 1}}))
+            tasks.append((label, *daily_rollup(datatype, start, end)))
         tasks.append(("workouts", "GET", BASE + "/dataTypes/exercise/dataPoints:reconcile", {"params": {"filter": f'exercise.interval.civil_start_time >= "{start}" AND exercise.interval.civil_start_time < "{end}"'}}))
     if SCOPES["sleep"] in scopes:
         tasks.append(("sleep", "GET", BASE + "/dataTypes/sleep/dataPoints:reconcile", {"params": {"filter": f'sleep.interval.civil_end_time >= "{start}" AND sleep.interval.civil_end_time < "{end}"'}}))
     if SCOPES["recovery"] in scopes:
         for label, datatype, field in (("hrv", "daily-heart-rate-variability", "daily_heart_rate_variability"), ("resting_hr", "daily-resting-heart-rate", "daily_resting_heart_rate")):
             tasks.append((label, "GET", f"{BASE}/dataTypes/{datatype}/dataPoints:reconcile", {"params": {"filter": f'{field}.date >= "{start}" AND {field}.date < "{end}"'}}))
-    def fetch(task):
-        label, method, url, kwargs = task
-        rows = []
-        with httpx.Client(timeout=20, headers={"Authorization": "Bearer " + token}) as client:
-            for _ in range(50):
-                body = provider_request(client, method, url, **kwargs)
-                rows.extend(body.get("rollupDataPoints", body.get("dataPoints", [])))
-                page = body.get("nextPageToken")
-                if not page:
-                    return label, rows, None
-                kwargs.setdefault("params", {})["pageToken"] = page
-        raise HTTPException(502, "Google Health returned too many records; retry later.")
     def safe_fetch(task):
+        label, method, url, kwargs = task
         try:
-            return fetch(task)
+            return label, provider_pages(token, method, url, kwargs), None
         except HTTPException as error:
-            return task[0], [], error.detail
+            return label, [], error.detail
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(safe_fetch, tasks))
     data = normalize({key: rows for key, rows, _ in results}, today)
     data["warnings"] = {key: error for key, _, error in results if error}
     return data
+
+
+def step_history_start(token, before):
+    # Find a date before the oldest reading without downloading minute-by-minute records.
+    with httpx.Client(timeout=20, headers={"Authorization": "Bearer " + token}) as client:
+        def has_steps_before(day):
+            page = provider_request(client, "GET", BASE + "/dataTypes/steps/dataPoints", params={
+                "pageSize": 1, "filter": f'steps.interval.civil_start_time < "{day}"',
+            })
+            return bool(page.get("dataPoints") or page.get("nextPageToken"))
+
+        if not has_steps_before(before):
+            return before
+        upper = before - timedelta(days=1)
+        distance = STEP_ROLLUP_DAYS
+        lower = date.fromordinal(max(1, upper.toordinal() - distance))
+        while lower > date.min and has_steps_before(lower):
+            upper = lower - timedelta(days=1)
+            distance *= 2
+            lower = date.fromordinal(max(1, upper.toordinal() - distance))
+        while (upper - lower).days >= STEP_ROLLUP_DAYS:
+            middle = lower + (upper - lower) // 2
+            if has_steps_before(middle):
+                upper = middle - timedelta(days=1)
+            else:
+                lower = middle
+        return lower
+
+
+def sync_step_history(token, history, data, today):
+    recent_start = today - timedelta(days=6)
+    through = date.fromisoformat(history["through"]) if history else None
+    start = through + timedelta(days=1) if through else step_history_start(token, recent_start)
+    counts = {day: steps for day, steps in (history["days"].items() if history else ())
+              if day < recent_start.isoformat() or day > today.isoformat()}
+
+    def rollup(first):
+        end = min(first + timedelta(days=STEP_ROLLUP_DAYS), recent_start)
+        rows = provider_pages(token, *daily_rollup("steps", first, end))
+        return step_counts(rows, first.isoformat(), end.isoformat())
+
+    windows = [start + timedelta(days=offset) for offset in range(0, (recent_start - start).days, STEP_ROLLUP_DAYS)]
+    if windows:
+        parallel = 4
+        with ThreadPoolExecutor(max_workers=parallel) as pool:
+            for offset in range(0, len(windows), parallel):
+                for days in pool.map(rollup, windows[offset:offset + parallel]):
+                    counts.update(days)
+    counts.update({day["date"]: day["steps"] for day in data["days"] if day["steps"] is not None})
+    return {"through": max(today, through or today).isoformat(), "days": counts}
 
 
 class SyncIn(BaseModel):
@@ -369,11 +442,26 @@ def sync(payload: SyncIn, request: Request, db: Session = Depends(m.get_db)):
         raise HTTPException(429, "Wait a moment before syncing again.")
     with httpx.Client(timeout=20) as client:
         token = access_token(db, item, client)
-    data = fetch_data(token, set(item.scopes.split()), payload.today)
+    item_id, scopes, tokens, previous_snapshot = item.id, set(item.scopes.split()), item.tokens, item.snapshot
+    db.rollback()  # Provider requests do not need to hold a database transaction open.
+    data = fetch_data(token, scopes, payload.today)
     # Keep old values visibly dated when every provider request failed.
-    expected = (3 if SCOPES["activity"] in item.scopes else 0) + (1 if SCOPES["sleep"] in item.scopes else 0) + (2 if SCOPES["recovery"] in item.scopes else 0)
+    expected = (3 if SCOPES["activity"] in scopes else 0) + (1 if SCOPES["sleep"] in scopes else 0) + (2 if SCOPES["recovery"] in scopes else 0)
     if len(data["warnings"]) == expected:
         raise HTTPException(502, next(iter(data["warnings"].values())))
-    item.snapshot, item.fetched_at = json.dumps(data), int(time.time())
+    if SCOPES["activity"] in scopes:
+        history = json.loads(previous_snapshot).get("step_history")
+        if "steps" not in data["warnings"]:
+            try:
+                history = sync_step_history(token, history, data, payload.today)
+            except HTTPException as error:
+                data["warnings"]["step_history"] = error.detail
+        if history is not None:
+            data["step_history"] = history
+    # Preserve a newer sync or reconnect if another request replaced this snapshot.
+    db.execute(update(m.HealthConnection).where(
+        m.HealthConnection.id == item_id, m.HealthConnection.owner_email == db.info["owner_email"],
+        m.HealthConnection.snapshot == previous_snapshot, m.HealthConnection.tokens == tokens,
+    ).values(snapshot=json.dumps(data), fetched_at=int(time.time())))
     db.commit()
-    return {**output(item), "saved": True}
+    return {**output(connection(db)), "saved": True}

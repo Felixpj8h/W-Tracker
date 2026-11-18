@@ -1,4 +1,4 @@
-import { useId, useState, useSyncExternalStore } from 'react';
+import { useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { AnimatedValue } from '../../shared/ui/AnimatedValue';
 import { useInView } from '../../shared/ui/useInView';
@@ -37,10 +37,11 @@ const recoveryMetrics = {
   resting_hr: { label: 'Resting heart rate', unit: 'bpm' },
 } as const;
 
-export function HealthIcon({ name }: { name: Metric | 'sync' | 'connection' | 'coach' }) {
+export function HealthIcon({ name }: { name: Metric | 'sync' | 'connection' | 'coach' | 'edit' }) {
   const paths = {
     coach: <path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z" />,
     steps: <><path d="M3 18h6v-5h6V8h6"/><path d="M17 4h4v4"/></>,
+    edit: <path d="m14 6 4 4M4 20l4-.8L20 7l-3-3L5 16Z" />,
     activity: <path d="M2 12h5l3-7 4 14 3-7h5"/>,
     sleep: <path d="M20.5 14A8.8 8.8 0 0 1 10 3.5 8.8 8.8 0 1 0 20.5 14Z"/>,
     recovery: <path d="M20.3 5.7a4.8 4.8 0 0 0-6.8 0L12 7.2l-1.5-1.5a4.8 4.8 0 0 0-6.8 6.8L12 21l8.3-8.5a4.8 4.8 0 0 0 0-6.8Z"/>,
@@ -224,6 +225,7 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
   busy: boolean;
 }) {
   const id = useId();
+  const goalDialog = useRef<HTMLDialogElement>(null);
   const mobile = useSyncExternalStore(subscribeMobile, getMobile);
   const [progressRef, progressVisible] = useInView<HTMLDivElement>();
   const [selected, setSelected] = useState(0);
@@ -271,19 +273,33 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
     ['Average sleep', averageSleep == null ? null : duration(averageSleep)],
     ['Recorded workouts', workouts.length ? count(workouts.length) : null],
   ];
-  const goalForm = <form className="health-goal" onSubmit={event => { event.preventDefault(); saveGoal(); }}>
+  const goalForm = <form className="health-goal" onSubmit={event => {
+    event.preventDefault();
+    saveGoal();
+    goalDialog.current?.close();
+  }}>
     <label>Daily step goal<input type="number" required min="1000" max="100000" step="100" value={goal || ''} onChange={event => setGoal(Number(event.target.value))} /></label>
-    <button className="secondary" disabled={busy}>Save goal</button>
+    <button className={mobile ? 'secondary' : 'primary'} disabled={busy}>Save goal</button>
   </form>;
   const stepsToday = <div className="health-progress" ref={progressRef} data-reveal={progressVisible}>
     <progress max={overview.step_goal} value={current?.steps ?? 0} aria-label="Daily step goal progress"
       data-below-target={current?.steps != null && isBelowStepGoal(current.steps) || undefined} />
-    <p className="health-muted">{stepPercent == null
-      ? overview.permissions.activity ? 'No steps recorded for today yet.' : 'Grant activity access to see your steps.'
-      : <><strong>{stepPercent}%</strong> of {count(overview.step_goal)} step goal</>}</p>
-    {!mobile && recordedSteps.length > 0 && <dl className="health-step-insights">
-      <div><dt>7-day average</dt><dd>{count(averageSteps)} <small>steps</small></dd></div>
-      <div><dt>Days at goal</dt><dd>{goalDays} <small>of {recordedSteps.length} tracked</small></dd></div>
+    <div className="health-step-progress-caption">
+      <p className="health-muted">{stepPercent == null
+        ? overview.permissions.activity ? 'No steps recorded for today yet.' : 'Grant activity access to see your steps.'
+        : <><strong>{stepPercent}%</strong> of {count(overview.step_goal)} step goal</>}</p>
+      {!mobile && <button type="button" className="health-edit-goal" aria-haspopup="dialog" onClick={() => {
+        setGoal(overview.step_goal);
+        goalDialog.current?.showModal();
+      }}><HealthIcon name="edit" />Edit goal</button>}
+    </div>
+    {overview.permissions.activity && <dl className="health-step-insights">
+      <div><dt>All-time steps</dt><dd>{count(overview.step_totals?.total_steps)}</dd></div>
+      <div><dt>Days at current goal</dt><dd>{count(overview.step_totals?.goal_days)}</dd></div>
+      {!mobile && recordedSteps.length > 0 && <>
+        <div><dt>7-day average</dt><dd>{count(averageSteps)} <small>steps</small></dd></div>
+        <div><dt>Days at goal this week</dt><dd>{goalDays} <small>of {recordedSteps.length} tracked</small></dd></div>
+      </>}
     </dl>}
   </div>;
   const stepsTrend = <Trend days={days} field="steps" label="Daily steps" isBelowTarget={isBelowStepGoal} goal={overview.step_goal} />;
@@ -327,7 +343,6 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
       </div> }] : [
         { label: 'Today', content: <div className="health-step-today">{stepsToday}</div> },
         { label: '7 days', content: stepsTrend },
-        { label: 'Goal', content: goalForm },
       ]}
     />,
     Activity: <MetricCard metric="activity" label="Activity" headerAside={mobile ? activityToday : undefined}
@@ -379,6 +394,13 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
   };
 
   return <div className="health-deck" {...(mobile ? swipe : {})}>
+    {!mobile && <dialog ref={goalDialog} className="health-dialog health-step-goal-dialog" aria-labelledby={`${id}-goal-title`}>
+      <header className="health-dialog-heading">
+        <h2 id={`${id}-goal-title`}>Edit step goal</h2>
+        <button type="button" className="health-edit-goal" aria-label="Close step goal editor" onClick={() => goalDialog.current?.close()}>×</button>
+      </header>
+      {goalForm}
+    </dialog>}
     {mobile && <HealthTabs id={id} labels={labels} name="Health widgets" selected={selected} onSelect={setSelected} className="health-mobile-tabs" />}
     <div className="health-deck-window">
       <div className="health-grid" style={{ '--health-slide': `${-selected * 100}%` } as React.CSSProperties}>

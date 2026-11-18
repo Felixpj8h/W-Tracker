@@ -6,6 +6,6 @@ export type TimedSleep = Pick<Sleep, 'start' | 'end' | 'stages' | 'minutes'>;
 export type HealthOverview = {
   configured: boolean; connected: boolean; account_email: string | null;
   permissions: { activity: boolean; sleep: boolean; recovery: boolean };
-  step_goal: number; fetched_at: number | null;
+  step_goal: number; step_totals: { total_steps: number; goal_days: number } | null; fetched_at: number | null;
   data: { days: HealthDay[]; sleep: Sleep | null; sleep_intervals?: TimedSleep[]; workouts: HealthWorkout[]; warnings: Record<string, string> } | null;
 };

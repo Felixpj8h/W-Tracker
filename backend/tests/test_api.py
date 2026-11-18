@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import json
 import threading
 import tempfile
 from datetime import date, datetime, timedelta
@@ -478,6 +479,62 @@ def test_ai_retry_reuses_latest_user_message(monkeypatch):
     assert [message["role"] for message in stored["messages"]] == ["user", "assistant", "assistant"]
     assert client.post(f"/api/v1/ai/conversations/{conversation['id']}/retry", json={"user_message_id": user_id}).status_code == 409
     del app.state.gemini_client_factory
+
+
+def test_health_coach_shows_question_and_reuses_readings_on_retry(monkeypatch):
+    reset_db()
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+    monkeypatch.setattr(chatBot, "classify", lambda *_: topic_policy.Assessment("allow"))
+    model_inputs = []
+
+    class Interactions:
+        def create(self, **kwargs):
+            model_inputs.append(kwargs["input"][0]["content"][0]["text"])
+            if len(model_inputs) == 1:
+                raise RuntimeError("Simulated provider failure")
+            return _FakeInteraction()
+
+    client_for_coach = _FakeGeminiClient()
+    client_for_coach.interactions = Interactions()
+    monkeypatch.setattr(app.state, "gemini_client_factory", lambda: client_for_coach, raising=False)
+    conversation = client.post("/api/v1/ai/conversations", json={}).json()
+    path = f"/api/v1/ai/conversations/{conversation['id']}"
+    question = "What does HRV mean?\nHow is mine?"
+    health_context = {"days": [{"date": "2026-11-18", "hrv": 38.9, "resting_hr": None}]}
+    sent = client.post(f"{path}/messages", json={"content": question, "health_context": health_context})
+    assert sent.status_code == 200
+    assert "event: error" in sent.text
+    assert "38.9" not in sent.text
+
+    detail = client.get(path).json()
+    user_message = detail["messages"][0]
+    assert user_message["content"] == detail["title"] == question
+    assert "38.9" not in json.dumps(detail)
+
+    retry = client.post(f"{path}/retry", json={"user_message_id": user_message["id"]})
+    assert retry.status_code == 200
+    assert "event: message.completed" in retry.text
+    assert len(model_inputs) == 2
+    for model_input in model_inputs:
+        transcript = json.loads(model_input.split('<recent_messages untrusted_data="true">\n')[1].split('\n</recent_messages>')[0])
+        visible, readings = transcript[0]["content"].split(main_module.HEALTH_COACH_CONTEXT_SEPARATOR)
+        assert visible == question
+        assert json.loads(readings) == health_context
+
+
+def test_legacy_health_coach_message_shows_only_question():
+    reset_db()
+    conversation = client.post("/api/v1/ai/conversations", json={}).json()
+    question = "Review my sleep."
+    raw = question + main_module.HEALTH_COACH_CONTEXT_SEPARATOR + '{"days":[{"date":"2026-11-18","sleep_minutes":530}]}'
+    with main_module.SessionLocal() as db:
+        message = main_module.AIMessage(conversation_id=conversation["id"], role="user", content=raw)
+        db.add(message)
+        db.commit()
+        assert message.model_content == raw
+
+    messages = client.get(f"/api/v1/ai/conversations/{conversation['id']}").json()["messages"]
+    assert messages[0]["content"] == question
 
 
 def test_authentication_fails_closed(monkeypatch):

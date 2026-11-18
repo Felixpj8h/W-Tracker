@@ -2,6 +2,10 @@
 
 ## 18 November 2026
 
+- Add all-time steps and days at the current target from synced Google Health history, and move desktop goal editing beside step progress.
+
+- Show just the question in coach chats started from Health while keeping the selected readings available to the coach.
+
 - Animate Health headline numbers and charts as views appear, including a clockwise Activity clock reveal. Today's active minutes count up only on page load.
 
 - Enlarge the desktop Activity clock and show yesterday's active minutes in smaller text beside it.
