@@ -94,7 +94,7 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .dashboard-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:30px;padding:18px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 .dashboard-metrics article{min-width:0;padding:0 24px;background:transparent;border:0;border-radius:0;box-shadow:none}
 .dashboard-metrics article:first-child{padding-left:0}.dashboard-metrics article+article{border-left:1px solid var(--border)}
-.dashboard-metrics span,.dashboard-metrics small{display:block;color:var(--muted);font-size:12px}.dashboard-metrics strong{display:block;margin:6px 0 5px;font-size:clamp(23px,2vw,29px);letter-spacing:-.045em}.dashboard-metrics small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dashboard-metrics article>div>span,.dashboard-metrics small{display:block;color:var(--muted);font-size:12px}.dashboard-metrics strong{display:block;margin:6px 0 5px;font-size:clamp(23px,2vw,29px);letter-spacing:-.045em}.dashboard-metrics small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dashboard-analytics{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(340px,.9fr);gap:30px;padding-bottom:30px;border-bottom:1px solid var(--border)}
 .dashboard-weight,.dashboard-volume{height:auto!important;min-height:360px!important;max-height:none!important;padding:0!important;overflow:visible!important;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important}
 .dashboard-section-head,.muscle-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
@@ -194,9 +194,9 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .dashboard-workspace .primary.dashboard-log:active{background:#82b68d;transform:none}
 .dashboard-metrics{border-color:var(--border-subtle)}
 .dashboard-metrics article+article{border-color:var(--border-subtle)}
-.dashboard-metrics span{color:var(--text-secondary);font-size:13px;font-weight:500}
+.dashboard-metrics article>div>span{color:var(--text-secondary);font-size:13px;font-weight:500}
 .dashboard-metrics strong{color:color-mix(in srgb,var(--text-primary) 96%,white);font-size:clamp(25px,2vw,29px);font-weight:780}
-.dashboard-metrics strong>span{color:inherit;font-size:inherit;font-weight:800;line-height:1.05;letter-spacing:-.045em}
+.dashboard-metrics strong>span{display:block;color:inherit;font-size:inherit;font-weight:800;line-height:1.05;letter-spacing:-.045em}
 .dashboard-metrics small{color:var(--text-secondary);font-size:12px;font-weight:500}
 .dashboard-metrics small.positive{color:var(--positive)}.dashboard-metrics small.negative{color:var(--negative)}
 .dashboard-section-head h2,.muscle-card-head h2{color:var(--text-primary);font-size:21px;font-weight:700}
