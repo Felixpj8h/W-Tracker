@@ -2,6 +2,30 @@
 
 ## 18 November 2026
 
+- Show yesterday’s active minutes in a smaller summary above the Activity clock.
+
+- Pin the Activity clock to yesterday with a fixed 24-hour face and refresh it at local midnight.
+
+- Replace the Health Workouts tab with a rolling 24-hour activity clock for
+  synced sleep, walking, and workouts. Use asleep stages for sleep duration and
+  mark gaps as untracked.
+
+- Refine the Ask coach dialog typography and let users dismiss it by clicking outside.
+
+- Let users add a custom question when sharing a Health topic with the coach.
+
+- Give shared primary buttons a flat green fill and white text, matching the
+  selected Health tab in dark mode.
+
+- Add an Ask coach dialog in the Health header that shares readings for one
+  selected topic: Sleep, Activity, Steps, or Recovery.
+
+- Remove the Recovery coach shortcut and show the selected baseline directly
+  on the chart, with more room for the daily readings.
+
+- Show a switchable HRV and resting heart rate line chart beneath the desktop
+  Recovery baseline, with a reference line for the selected metric's average.
+
 - Use the low-sleep color for step bars and daily progress below the step goal.
 
 - Use the dashboard bar green consistently across Health charts and step progress.

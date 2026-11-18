@@ -307,8 +307,10 @@ def normalize(results, today):
         day = local_date(interval)
         if day in days:
             workouts.append({"date": day, "type": data.get("exerciseType", "OTHER"),
+                             "start": interval.get("startTime"), "end": interval.get("endTime"),
                              "minutes": (number(data.get("activeDuration", "").removesuffix("s")) or 0) / 60})
-    return {"days": list(days.values()), "sleep": principal[-1] if principal else None, "workouts": workouts}
+    return {"days": list(days.values()), "sleep": principal[-1] if principal else None, "workouts": workouts,
+            "sleep_intervals": [{key: item[key] for key in ("start", "end", "minutes", "stages")} for item in sleeps]}
 
 
 def fetch_data(token, scopes, today):

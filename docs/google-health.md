@@ -72,11 +72,13 @@ to add missing categories. Jern never requests health write access.
   It does not force the watch itself to sync. Partial failures are labelled;
   missing records show `—`, not zero. A complete failure retains the old cache
   and its original fetch timestamp. Sync requests are limited to six per minute.
-- Recovery shows metrics and short-term comparisons when at least three prior
-  readings exist. Jern does not manufacture a readiness score. **Ask coach about
-  recovery** explicitly shares the dated summary in a new coach conversation,
-  requesting advice only through the existing screened AI flow. Plan proposals
-  still require the user's confirmation.
+- Recovery shows recent HRV and resting heart rate. The baseline for each
+  metric appears once at least three earlier readings are available.
+- The Activity clock shows yesterday's recorded exercise and time asleep from
+  local midnight to midnight. It refreshes at the start of the next day.
+  Gaps in the timeline are marked **Untracked**.
+- **Ask coach** opens a topic picker with an optional question. **Send to coach**
+  starts a new conversation with up to seven days of readings for the selected topic.
 - Tokens are encrypted at rest. Summaries are account-private database rows and
   are excluded from the public demo. Disconnect deletes the local connection,
   summary and pending OAuth attempts and attempts to revoke Google access.

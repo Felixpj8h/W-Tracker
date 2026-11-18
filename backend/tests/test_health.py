@@ -136,6 +136,10 @@ def test_provider_pagination_rollups_sleep_dates_and_partial_failure(monkeypatch
             return httpx.Response(200, json={"rollupDataPoints": [{"civilStartTime": {"date": {"year": 2026, "month": 11, "day": 17}}, "steps": {"countSum": "0"}}]})
         if '/active-minutes/' in path:
             return httpx.Response(403, json={})
+        if '/exercise/' in path:
+            return httpx.Response(200, json={"dataPoints": [{"exercise": {"interval": {
+                "startTime": "2026-11-17T09:00:00Z", "endTime": "2026-11-17T09:30:00Z"
+            }, "exerciseType": "WALKING", "activeDuration": "1200s"}}]})
         if '/sleep/' in path:
             if request.url.params.get('pageToken') == 'next':
                 return httpx.Response(200, json={"dataPoints": [{"sleep": {"interval": {"startTime": "2026-11-16T22:00:00Z", "endTime": "2026-11-17T06:00:00Z", "endUtcOffset": "3600s"}, "summary": {"minutesAsleep": "450"}, "metadata": {"mainSleep": True}, "stages": []}}]})
@@ -151,6 +155,10 @@ def test_provider_pagination_rollups_sleep_dates_and_partial_failure(monkeypatch
     assert data['days'][-1]['sleep_minutes'] == 450
     assert data['sleep']['date'] == '2026-11-17'
     assert data['sleep']['stages'] == []
+    assert data['sleep_intervals'] == [{"start": "2026-11-16T22:00:00Z", "end": "2026-11-17T06:00:00Z",
+                                      "minutes": 450, "stages": []}]
+    assert data['workouts'] == [{"date": "2026-11-17", "type": "WALKING", "minutes": 20,
+                                 "start": "2026-11-17T09:00:00Z", "end": "2026-11-17T09:30:00Z"}]
     assert list(data['warnings']) == ['active_minutes']
     assert len([v for v in requests if '/sleep/' in v.url.path]) == 2
 

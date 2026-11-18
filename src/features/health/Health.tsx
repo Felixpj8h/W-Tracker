@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { api } from '../../shared/api/client';
 import { HealthIcon, HealthWidgets } from './HealthWidgets';
 import type { HealthOverview } from './types';
@@ -8,11 +9,99 @@ export function healthToday(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
-export function recoveryPrompt(overview: HealthOverview) {
-  return 'Review my recovery and suggest how I should approach training today. Give advice only; do not create, change or apply a training plan. Treat wearable metrics as estimates, consider dates and missing readings, and compare HRV and resting heart rate only with my own available history. Do not diagnose or invent a readiness score. My Google Health summary (null means unavailable):\n' + JSON.stringify({ synced_at: overview.fetched_at, days: overview.data?.days, warnings: overview.data?.warnings });
+const fetchSync = () => api<HealthOverview>('/health/sync', { method: 'POST', body: JSON.stringify({ today: healthToday() }) });
+
+const coachTopics = [
+  { id: 'sleep', label: 'Sleep', permission: 'sleep', fields: ['sleep_minutes'] },
+  { id: 'activity', label: 'Activity', permission: 'activity', fields: ['active_minutes'] },
+  { id: 'steps', label: 'Steps', permission: 'activity', fields: ['steps'] },
+  { id: 'recovery', label: 'Recovery', permission: 'recovery', fields: ['hrv', 'resting_hr'] },
+] as const;
+type CoachTopic = (typeof coachTopics)[number];
+
+function isCoachBackdrop(event: MouseEvent<HTMLDialogElement>) {
+  if (event.target !== event.currentTarget) return false;
+  const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+  return event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom;
 }
 
-const fetchSync = () => api<HealthOverview>('/health/sync', { method: 'POST', body: JSON.stringify({ today: healthToday() }) });
+function HealthCoach({ overview, askCoach }: { overview: HealthOverview; askCoach: (prompt: string) => Promise<void> }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const pressedBackdrop = useRef(false);
+  const [selected, setSelected] = useState<CoachTopic['id'] | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const days = overview.data?.days.slice(-7) ?? [];
+  const unavailable = (topic: CoachTopic) => !overview.permissions[topic.permission] ? 'Permission required'
+    : days.some(day => topic.fields.some(field => day[field] != null)) ? null : 'No recent readings';
+  const topic = coachTopics.find(item => item.id === selected);
+
+  async function send() {
+    if (sending || !topic || unavailable(topic)) return;
+    setSending(true);
+    setError('');
+    const summary = {
+      ...(topic.id === 'steps' ? { daily_step_goal: overview.step_goal } : {}),
+      days: days.map(day => ({ date: day.date, ...Object.fromEntries(topic.fields.map(field => [field, day[field]])) })),
+    };
+    const question = prompt.trim() || `Review my recent ${topic.id} and suggest one or two practical next steps.`;
+    const context = 'Give advice only. Do not create, change or apply a plan, diagnose, or invent readings. Use my own history for comparisons.';
+    try {
+      await askCoach(`${question}\n\n${context}\nMy Google Health summary (null means unavailable):\n${JSON.stringify(summary)}`);
+      dialog.current?.close();
+    } catch (err) {
+      setError((err as Error).message || 'Could not open the coach. Try again.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return <>
+    <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => {
+      setSelected(null);
+      setPrompt('');
+      setError('');
+      pressedBackdrop.current = false;
+      dialog.current?.showModal();
+    }}><HealthIcon name="coach" />Ask coach</button>
+    <dialog ref={dialog} className="health-dialog health-coach-dialog" aria-labelledby="health-coach-title"
+      onPointerDown={event => { pressedBackdrop.current = isCoachBackdrop(event); }}
+      onClick={event => {
+        if (!sending && pressedBackdrop.current && isCoachBackdrop(event)) event.currentTarget.close();
+        pressedBackdrop.current = false;
+      }}
+      onCancel={event => { if (sending) event.preventDefault(); }}>
+      <div className="health-dialog-heading"><h2 id="health-coach-title">Ask coach</h2></div>
+      <form onSubmit={event => { event.preventDefault(); void send(); }}>
+        <fieldset className="health-coach-topics" disabled={sending}>
+          <legend>What would you like to ask about?</legend>
+          {coachTopics.map(item => {
+            const reason = unavailable(item);
+            return <label key={item.id}>
+              <input type="radio" name="health-coach-topic" value={item.id} checked={selected === item.id}
+                disabled={Boolean(reason)} onChange={() => setSelected(item.id)} />
+              <HealthIcon name={item.id} />
+              <span>{item.label}{reason && <small>{reason}</small>}</span>
+            </label>;
+          })}
+        </fieldset>
+        <label className="health-coach-question">
+          <span>Your question <small>(optional)</small></span>
+          <textarea rows={3} maxLength={3000} value={prompt} disabled={sending}
+            placeholder="What patterns do you notice, and what could I improve?"
+            onChange={event => setPrompt(event.target.value)} />
+        </label>
+        <p className="health-muted">Shares up to 7 days of readings for the selected topic in a new coach conversation.</p>
+        {error && <p className="health-muted" role="alert">{error}</p>}
+        <div className="health-actions health-coach-actions">
+          <button type="button" className="secondary" disabled={sending} onClick={() => dialog.current?.close()}>Cancel</button>
+          <button type="submit" className="primary" disabled={sending || !topic || Boolean(unavailable(topic))}>{sending ? 'Opening coach…' : 'Send to coach'}</button>
+        </div>
+      </form>
+    </dialog>
+  </>;
+}
 
 function ConnectionStatus({ overview, busy, connect, disconnect }: {
   overview: HealthOverview; busy: boolean; connect: () => void; disconnect: () => void;
@@ -55,6 +144,8 @@ function ConnectionStatus({ overview, busy, connect, disconnect }: {
 }
 
 export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<void> }) {
+  const [today, setToday] = useState(healthToday);
+  const syncedDay = useRef(today);
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -72,6 +163,24 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
   });
 
   useEffect(() => {
+    let timer: number;
+    function checkDate() {
+      window.clearTimeout(timer);
+      const now = new Date();
+      setToday(healthToday(now));
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      timer = window.setTimeout(checkDate, midnight.getTime() - now.getTime());
+    }
+    checkDate();
+    document.addEventListener('visibilitychange', checkDate);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', checkDate);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     void (async () => {
       try {
@@ -80,8 +189,10 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
         setOverview(result);
         setGoal(result.step_goal);
         setLoading(false);
-        if (result.connected && (!result.fetched_at || Date.now() / 1000 - result.fetched_at > 300)) {
+        if (result.connected && (!result.fetched_at || Date.now() / 1000 - result.fetched_at > 300 ||
+            healthToday(new Date(result.fetched_at * 1000)) !== healthToday())) {
           setBusy(true);
+          syncedDay.current = healthToday();
           const synced = await fetchSync();
           if (active) setOverview(synced);
         }
@@ -97,7 +208,7 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
     return () => { active = false; };
   }, []);
 
-  async function run(action: () => Promise<void>) {
+  const run = useCallback(async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
     try {
@@ -107,13 +218,21 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
     } finally {
       setBusy(false);
     }
-  }
+  }, []);
+
+  const sync = useCallback(() => {
+    syncedDay.current = healthToday();
+    void run(async () => setOverview(await fetchSync()));
+  }, [run]);
+  const connected = overview?.connected;
+  useEffect(() => {
+    if (connected && !busy && !loading && syncedDay.current !== today) sync();
+  }, [busy, connected, loading, sync, today]);
 
   const connect = () => void run(async () => {
     const result = await api<{ url: string }>('/health/google/connect', { method: 'POST' });
     window.location.assign(result.url);
   });
-  const sync = () => void run(async () => setOverview(await fetchSync()));
   const disconnect = () => void run(async () => {
     await api('/health/google', { method: 'DELETE' });
     setOverview(await api<HealthOverview>('/health/overview'));
@@ -127,11 +246,14 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
 
   return <section className={`health-page${overview?.connected ? ' health-connected' : ''}`} aria-busy={busy || loading}>
     <header className={overview?.connected ? 'health-header' : 'health-setup-header'}>
-      <div>
+      <div className="health-heading">
         <h1>Health</h1>
         {overview?.connected && <ConnectionStatus overview={overview} busy={busy} connect={connect} disconnect={disconnect} />}
       </div>
-      {overview?.connected && <button className="secondary" disabled={busy} onClick={sync}><HealthIcon name="sync" />{busy ? 'Syncing…' : 'Sync now'}</button>}
+      {overview?.connected && <div className="health-header-actions">
+        <HealthCoach overview={overview} askCoach={askCoach} />
+        <button className="secondary" disabled={busy} onClick={sync}><HealthIcon name="sync" />{busy ? 'Syncing…' : 'Sync now'}</button>
+      </div>}
     </header>
     {notice && <p className="health-notice" role="status">{notice}</p>}
     {error && <div className="health-notice" role="alert">
@@ -146,7 +268,7 @@ export function Health({ askCoach }: { askCoach: (prompt: string) => Promise<voi
     </article>}
     {overview?.connected && <>
       {warnings.length > 0 && <p className="health-notice" role="status">Couldn’t sync {warnings.join(', ').replaceAll('_', ' ')}. Sync again or check permissions.</p>}
-      <HealthWidgets overview={overview} today={healthToday()} goal={goal} setGoal={setGoal} saveGoal={saveGoal} busy={busy} askRecovery={() => void run(() => askCoach(recoveryPrompt(overview)))} />
+      <HealthWidgets overview={overview} today={today} goal={goal} setGoal={setGoal} saveGoal={saveGoal} busy={busy} />
     </>}
   </section>;
 }

@@ -2,12 +2,14 @@ import { useId, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { HealthPager, HealthTabs } from './HealthPager';
 import { HealthReadingList } from './HealthReadingList';
+import { ActivityClock, yesterdayKey } from './ActivityClock';
 import { useHealthSwipe } from './useHealthSwipe';
 import type { HealthDay, HealthOverview, Sleep } from './types';
 
 const count = (value: number | null | undefined) => value == null ? '—' : Math.round(value).toLocaleString();
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const timeLabel = (date: string) => new Date(date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const weekdayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
 const duration = (value: number | null | undefined) => {
   if (value == null) return '—';
   const minutes = Math.round(value);
@@ -27,16 +29,21 @@ function subscribeMobile(onChange: () => void) {
 
 type Metric = 'steps' | 'activity' | 'sleep' | 'recovery';
 type TrendField = Exclude<keyof HealthDay, 'date'>;
+type RecoveryField = 'hrv' | 'resting_hr';
+const recoveryMetrics = {
+  hrv: { label: 'HRV', unit: 'ms' },
+  resting_hr: { label: 'Resting heart rate', unit: 'bpm' },
+} as const;
 
 export function HealthIcon({ name }: { name: Metric | 'sync' | 'connection' | 'coach' }) {
   const paths = {
+    coach: <path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z" />,
     steps: <><path d="M3 18h6v-5h6V8h6"/><path d="M17 4h4v4"/></>,
     activity: <path d="M2 12h5l3-7 4 14 3-7h5"/>,
     sleep: <path d="M20.5 14A8.8 8.8 0 0 1 10 3.5 8.8 8.8 0 1 0 20.5 14Z"/>,
     recovery: <path d="M20.3 5.7a4.8 4.8 0 0 0-6.8 0L12 7.2l-1.5-1.5a4.8 4.8 0 0 0-6.8 6.8L12 21l8.3-8.5a4.8 4.8 0 0 0 0-6.8Z"/>,
     sync: <><path d="M20 4v5h-5M4 20v-5h5"/><path d="M4.8 9a8 8 0 0 1 13.1-3L20 9M4 15l2.1 3a8 8 0 0 0 13.1-3"/></>,
     connection: <><path d="m10 14 4-4"/><path d="m8 16-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 8a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-1 1"/></>,
-    coach: <><path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z"/></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -58,7 +65,7 @@ function Trend({ days, field, label, format = count, isBelowTarget }: {
       data-below-target={day[field] != null && isBelowTarget?.(day[field]) || undefined} title={`${dateLabel(day.date)}: ${format(day[field])}`}>
       <span>{format(day[field])}</span>
       <div className="health-trend-track"><i style={{ height: `${day[field] == null ? 0 : Math.max(2, day[field] / max * 100)}%` }} /></div>
-      <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</small>
+      <small>{weekdayLabel(day.date)}</small>
     </div>)}
   </div>;
 }
@@ -141,13 +148,12 @@ function SleepWeek({ days, average, latest }: { days: HealthDay[]; average: numb
   </section>;
 }
 
-function MetricCard({ metric, label, date, headline, panes, action }: {
+function MetricCard({ metric, label, date, headline, panes }: {
   metric: Metric;
   label: string;
   date?: string;
   headline?: ReactNode;
   panes: { label: string; content: ReactNode }[];
-  action?: ReactNode;
 }) {
   return <article className={`health-widget health-${metric}`}>
     <HealthPager
@@ -156,27 +162,69 @@ function MetricCard({ metric, label, date, headline, panes, action }: {
       headline={headline}
       panes={panes}
     />
-    {action}
   </article>;
 }
 
-function priorAverage(days: HealthDay[], field: 'hrv' | 'resting_hr', latest?: HealthDay) {
+function priorAverage(days: HealthDay[], field: RecoveryField, latest?: HealthDay) {
   const prior = days.filter(day => day[field] != null && day.date !== latest?.date);
   return prior.length < 3 ? null : prior.reduce((sum, day) => sum + (day[field] ?? 0), 0) / prior.length;
 }
 
-export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, askRecovery }: {
+function RecoveryTrend({ days, field, baseline }: { days: HealthDay[]; field: RecoveryField; baseline: number | null }) {
+  const { label, unit } = recoveryMetrics[field];
+  const values = days.flatMap(day => day[field] == null ? [] : [day[field]]);
+  if (!values.length) return <p className="health-muted">No {label.toLowerCase()} readings in the last seven days.</p>;
+
+  const min = Math.min(...values, baseline ?? Infinity);
+  const max = Math.max(...values, baseline ?? -Infinity);
+  const center = (min + max) / 2;
+  const range = Math.max(max - min, 10);
+  const y = (value: number) => 50 - (value - center) / range * 52;
+  const points = days.map((day, index) => {
+    const value = day[field];
+    return value == null ? null : { x: (index + .5) / days.length * 100, y: y(value), value };
+  });
+  const description = days.map(day => `${dateLabel(day.date)} ${day[field] == null ? 'no reading' : `${count(day[field])} ${unit}`}`).join(', ');
+
+  return <div className="health-recovery-trend" role="img"
+    aria-label={`${label} trend: ${description}${baseline == null ? '' : `. Baseline ${count(baseline)} ${unit}`}`}>
+    <div className="health-recovery-legend" aria-hidden="true">
+      <span>Last 7 days{baseline == null && ` · ${unit}`}</span>
+      {baseline != null && <span className="health-recovery-reference" title="Average of earlier readings">Baseline · {count(baseline)} {unit}</span>}
+    </div>
+    <div className="health-recovery-plot" aria-hidden="true">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        {baseline != null && <line className="health-recovery-reference" x1="0" x2="100" y1={y(baseline)} y2={y(baseline)} vectorEffect="non-scaling-stroke" />}
+        {points.map((point, index) => {
+          const previous = points[index - 1];
+          return point && previous && <line key={days[index].date} x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} vectorEffect="non-scaling-stroke" />;
+        })}
+      </svg>
+      {points.map((point, index) => point && <span className="health-recovery-point" key={days[index].date}
+        data-label-below={baseline != null && point.value < baseline || undefined}
+        data-latest={index === days.length - 1 || undefined}
+        style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`${dateLabel(days[index].date)}: ${count(point.value)} ${unit}`}>
+        <span>{count(point.value)}</span>
+      </span>)}
+    </div>
+    <div className="health-recovery-days" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+      {days.map(day => <span key={day.date}>{weekdayLabel(day.date)}</span>)}
+    </div>
+  </div>;
+}
+
+export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }: {
   overview: HealthOverview;
   today: string;
   goal: number;
   setGoal: (value: number) => void;
   saveGoal: () => void;
   busy: boolean;
-  askRecovery: () => void;
 }) {
   const id = useId();
   const mobile = useSyncExternalStore(subscribeMobile, getMobile);
   const [selected, setSelected] = useState(0);
+  const [recoverySelection, setRecoverySelection] = useState<RecoveryField | null>(null);
   const swipe = useHealthSwipe(direction => {
     const next = selected + direction;
     if (!mobile || next < 0 || next >= labels.length) return false;
@@ -187,9 +235,10 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
   const current = days.find(day => day.date === today);
   const workouts = overview.data?.workouts ?? [];
   const sleep = overview.data?.sleep;
+  const sleepIntervals = overview.data?.sleep_intervals;
+  const timedSleep = sleepIntervals?.every(session => Array.isArray(session.stages)) ? sleepIntervals : sleep ? [sleep] : [];
   const latestHrv = days.findLast(day => day.hrv != null);
   const latestHr = days.findLast(day => day.resting_hr != null);
-  const hasRecovery = Boolean(latestHrv || latestHr || days.some(day => day.sleep_minutes != null));
   const stepPercent = current?.steps == null ? null : Math.round(current.steps / overview.step_goal * 100);
   const isBelowStepGoal = (steps: number) => steps < overview.step_goal;
   const recordedSteps = days.flatMap(day => day.steps == null ? [] : [day.steps]);
@@ -197,6 +246,11 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
   const goalDays = recordedSteps.filter(steps => steps >= overview.step_goal).length;
   const hrvAverage = priorAverage(days, 'hrv', latestHrv);
   const hrAverage = priorAverage(days, 'resting_hr', latestHr);
+  const recoveryField = recoverySelection ?? (latestHrv || !latestHr ? 'hrv' : 'resting_hr');
+  const recoveryVitals = [
+    { field: 'hrv', latest: latestHrv, average: hrvAverage },
+    { field: 'resting_hr', latest: latestHr, average: hrAverage },
+  ] as const;
   const recordedActivity = days.flatMap(day => day.active_minutes == null ? [] : [day.active_minutes]);
   const activeTotal = recordedActivity.reduce((sum, minutes) => sum + minutes, 0);
   const recordedSleep = days.flatMap(day => day.sleep_minutes == null ? [] : [day.sleep_minutes]);
@@ -259,18 +313,25 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
         ...(!mobile ? [{ label: 'Goal', content: goalForm }] : []),
       ]}
     />,
-    Activity: <MetricCard metric="activity" label="Activity" date={dateLabel(today)}
-      headline={<div className="health-value">{count(current?.active_minutes)} <span>active min today</span></div>}
+    Activity: <MetricCard metric="activity" label="Activity"
       panes={[
-        { label: '7 days', content: overview.permissions.activity
+        { label: '7 days', content: <div className="health-activity-pane">
+          <div className="health-value">{count(current?.active_minutes)} <span>active min today</span></div>
+          {overview.permissions.activity
           ? mobile
             ? <DailyReadings days={days} label="Daily active minutes" columns={[{ field: 'active_minutes', name: 'Active minutes' }]} />
             : <Trend days={days} field="active_minutes" label="Active minutes" />
-          : <p className="health-muted">Grant activity access to see your active minutes.</p> },
-        { label: 'Workouts', content: workouts.length
-          ? <HealthReadingList mobile={mobile} className="health-workouts" label="Recorded activities from the last seven days"
-            items={workouts.map((workout, index) => <li key={index}><span>{workout.type.toLowerCase().replaceAll('_', ' ')}<small>{dateLabel(workout.date)}</small></span><b>{Math.round(workout.minutes)} min</b></li>)} />
-          : <p className="health-muted">No recorded activities in the last seven days.</p> },
+          : <p className="health-muted">Grant activity access to see your active minutes.</p>}
+        </div> },
+        { label: 'Yesterday', content: <div className="health-activity-pane">
+          {overview.permissions.activity && <div className="health-value health-activity-yesterday">
+            {count(days.find(day => day.date === yesterdayKey(today))?.active_minutes)} <span>active min yesterday</span>
+          </div>}
+          {overview.permissions.activity || overview.permissions.sleep
+          ? <ActivityClock today={today} sleep={overview.permissions.sleep ? timedSleep : []}
+              workouts={overview.permissions.activity ? workouts : []} />
+          : <p className="health-muted">Grant activity or sleep access to see yesterday's timeline.</p>}
+        </div> },
       ]}
     />,
     Sleep: <MetricCard metric="sleep" label="Sleep" date={sleep ? `Woke ${dateLabel(sleep.date)}` : undefined}
@@ -290,30 +351,26 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
     />,
     Recovery: <MetricCard metric="recovery" label="Recovery"
       headline={<div className="health-vitals">
-        <div><span title="Heart rate variability">HRV</span><strong>{count(latestHrv?.hrv)} <small>ms</small></strong><small>{latestHrv ? dateLabel(latestHrv.date) : 'No reading'}</small>
-          {mobile && hrvAverage != null && <small className="health-vital-average">Earlier avg {count(hrvAverage)} ms</small>}</div>
-        <div><span>Resting heart rate</span><strong>{count(latestHr?.resting_hr)} <small>bpm</small></strong><small>{latestHr ? dateLabel(latestHr.date) : 'No reading'}</small>
-          {mobile && hrAverage != null && <small className="health-vital-average">Earlier avg {count(hrAverage)} bpm</small>}</div>
+        {recoveryVitals.map(({ field, latest, average }) => {
+          const { label, unit } = recoveryMetrics[field];
+          const reading = <>
+            <span title={field === 'hrv' ? 'Heart rate variability' : undefined}>{label}</span>
+            <strong>{count(latest?.[field])} <small>{unit}</small></strong>
+            <small>{latest ? dateLabel(latest.date) : 'No reading'}</small>
+          </>;
+          return mobile ? <div key={field}>{reading}
+            {average != null && <small className="health-vital-average">Earlier avg {count(average)} {unit}</small>}
+          </div> : <button key={field} type="button" aria-pressed={recoveryField === field}
+            onClick={() => setRecoverySelection(field)}>{reading}</button>;
+        })}
       </div>}
       panes={mobile
         ? [{ label: 'Last 7 days', content: overview.permissions.recovery
           ? recoveryHistory
           : <p className="health-muted">Grant health metrics access to see your recovery readings.</p> }]
-        : [
-        { label: 'Baseline', content: <div className="health-baseline">
-            {!overview.permissions.recovery ? <p className="health-muted">Grant health metrics access to see your recovery readings.</p>
-              : hrvAverage == null && hrAverage == null ? <p className="health-muted">Baseline needs at least three earlier readings.</p>
-                : <><div className="health-baseline-label">Earlier readings · 7-day averages</div><div className="health-baseline-values"><span>{count(hrvAverage)} ms</span><span>{count(hrAverage)} bpm</span></div></>}
-        </div> },
-        { label: 'HRV trend', content: <Trend days={days} field="hrv" label="Heart rate variability in milliseconds" /> },
-        { label: 'Resting HR', content: <Trend days={days} field="resting_hr" label="Resting heart rate in beats per minute" /> },
-      ]}
-      action={<div className="health-coach-action">
-        <button className="secondary" disabled={busy || !hasRecovery} aria-label="Ask coach about recovery" aria-describedby={`${id}-coach-note`} onClick={askRecovery}>
-          <HealthIcon name="coach" /><span className="health-coach-long">Ask coach about recovery</span><span className="health-coach-short">Ask coach</span>
-        </button>
-        <small id={`${id}-coach-note`}>Shares 7 days of Health data.</small>
-      </div>}
+        : [{ label: 'Last 7 days', content: overview.permissions.recovery
+          ? <RecoveryTrend days={days} field={recoveryField} baseline={recoveryField === 'hrv' ? hrvAverage : hrAverage} />
+          : <p className="health-muted">Grant health metrics access to see your recovery readings.</p> }]}
     />,
   };
 
