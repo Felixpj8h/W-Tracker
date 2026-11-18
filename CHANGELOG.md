@@ -2,6 +2,25 @@
 
 ## 18 November 2026
 
+- Animate Health headline numbers and charts as views appear, including a clockwise Activity clock reveal. Today's active minutes count up only on page load.
+
+- Enlarge the desktop Activity clock and show yesterday's active minutes in smaller text beside it.
+
+- Move activity totals below the mobile clock so the chart can use more of the card width.
+
+- Mark the saved daily goal with a dashed line on the seven-day Steps chart and show its label on desktop.
+
+- Let the mobile Steps chart use the available height and make swiping consistent across Health tabs.
+
+- Enlarge the mobile Activity clock and align the smaller active-minute total with the heading.
+
+- Align the mobile Health action buttons with the two overview card columns.
+
+- Move the mobile Health sync status beside the page title to free up vertical space.
+
+- Bring the desktop charts to mobile Health, with steps, activity, and recovery
+  charts grouped together on their respective tabs.
+
 - Show yesterday’s active minutes in a smaller summary above the Activity clock.
 
 - Pin the Activity clock to yesterday with a fixed 24-hour face and refresh it at local midnight.

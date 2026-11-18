@@ -113,14 +113,14 @@ function ConnectionStatus({ overview, busy, connect, disconnect }: {
 
   return <div className="health-status">
     <button type="button" className="health-connection" onClick={() => dialog.current?.showModal()} aria-haspopup="dialog">
-      <i />Google Health<HealthIcon name="connection" />
-    </button>
-    <small className={stale ? 'health-stale' : undefined} title={synced?.toLocaleString()}>
+      <span className="health-provider"><i />Google Health<HealthIcon name="connection" /></span>
+      <small className={stale ? 'health-stale' : undefined} title={synced?.toLocaleString()}>
       {synced ? <>{stale ? 'Last sync' : 'Synced'} <time dateTime={synced.toISOString()}>{sameDay
         ? synced.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
         : synced.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</time></>
         : 'Ready for first sync'}
-    </small>
+      </small>
+    </button>
     <dialog ref={dialog} className="health-dialog" aria-labelledby="health-connection-title">
       <div className="health-dialog-heading">
         <h2 id="health-connection-title">Google Health connection</h2>

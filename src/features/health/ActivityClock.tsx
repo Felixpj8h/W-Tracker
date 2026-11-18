@@ -1,3 +1,6 @@
+import { useId } from 'react';
+import type { ReactNode } from 'react';
+import { useInView } from '../../shared/ui/useInView';
 import type { HealthInterval, HealthWorkout, TimedSleep } from './types';
 
 const minutesPerDay = 24 * 60;
@@ -73,7 +76,15 @@ function clockSpans(start: Date, end: Date) {
   return [{ from: 0, to: high, shift: 0 }, { from: high, to: length, shift }];
 }
 
-export function ActivityClock({ today, sleep, workouts }: { today: string; sleep: TimedSleep[]; workouts: HealthWorkout[] }) {
+export function ActivityClock({ today, sleep, workouts, mobile, summary }: {
+  today: string;
+  sleep: TimedSleep[];
+  workouts: HealthWorkout[];
+  mobile: boolean;
+  summary?: ReactNode;
+}) {
+  const maskId = useId();
+  const [ref, visible] = useInView<SVGSVGElement>();
   const end = new Date(`${today}T00:00:00`);
   const start = new Date(`${yesterdayKey(today)}T00:00:00`);
   const yesterday = calendarDate.format(start);
@@ -95,13 +106,21 @@ export function ActivityClock({ today, sleep, workouts }: { today: string; sleep
   }));
 
   return <div className="health-activity-clock">
-    <svg viewBox="-12 0 252 190" role="img" aria-label={`Activity yesterday, ${yesterday}. ${description || 'No timed sessions recorded.'}`}>
-      <circle cx="114" cy="96" r="62" className="health-clock-untracked" />
-      {arcs.map(({ offset, length, key, category }) =>
-        <circle key={key} cx="114" cy="96" r="62" pathLength={minutesPerDay} className={`health-clock-${category}`}
-          strokeDasharray={`${length} ${minutesPerDay}`} strokeDashoffset={-offset} transform="rotate(90 114 96)">
-          <title>{labels[category]} · {elapsedLabel(length)}</title>
-        </circle>)}
+    <svg ref={ref} data-reveal={visible} viewBox={mobile ? '-12 0 252 190' : '0 0 228 190'} role="img" aria-label={`Activity yesterday, ${yesterday}. ${description || 'No timed sessions recorded.'}`}>
+      <defs>
+        <mask id={maskId}>
+          <path className="health-clock-sweep" d="M114 158 A62 62 0 1 1 114 34 A62 62 0 1 1 114 158" pathLength="1"
+            strokeDasharray="1" fill="none" stroke="white" strokeWidth="17" />
+        </mask>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        <circle cx="114" cy="96" r="62" className="health-clock-untracked" />
+        {arcs.map(({ offset, length, key, category }) =>
+          <circle key={key} cx="114" cy="96" r="62" pathLength={minutesPerDay} className={`health-clock-${category}`}
+            strokeDasharray={`${length} ${minutesPerDay}`} strokeDashoffset={-offset} transform="rotate(90 114 96)">
+            <title>{labels[category]} · {elapsedLabel(length)}</title>
+          </circle>)}
+      </g>
       <g className="health-clock-axis" textAnchor="middle" aria-hidden="true">
         <path d="M114 20v5 M114 167v5 M38 96h5 M185 96h5" />
         <text x="114" y="15">12:00</text>
@@ -113,6 +132,7 @@ export function ActivityClock({ today, sleep, workouts }: { today: string; sleep
       </g>
     </svg>
     <div className="health-clock-details">
+      {summary}
       {recorded.length ? <dl aria-label="Time by activity">
         {[...recorded, 'untracked' as const].map(category => <div key={category}>
           <dt><i className={`health-clock-${category}`} />{labels[category]}</dt><dd>{elapsedLabel(totals[category])}</dd>

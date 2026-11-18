@@ -114,12 +114,15 @@ describe('Health page', () => {
     const previousDay = new Date();
     previousDay.setDate(previousDay.getDate() - 1);
     data.data!.days[0].active_minutes = 105;
-    data.data?.days.unshift({ date: healthToday(previousDay), steps: null, active_minutes: 82, sleep_minutes: 510, hrv: null, resting_hr: null });
+    data.data!.days[0].steps = 3000;
+    data.data?.days.unshift({ date: healthToday(previousDay), steps: 9000, active_minutes: 82, sleep_minutes: 510, hrv: null, resting_hr: null });
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
     const yesterday = new Date(`${healthToday(previousDay)}T00:00:00`);
     const dayHours = (midnight.getTime() - yesterday.getTime()) / 3600000;
     const hoursAgo = (hours: number) => new Date(midnight.getTime() - hours * 3600000).toISOString();
+    data.data!.sleep = { date: healthToday(), start: hoursAgo(2), end: hoursAgo(-6), minutes: 440,
+      stages: [{ start: hoursAgo(2), end: hoursAgo(-6), type: 'LIGHT' }] };
     data.data!.sleep_intervals = [{ start: hoursAgo(dayHours + 1), end: hoursAgo(dayHours - 1), minutes: 108, stages: [
       { start: hoursAgo(dayHours + 1), end: hoursAgo(dayHours - .8), type: 'LIGHT' },
       { start: hoursAgo(dayHours - .8), end: hoursAgo(dayHours - 1), type: 'AWAKE' },
@@ -133,37 +136,48 @@ describe('Health page', () => {
     render(<Health askCoach={vi.fn()} />);
 
     const tabs = await screen.findByRole('tablist', { name: 'Health widgets' });
+    const swipe = (target: Element, dx = -100, dy = 2) => {
+      const pointer = { isPrimary: true, pointerId: 1 };
+      fireEvent.pointerDown(target, { ...pointer, button: 0, clientX: 200, clientY: 40 });
+      fireEvent.pointerUp(target, { ...pointer, clientX: 200 + dx, clientY: 40 + dy });
+    };
     const summary = screen.getByRole('tabpanel', { name: 'Overview' });
     expect(within(summary).getAllByRole('article').map(metric => metric.getAttribute('aria-label'))).toEqual(['Steps', 'Activity', 'Sleep', 'Recovery']);
-    fireEvent.pointerDown(summary, { isPrimary: true, button: 0, pointerId: 1, clientX: 200, clientY: 40 });
-    fireEvent.pointerUp(summary, { isPrimary: true, pointerId: 1, clientX: 100, clientY: 42 });
+    swipe(summary);
     expect(within(tabs).getByRole('tab', { name: 'Steps', selected: true })).toBeTruthy();
     const steps = screen.getByRole('tabpanel', { name: 'Steps' });
     expect(within(steps).getByRole('spinbutton', { name: 'Daily step goal' })).toBeTruthy();
-    expect(within(steps).queryByRole('tab', { name: 'Goal' })).toBeNull();
+    expect(within(steps).queryByRole('tablist')).toBeNull();
+    expect(within(steps).getByRole('progressbar').hasAttribute('data-below-target')).toBe(true);
+    const stepChart = within(steps).getByRole('img', { name: /^Daily steps/ });
+    expect(stepChart.querySelectorAll('[data-below-target]')).toHaveLength(1);
+    swipe(stepChart, -10, 100);
+    expect(within(tabs).getByRole('tab', { name: 'Steps', selected: true })).toBeTruthy();
 
-    fireEvent.click(within(tabs).getByRole('tab', { name: 'Activity' }));
+    swipe(stepChart);
     const activity = screen.getByRole('tabpanel', { name: 'Activity' });
-    expect(within(within(activity).getByRole('tabpanel', { name: '7 days' })).getByText('active min today').parentElement?.textContent).toBe('105 active min today');
-    const clockTab = within(activity).getByRole('tab', { name: 'Yesterday' });
-    fireEvent.keyDown(within(activity).getByRole('tab', { name: '7 days' }), { key: 'ArrowRight' });
-    expect(clockTab.getAttribute('aria-selected')).toBe('true');
-    const clock = within(activity).getByRole('tabpanel', { name: 'Yesterday' });
-    expect(within(clock).getByText('active min yesterday').parentElement?.textContent).toBe('82 active min yesterday');
-    const chart = within(clock).getByRole('img', { name: /^Activity yesterday/ });
+    expect(within(activity).queryByRole('tablist')).toBeNull();
+    expect(within(activity).getByText('active min today').parentElement?.textContent).toBe('105 active min today');
+    expect(within(activity).getByRole('img', { name: /^Active minutes/ })).toBeTruthy();
+    expect(within(activity).getByText('active min yesterday').parentElement?.textContent).toBe('82 active min yesterday');
+    const chart = within(activity).getByRole('img', { name: /^Activity yesterday/ });
     expect(chart.querySelectorAll('circle')).toHaveLength(4);
-    expect(Array.from(clock.querySelectorAll('dd'), value => value.textContent)).toEqual(['48m', '30m', '45m', `${dayHours - 3}h 57m`]);
+    expect(Array.from(activity.querySelectorAll('dd'), value => value.textContent)).toEqual(['48m', '30m', '45m', `${dayHours - 3}h 57m`]);
 
-    fireEvent.click(within(tabs).getByRole('tab', { name: 'Sleep' }));
+    swipe(chart.querySelector('circle')!);
     const sleep = screen.getByRole('tabpanel', { name: 'Sleep' });
     expect(within(sleep).queryByRole('tab', { name: '7 days' })).toBeNull();
     const sleepWeek = within(sleep).getByRole('list', { name: 'Sleep durations for the last seven days' });
     expect(sleepWeek.textContent).toContain('35m shorter than your 7-day average');
 
-    fireEvent.click(within(tabs).getByRole('tab', { name: 'Recovery' }));
+    expect(within(sleep).getByRole('tab', { name: 'Intervals' })).toBeTruthy();
+    swipe(within(sleep).getByRole('img', { name: 'Sleep stage timeline' }));
     const recovery = screen.getByRole('tabpanel', { name: 'Recovery' });
     expect(within(recovery).queryByRole('tablist')).toBeNull();
-    expect(within(recovery).getByRole('list', { name: 'Daily recovery readings' }).textContent).toContain('Resting HR: 53 bpm');
+    const hrvChart = within(recovery).getByRole('img', { name: /^HRV trend.*56 ms/ });
+    expect(within(recovery).getByRole('img', { name: /^Resting heart rate trend.*53 bpm/ })).toBeTruthy();
+    swipe(hrvChart, 100);
+    expect(within(tabs).getByRole('tab', { name: 'Sleep', selected: true })).toBeTruthy();
   });
   it('advances the fixed activity clock and syncs at local midnight', async () => {
     vi.useFakeTimers();

@@ -40,11 +40,12 @@ export function HealthTabs({ id, labels, name, selected, onSelect, className = '
   </div>;
 }
 
-export function HealthPager({ name, heading, headline, panes }: {
+export function HealthPager({ name, heading, headline, panes, swipePanes = true }: {
   name: string;
   heading: ReactNode;
   headline?: ReactNode;
   panes: { label: string; content: ReactNode }[];
+  swipePanes?: boolean;
 }) {
   const id = useId();
   const [selectedIndex, setSelected] = useState(0);
@@ -63,7 +64,7 @@ export function HealthPager({ name, heading, headline, panes }: {
       {hasTabs && <HealthTabs id={id} labels={panes.map(pane => pane.label)} name={name} selected={selected} onSelect={setSelected} />}
     </div>
     {headline}
-    <div className="health-pager-window" {...swipe}>
+    <div className="health-pager-window" {...(swipePanes && hasTabs ? swipe : {})}>
       <div className="health-pager-track" style={{ transform: `translateX(${-selected * 100}%)` }}>
         {panes.map(({ label, content }, index) => <div
           key={label}

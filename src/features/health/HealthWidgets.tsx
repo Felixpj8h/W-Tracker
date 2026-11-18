@@ -1,5 +1,7 @@
 import { useId, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
+import { AnimatedValue } from '../../shared/ui/AnimatedValue';
+import { useInView } from '../../shared/ui/useInView';
 import { HealthPager, HealthTabs } from './HealthPager';
 import { HealthReadingList } from './HealthReadingList';
 import { ActivityClock, yesterdayKey } from './ActivityClock';
@@ -51,46 +53,35 @@ export function HealthIcon({ name }: { name: Metric | 'sync' | 'connection' | 'c
 const isShorterSleep = (minutes: number | null, average: number | null) =>
   minutes != null && average != null && Math.round(minutes) < Math.round(average) || undefined;
 
-function Trend({ days, field, label, format = count, isBelowTarget }: {
+function Trend({ days, field, label, format = count, isBelowTarget, goal }: {
   days: HealthDay[];
   field: TrendField;
   label: string;
   format?: (value: number | null) => string;
   isBelowTarget?: (value: number) => boolean;
+  goal?: number;
 }) {
+  const [ref, visible] = useInView<HTMLDivElement>();
   if (!days.some(day => day[field] != null)) return <p className="health-muted">No readings in the last seven days.</p>;
-  const max = Math.max(1, ...days.map(day => day[field] ?? 0));
-  return <div className="health-trend" role="img" aria-label={`${label}: ${days.map(day => `${dateLabel(day.date)} ${format(day[field])}`).join(', ')}`}>
+  const max = Math.max(1, (goal ?? 0) * 1.12, ...days.map(day => day[field] ?? 0));
+  return <div className="health-trend" ref={ref} data-reveal={visible} role="img" aria-label={`${label}${goal == null ? '' : `, goal ${count(goal)}`}: ${days.map(day => `${dateLabel(day.date)} ${format(day[field])}`).join(', ')}`}>
     {days.map((day, index) => <div className={index === days.length - 1 ? 'health-trend-latest' : undefined} key={day.date}
+      style={{ '--health-bar-delay': `${index * 35}ms` } as React.CSSProperties}
       data-below-target={day[field] != null && isBelowTarget?.(day[field]) || undefined} title={`${dateLabel(day.date)}: ${format(day[field])}`}>
       <span>{format(day[field])}</span>
       <div className="health-trend-track"><i style={{ height: `${day[field] == null ? 0 : Math.max(2, day[field] / max * 100)}%` }} /></div>
       <small>{weekdayLabel(day.date)}</small>
     </div>)}
-  </div>;
-}
-
-function DailyReadings({ days, label, columns }: {
-  days: HealthDay[];
-  label: string;
-  columns: { field: TrendField; name: string; format?: (value: number | null) => string }[];
-}) {
-  if (!days.some(day => columns.some(({ field }) => day[field] != null))) return <p className="health-muted">No readings in the last seven days.</p>;
-  const paired = columns.length > 1;
-  return <div className={`health-daily-readings${paired ? ' health-daily-readings-paired' : ''}`}>
-    <div className="health-readings-heading" aria-hidden="true">
-      <span>Last 7 days</span>{columns.map(({ field, name }) => <span key={field}>{name}</span>)}
-    </div>
-    <HealthReadingList mobile className="health-daily-list" label={label} items={days.toReversed().map(day => <li key={day.date}>
-      <time dateTime={day.date}>{dateLabel(day.date)}</time>
-      {columns.map(({ field, name, format = count }) => <span key={field}>
-        <span className="health-visually-hidden">{name}: </span>{format(day[field])}
-      </span>)}
-    </li>)} />
+    {goal != null && <aside className="health-trend-goal" aria-hidden="true">
+      <div className="health-trend-goal-line" style={{ bottom: `${goal / max * 100}%` }}>
+        <b>Goal · {count(goal)}</b>
+      </div>
+    </aside>}
   </div>;
 }
 
 function SleepTimeline({ sleep }: { sleep: Sleep }) {
+  const [ref, visible] = useInView<HTMLDivElement>();
   if (!sleep.start || !sleep.end || !sleep.stages.length) return <p className="health-muted">Sleep stages are not available for this session.</p>;
   const start = Date.parse(sleep.start);
   const span = Date.parse(sleep.end) - start;
@@ -106,8 +97,10 @@ function SleepTimeline({ sleep }: { sleep: Sleep }) {
   if (!segments.length) return <p className="health-muted">Sleep stages are not available for this session.</p>;
 
   return <div className="health-timeline">
-    <div className="health-stage-track" aria-label="Sleep stage timeline" role="img">
-      {segments.map(({ stage, left, width }, index) => <i key={index} title={`${stage.type}: ${timeLabel(stage.start)}–${timeLabel(stage.end)}`} style={{ left: `${left}%`, width: `${width}%`, background: stageColors[stage.type] ?? 'var(--muted)' }} />)}
+    <div className="health-stage-track" ref={ref} data-reveal={visible} aria-label="Sleep stage timeline" role="img">
+      <div className="health-stage-series">
+        {segments.map(({ stage, left, width }, index) => <i key={index} title={`${stage.type}: ${timeLabel(stage.start)}-${timeLabel(stage.end)}`} style={{ left: `${left}%`, width: `${width}%`, background: stageColors[stage.type] ?? 'var(--muted)' }} />)}
+      </div>
     </div>
     <div className="health-sleep-times"><span>{timeLabel(sleep.start)}</span><span>{timeLabel(sleep.end)}</span></div>
     <div className="health-stage-key">
@@ -120,6 +113,7 @@ function SleepTimeline({ sleep }: { sleep: Sleep }) {
 }
 
 function SleepWeek({ days, average, latest }: { days: HealthDay[]; average: number; latest?: Sleep | null }) {
+  const [ref, visible] = useInView<HTMLUListElement>();
   const roundedAverage = Math.round(average);
   const longestNight = Math.max(1, ...days.map(day => day.sleep_minutes ?? 0));
   const change = latest?.minutes == null ? null : Math.round(latest.minutes) - roundedAverage;
@@ -127,7 +121,7 @@ function SleepWeek({ days, average, latest }: { days: HealthDay[]; average: numb
 
   return <section className="health-sleep-week">
     <header><h3>Last 7 days</h3><small>{duration(average)} average</small></header>
-    <ul aria-label="Sleep durations for the last seven days" className="health-sleep-days"
+    <ul aria-label="Sleep durations for the last seven days" className="health-sleep-days" ref={ref} data-reveal={visible}
       style={{ '--health-night-count': days.length } as React.CSSProperties}>
       {days.map(day => {
         const minutes = day.sleep_minutes;
@@ -148,19 +142,22 @@ function SleepWeek({ days, average, latest }: { days: HealthDay[]; average: numb
   </section>;
 }
 
-function MetricCard({ metric, label, date, headline, panes }: {
+function MetricCard({ metric, label, date, headerAside, headline, panes, swipePanes }: {
   metric: Metric;
   label: string;
   date?: string;
+  headerAside?: ReactNode;
   headline?: ReactNode;
   panes: { label: string; content: ReactNode }[];
+  swipePanes?: boolean;
 }) {
   return <article className={`health-widget health-${metric}`}>
     <HealthPager
       name={`${label} views`}
-      heading={<header className="health-widget-header"><h2>{label}</h2>{date && <small>{date}</small>}</header>}
+      heading={<header className="health-widget-header"><h2>{label}</h2>{date && <small>{date}</small>}{headerAside}</header>}
       headline={headline}
       panes={panes}
+      swipePanes={swipePanes}
     />
   </article>;
 }
@@ -171,6 +168,7 @@ function priorAverage(days: HealthDay[], field: RecoveryField, latest?: HealthDa
 }
 
 function RecoveryTrend({ days, field, baseline }: { days: HealthDay[]; field: RecoveryField; baseline: number | null }) {
+  const [ref, visible] = useInView<HTMLDivElement>();
   const { label, unit } = recoveryMetrics[field];
   const values = days.flatMap(day => day[field] == null ? [] : [day[field]]);
   if (!values.length) return <p className="health-muted">No {label.toLowerCase()} readings in the last seven days.</p>;
@@ -192,14 +190,18 @@ function RecoveryTrend({ days, field, baseline }: { days: HealthDay[]; field: Re
       <span>Last 7 days{baseline == null && ` · ${unit}`}</span>
       {baseline != null && <span className="health-recovery-reference" title="Average of earlier readings">Baseline · {count(baseline)} {unit}</span>}
     </div>
-    <div className="health-recovery-plot" aria-hidden="true">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-        {baseline != null && <line className="health-recovery-reference" x1="0" x2="100" y1={y(baseline)} y2={y(baseline)} vectorEffect="non-scaling-stroke" />}
-        {points.map((point, index) => {
-          const previous = points[index - 1];
-          return point && previous && <line key={days[index].date} x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} vectorEffect="non-scaling-stroke" />;
-        })}
-      </svg>
+    <div className="health-recovery-plot" ref={ref} data-reveal={visible} aria-hidden="true">
+      <div className="health-recovery-series">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+          {baseline != null && <line className="health-recovery-reference" x1="0" x2="100" y1={y(baseline)} y2={y(baseline)} vectorEffect="non-scaling-stroke" />}
+          {points.map((point, index) => {
+            const previous = points[index - 1];
+            return point && previous && <line key={days[index].date} x1={previous.x} y1={previous.y} x2={point.x} y2={point.y} vectorEffect="non-scaling-stroke" />;
+          })}
+        </svg>
+        {points.map((point, index) => point && <i key={days[index].date} className="health-recovery-dot"
+          style={{ left: `${point.x}%`, top: `${point.y}%` }} />)}
+      </div>
       {points.map((point, index) => point && <span className="health-recovery-point" key={days[index].date}
         data-label-below={baseline != null && point.value < baseline || undefined}
         data-latest={index === days.length - 1 || undefined}
@@ -223,6 +225,7 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
 }) {
   const id = useId();
   const mobile = useSyncExternalStore(subscribeMobile, getMobile);
+  const [progressRef, progressVisible] = useInView<HTMLDivElement>();
   const [selected, setSelected] = useState(0);
   const [recoverySelection, setRecoverySelection] = useState<RecoveryField | null>(null);
   const swipe = useHealthSwipe(direction => {
@@ -256,10 +259,10 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
   const recordedSleep = days.flatMap(day => day.sleep_minutes == null ? [] : [day.sleep_minutes]);
   const averageSleep = recordedSleep.length ? recordedSleep.reduce((sum, minutes) => sum + minutes, 0) / recordedSleep.length : null;
   const summary = [
-    { metric: 'steps', label: 'Steps', value: count(current?.steps), unit: '', note: stepPercent == null ? 'No reading today' : `${stepPercent}% of daily goal` },
-    { metric: 'activity', label: 'Activity', value: count(current?.active_minutes), unit: current?.active_minutes != null ? 'min' : '', note: 'Active minutes today' },
-    { metric: 'sleep', label: 'Sleep', value: duration(sleep?.minutes), unit: '', note: sleep ? `Woke ${dateLabel(sleep.date)}` : 'No session' },
-    { metric: 'recovery', label: 'Recovery', value: count(latestHrv?.hrv), unit: latestHrv ? 'ms HRV' : '', note: latestHr ? `Resting HR ${count(latestHr.resting_hr)} bpm` : 'Resting HR unavailable' },
+    { metric: 'steps', label: 'Steps', value: current?.steps, unit: '', note: stepPercent == null ? 'No reading today' : `${stepPercent}% of daily goal` },
+    { metric: 'activity', label: 'Activity', value: current?.active_minutes, unit: current?.active_minutes != null ? 'min' : '', note: 'Active minutes today' },
+    { metric: 'sleep', label: 'Sleep', value: sleep?.minutes, unit: '', note: sleep ? `Woke ${dateLabel(sleep.date)}` : 'No session' },
+    { metric: 'recovery', label: 'Recovery', value: latestHrv?.hrv, unit: latestHrv ? 'ms HRV' : '', note: latestHr ? `Resting HR ${count(latestHr.resting_hr)} bpm` : 'Resting HR unavailable' },
   ] as const;
   const weeklySummary = [
     ['Average steps', averageSteps == null ? null : count(averageSteps)],
@@ -268,20 +271,45 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
     ['Average sleep', averageSleep == null ? null : duration(averageSleep)],
     ['Recorded workouts', workouts.length ? count(workouts.length) : null],
   ];
-  const recoveryHistory = <DailyReadings days={days} label="Daily recovery readings" columns={[
-    { field: 'hrv', name: 'HRV', format: value => value == null ? count(value) : `${count(value)} ms` },
-    { field: 'resting_hr', name: 'Resting HR', format: value => value == null ? count(value) : `${count(value)} bpm` },
-  ]} />;
   const goalForm = <form className="health-goal" onSubmit={event => { event.preventDefault(); saveGoal(); }}>
     <label>Daily step goal<input type="number" required min="1000" max="100000" step="100" value={goal || ''} onChange={event => setGoal(Number(event.target.value))} /></label>
     <button className="secondary" disabled={busy}>Save goal</button>
   </form>;
+  const stepsToday = <div className="health-progress" ref={progressRef} data-reveal={progressVisible}>
+    <progress max={overview.step_goal} value={current?.steps ?? 0} aria-label="Daily step goal progress"
+      data-below-target={current?.steps != null && isBelowStepGoal(current.steps) || undefined} />
+    <p className="health-muted">{stepPercent == null
+      ? overview.permissions.activity ? 'No steps recorded for today yet.' : 'Grant activity access to see your steps.'
+      : <><strong>{stepPercent}%</strong> of {count(overview.step_goal)} step goal</>}</p>
+    {!mobile && recordedSteps.length > 0 && <dl className="health-step-insights">
+      <div><dt>7-day average</dt><dd>{count(averageSteps)} <small>steps</small></dd></div>
+      <div><dt>Days at goal</dt><dd>{goalDays} <small>of {recordedSteps.length} tracked</small></dd></div>
+    </dl>}
+  </div>;
+  const stepsTrend = <Trend days={days} field="steps" label="Daily steps" isBelowTarget={isBelowStepGoal} goal={overview.step_goal} />;
+  const activityTrend = overview.permissions.activity
+    ? <Trend days={days} field="active_minutes" label="Active minutes" />
+    : <p className="health-muted">Grant activity access to see your active minutes.</p>;
+  const activityToday = <div className="health-value">
+    {mobile ? count(current?.active_minutes) : <AnimatedValue value={current?.active_minutes} once />} <span>active min today</span>
+  </div>;
+  const yesterdayMinutes = overview.permissions.activity && <div className="health-value health-activity-yesterday">
+    {count(days.find(day => day.date === yesterdayKey(today))?.active_minutes)} <span>active min yesterday</span>
+  </div>;
+  const activityYesterday = <>
+    {mobile && yesterdayMinutes}
+    {overview.permissions.activity || overview.permissions.sleep
+      ? <ActivityClock today={today} sleep={overview.permissions.sleep ? timedSleep : []}
+          workouts={overview.permissions.activity ? workouts : []} mobile={mobile}
+          summary={mobile ? undefined : yesterdayMinutes} />
+      : <p className="health-muted">Grant activity or sleep access to see yesterday's timeline.</p>}
+  </>;
   const cards = {
     Overview: <div className="health-overview-page">
       <div className="health-overview">
         {summary.map(({ metric, label, value, unit, note }) => <article className="health-summary" aria-label={label} key={metric}>
           <div className="health-summary-heading"><span className="health-icon"><HealthIcon name={metric} /></span><span>{label}</span></div>
-          <strong>{value}{unit && <span>{unit}</span>}</strong>
+          <strong><AnimatedValue value={value} format={metric === 'sleep' ? duration : undefined} />{unit && <span>{unit}</span>}</strong>
           <small>{note}</small>
         </article>)}
       </div>
@@ -291,51 +319,28 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
       </section>}
     </div>,
     Steps: <MetricCard metric="steps" label="Steps" date={dateLabel(today)}
-      headline={<div className="health-value">{count(current?.steps)} <span>steps today</span></div>}
-      panes={[
-        { label: 'Today', content: <div className="health-step-today">
-          <div className="health-progress">
-            <progress max={overview.step_goal} value={current?.steps ?? 0} aria-label="Daily step goal progress"
-              data-below-target={current?.steps != null && isBelowStepGoal(current.steps) || undefined} />
-            <p className="health-muted">{stepPercent == null
-              ? overview.permissions.activity ? 'No steps recorded for today yet.' : 'Grant activity access to see your steps.'
-              : <><strong>{stepPercent}%</strong> of {count(overview.step_goal)} step goal</>}</p>
-            {!mobile && recordedSteps.length > 0 && <dl className="health-step-insights">
-              <div><dt>7-day average</dt><dd>{count(averageSteps)} <small>steps</small></dd></div>
-              <div><dt>Days at goal</dt><dd>{goalDays} <small>of {recordedSteps.length} tracked</small></dd></div>
-            </dl>}
-          </div>
-          {mobile && goalForm}
-        </div> },
-        { label: '7 days', content: mobile
-          ? <DailyReadings days={days} label="Daily steps" columns={[{ field: 'steps', name: 'Steps' }]} />
-          : <Trend days={days} field="steps" label="Daily steps" isBelowTarget={isBelowStepGoal} /> },
-        ...(!mobile ? [{ label: 'Goal', content: goalForm }] : []),
+      headline={<div className="health-value"><AnimatedValue value={current?.steps} /> <span>steps today</span></div>}
+      panes={mobile ? [{ label: 'Steps', content: <div className="health-mobile-stack">
+        {stepsToday}
+        <section className="health-mobile-chart"><h3>Last 7 days</h3>{stepsTrend}</section>
+        {goalForm}
+      </div> }] : [
+        { label: 'Today', content: <div className="health-step-today">{stepsToday}</div> },
+        { label: '7 days', content: stepsTrend },
+        { label: 'Goal', content: goalForm },
       ]}
     />,
-    Activity: <MetricCard metric="activity" label="Activity"
-      panes={[
-        { label: '7 days', content: <div className="health-activity-pane">
-          <div className="health-value">{count(current?.active_minutes)} <span>active min today</span></div>
-          {overview.permissions.activity
-          ? mobile
-            ? <DailyReadings days={days} label="Daily active minutes" columns={[{ field: 'active_minutes', name: 'Active minutes' }]} />
-            : <Trend days={days} field="active_minutes" label="Active minutes" />
-          : <p className="health-muted">Grant activity access to see your active minutes.</p>}
-        </div> },
-        { label: 'Yesterday', content: <div className="health-activity-pane">
-          {overview.permissions.activity && <div className="health-value health-activity-yesterday">
-            {count(days.find(day => day.date === yesterdayKey(today))?.active_minutes)} <span>active min yesterday</span>
-          </div>}
-          {overview.permissions.activity || overview.permissions.sleep
-          ? <ActivityClock today={today} sleep={overview.permissions.sleep ? timedSleep : []}
-              workouts={overview.permissions.activity ? workouts : []} />
-          : <p className="health-muted">Grant activity or sleep access to see yesterday's timeline.</p>}
-        </div> },
+    Activity: <MetricCard metric="activity" label="Activity" headerAside={mobile ? activityToday : undefined}
+      panes={mobile ? [{ label: 'Activity', content: <div className="health-mobile-stack">
+        <section className="health-mobile-chart"><h3>Last 7 days</h3>{activityTrend}</section>
+        <section className="health-mobile-chart">{activityYesterday}</section>
+      </div> }] : [
+        { label: '7 days', content: <div className="health-activity-pane">{activityToday}{activityTrend}</div> },
+        { label: 'Yesterday', content: <div className="health-activity-pane">{activityYesterday}</div> },
       ]}
     />,
-    Sleep: <MetricCard metric="sleep" label="Sleep" date={sleep ? `Woke ${dateLabel(sleep.date)}` : undefined}
-      headline={<div className="health-value">{duration(sleep?.minutes)} <span>asleep</span></div>}
+    Sleep: <MetricCard metric="sleep" label="Sleep" date={sleep ? `Woke ${dateLabel(sleep.date)}` : undefined} swipePanes={!mobile}
+      headline={<div className="health-value"><AnimatedValue value={sleep?.minutes} format={duration} /> <span>asleep</span></div>}
       panes={[
         { label: 'Stages', content: <div className="health-sleep-content">
           {sleep ? <SleepTimeline sleep={sleep} /> : <p className="health-muted">{overview.permissions.sleep ? 'No sleep session synced yet.' : 'Grant sleep access to see your nights here.'}</p>}
@@ -351,32 +356,31 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy }
     />,
     Recovery: <MetricCard metric="recovery" label="Recovery"
       headline={<div className="health-vitals">
-        {recoveryVitals.map(({ field, latest, average }) => {
+        {recoveryVitals.map(({ field, latest }) => {
           const { label, unit } = recoveryMetrics[field];
           const reading = <>
             <span title={field === 'hrv' ? 'Heart rate variability' : undefined}>{label}</span>
-            <strong>{count(latest?.[field])} <small>{unit}</small></strong>
+            <strong><AnimatedValue value={latest?.[field]} /> <small>{unit}</small></strong>
             <small>{latest ? dateLabel(latest.date) : 'No reading'}</small>
           </>;
-          return mobile ? <div key={field}>{reading}
-            {average != null && <small className="health-vital-average">Earlier avg {count(average)} {unit}</small>}
-          </div> : <button key={field} type="button" aria-pressed={recoveryField === field}
+          return mobile ? <div key={field}>{reading}</div> : <button key={field} type="button" aria-pressed={recoveryField === field}
             onClick={() => setRecoverySelection(field)}>{reading}</button>;
         })}
       </div>}
-      panes={mobile
-        ? [{ label: 'Last 7 days', content: overview.permissions.recovery
-          ? recoveryHistory
-          : <p className="health-muted">Grant health metrics access to see your recovery readings.</p> }]
-        : [{ label: 'Last 7 days', content: overview.permissions.recovery
-          ? <RecoveryTrend days={days} field={recoveryField} baseline={recoveryField === 'hrv' ? hrvAverage : hrAverage} />
-          : <p className="health-muted">Grant health metrics access to see your recovery readings.</p> }]}
+      panes={[{ label: 'Last 7 days', content: !overview.permissions.recovery
+        ? <p className="health-muted">Grant health metrics access to see your recovery readings.</p>
+        : mobile ? <div className="health-mobile-stack">
+          {recoveryVitals.map(({ field, average }) => <section className="health-mobile-chart" key={field}>
+            <h3>{recoveryMetrics[field].label}</h3>
+            <RecoveryTrend days={days} field={field} baseline={average} />
+          </section>)}
+        </div> : <RecoveryTrend key={recoveryField} days={days} field={recoveryField} baseline={recoveryField === 'hrv' ? hrvAverage : hrAverage} /> }]}
     />,
   };
 
-  return <div className="health-deck">
+  return <div className="health-deck" {...(mobile ? swipe : {})}>
     {mobile && <HealthTabs id={id} labels={labels} name="Health widgets" selected={selected} onSelect={setSelected} className="health-mobile-tabs" />}
-    <div className="health-deck-window" {...swipe}>
+    <div className="health-deck-window">
       <div className="health-grid" style={{ '--health-slide': `${-selected * 100}%` } as React.CSSProperties}>
         {labels.map((label, index) => index === 0 && !mobile ? null : <div
           className={`health-slide health-slide-${label.toLowerCase()}`}

@@ -11,3 +11,11 @@
 .chart circle{fill:var(--accent);stroke:var(--surface);stroke-width:.7;vector-effect:non-scaling-stroke}
 .chart{position:relative;padding-right:58px}.chart svg{width:calc(100% - 58px)}.chart-axis{position:absolute;right:0;top:12px;bottom:12px;width:52px;display:flex;flex-direction:column;justify-content:space-between;color:var(--muted);font:600 10px ui-monospace,Consolas,monospace;text-align:right}.chart-axis span{white-space:nowrap}
 .chart-dates{position:absolute;left:0;right:58px;bottom:-19px;display:flex;justify-content:space-between;color:var(--muted);font:600 10px ui-monospace,Consolas,monospace}.chart:has(.chart-dates){margin-bottom:28px}
+
+.animated-value { position: relative; display: inline-block; white-space: nowrap; }
+.animated-value-target { color: transparent; }
+.animated-value-current { position: absolute; inset-inline-start: 0; top: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .animated-value-target { color: inherit; }
+  .animated-value-current { display: none; }
+}
