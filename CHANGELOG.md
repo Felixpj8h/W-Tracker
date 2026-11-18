@@ -1,5 +1,25 @@
 # Changelog
 
+## 18 November 2026
+
+- Use the dashboard bar green consistently across Health charts and step progress.
+
+- Match desktop sleep chart colors to mobile so nights below the seven-day
+  average are easy to spot.
+
+- Fill the available height on mobile Health with weekly summaries and compact
+  daily readings. Combine recovery history in one view, bring goal editing
+  into Steps Today, and paginate long lists. Show seven days of sleep in readable
+  rows under the stage timeline, with a compact layout for shorter screens.
+
+- Let the Health grid and charts grow with the desktop viewport so taller
+  laptops and large monitors can use more of the screen. Limit chart height
+  so daily trends stay readable at a glance.
+
+- Restyle Health with a compact 2×2 desktop grid and a swipeable mobile overview.
+  Use dashboard-style controls, surface goal and sleep-stage summaries, and keep
+  trends and recorded activities accessible through labeled tabs.
+
 ## 17 November 2026
 
 - Clarify Health setup requirements for the callback URL, complete encryption
