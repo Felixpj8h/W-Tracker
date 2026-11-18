@@ -44,18 +44,18 @@ export function HealthIcon({ name }: { name: Metric | 'sync' | 'connection' | 'c
 const isShorterSleep = (minutes: number | null, average: number | null) =>
   minutes != null && average != null && Math.round(minutes) < Math.round(average) || undefined;
 
-function Trend({ days, field, label, format = count, sleepAverage = null }: {
+function Trend({ days, field, label, format = count, isBelowTarget }: {
   days: HealthDay[];
   field: TrendField;
   label: string;
   format?: (value: number | null) => string;
-  sleepAverage?: number | null;
+  isBelowTarget?: (value: number) => boolean;
 }) {
   if (!days.some(day => day[field] != null)) return <p className="health-muted">No readings in the last seven days.</p>;
   const max = Math.max(1, ...days.map(day => day[field] ?? 0));
   return <div className="health-trend" role="img" aria-label={`${label}: ${days.map(day => `${dateLabel(day.date)} ${format(day[field])}`).join(', ')}`}>
     {days.map((day, index) => <div className={index === days.length - 1 ? 'health-trend-latest' : undefined} key={day.date}
-      data-shorter={isShorterSleep(day[field], sleepAverage)} title={`${dateLabel(day.date)}: ${format(day[field])}`}>
+      data-below-target={day[field] != null && isBelowTarget?.(day[field]) || undefined} title={`${dateLabel(day.date)}: ${format(day[field])}`}>
       <span>{format(day[field])}</span>
       <div className="health-trend-track"><i style={{ height: `${day[field] == null ? 0 : Math.max(2, day[field] / max * 100)}%` }} /></div>
       <small>{new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</small>
@@ -191,6 +191,7 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
   const latestHr = days.findLast(day => day.resting_hr != null);
   const hasRecovery = Boolean(latestHrv || latestHr || days.some(day => day.sleep_minutes != null));
   const stepPercent = current?.steps == null ? null : Math.round(current.steps / overview.step_goal * 100);
+  const isBelowStepGoal = (steps: number) => steps < overview.step_goal;
   const recordedSteps = days.flatMap(day => day.steps == null ? [] : [day.steps]);
   const averageSteps = recordedSteps.length ? recordedSteps.reduce((sum, steps) => sum + steps, 0) / recordedSteps.length : null;
   const goalDays = recordedSteps.filter(steps => steps >= overview.step_goal).length;
@@ -240,7 +241,8 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
       panes={[
         { label: 'Today', content: <div className="health-step-today">
           <div className="health-progress">
-            <progress max={overview.step_goal} value={current?.steps ?? 0} aria-label="Daily step goal progress" />
+            <progress max={overview.step_goal} value={current?.steps ?? 0} aria-label="Daily step goal progress"
+              data-below-target={current?.steps != null && isBelowStepGoal(current.steps) || undefined} />
             <p className="health-muted">{stepPercent == null
               ? overview.permissions.activity ? 'No steps recorded for today yet.' : 'Grant activity access to see your steps.'
               : <><strong>{stepPercent}%</strong> of {count(overview.step_goal)} step goal</>}</p>
@@ -253,7 +255,7 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
         </div> },
         { label: '7 days', content: mobile
           ? <DailyReadings days={days} label="Daily steps" columns={[{ field: 'steps', name: 'Steps' }]} />
-          : <Trend days={days} field="steps" label="Daily steps" /> },
+          : <Trend days={days} field="steps" label="Daily steps" isBelowTarget={isBelowStepGoal} /> },
         ...(!mobile ? [{ label: 'Goal', content: goalForm }] : []),
       ]}
     />,
@@ -279,7 +281,8 @@ export function HealthWidgets({ overview, today, goal, setGoal, saveGoal, busy, 
           {mobile && averageSleep != null && <SleepWeek days={days} average={averageSleep} latest={sleep} />}
         </div> },
         ...(!mobile ? [{ label: '7 days', content: <div className="health-sleep-trend">
-          <Trend days={days} field="sleep_minutes" label="Sleep duration by wake date" format={duration} sleepAverage={averageSleep} />
+          <Trend days={days} field="sleep_minutes" label="Sleep duration by wake date" format={duration}
+            isBelowTarget={minutes => Boolean(isShorterSleep(minutes, averageSleep))} />
         </div> }] : []),
         ...(sleep?.stages.length ? [{ label: 'Intervals', content: <HealthReadingList mobile={mobile} className="health-intervals" label="Sleep stage intervals"
           items={sleep.stages.map((stage, index) => <li key={index}><span><i style={{ background: stageColors[stage.type] ?? 'var(--muted)' }} />{stage.type.toLowerCase()}</span><time>{timeLabel(stage.start)}-{timeLabel(stage.end)}</time></li>)} /> }] : []),

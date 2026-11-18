@@ -5,7 +5,7 @@
   padding-block: clamp(13px, 2.8dvh, 30px) !important;
 }
 
-.health-page { max-width: 1120px; margin-inline: auto; --health-tint: var(--dashboard-bar-green, var(--accent)); }
+.health-page { max-width: 1120px; margin-inline: auto; --health-tint: var(--dashboard-bar-green, var(--accent)); --health-below-target: #c79b71; }
 .health-page button:disabled { opacity: .5; cursor: default; }
 .health-page svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .health-page .secondary {
@@ -232,6 +232,8 @@
 
 .health-progress progress::-webkit-progress-bar { background: var(--soft); border-radius: 99px; }
 .health-progress progress::-webkit-progress-value { background: var(--health-tint); border-radius: 99px; }
+.health-progress progress[data-below-target] { accent-color: var(--health-below-target); }
+.health-progress progress[data-below-target]::-webkit-progress-value { background: var(--health-below-target); }
 .health-step-insights {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -300,7 +302,8 @@
 .health-sleep-days strong { color: var(--text); font-size: clamp(9px, 2.8vw, 12px); white-space: nowrap; }
 .health-sleep-duration-track { width: 100%; height: 3px; border-radius: 5px; background: var(--border); overflow: clip; }
 .health-sleep-duration-track i { display: block; height: 100%; border-radius: inherit; background: var(--health-tint); }
-:is(.health-sleep-days, .health-sleep-trend) [data-shorter] :is(.health-sleep-duration-track, .health-trend-track) i { background: #c79b71; }
+.health-sleep-days [data-shorter] .health-sleep-duration-track i,
+.health-trend [data-below-target] .health-trend-track i { background: var(--health-below-target); }
 .health-sleep-comparison { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .health-stage-key { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .health-stage-key > div { display: grid; flex: 1 1 auto; gap: 2px; padding: 4px 6px; }

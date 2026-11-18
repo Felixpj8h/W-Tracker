@@ -2,6 +2,8 @@
 
 ## 18 November 2026
 
+- Use the low-sleep color for step bars and daily progress below the step goal.
+
 - Use the dashboard bar green consistently across Health charts and step progress.
 
 - Match desktop sleep chart colors to mobile so nights below the seven-day
