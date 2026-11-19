@@ -26,7 +26,7 @@ const dateLabel = (date: string) => {
   if (days < 30) return `${Math.floor(days / 7)}w ago`;
   return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
-function CoachIcon({ name }: { name: 'chat' | 'chart' | 'dumbbell' | 'calendar' | 'arrow' | 'plus' }) {
+function CoachIcon({ name }: { name: 'chat' | 'chart' | 'dumbbell' | 'calendar' | 'arrow' | 'plus' | 'stop' | 'ellipsis' }) {
   const paths = {
     chat: <><path d="M20 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-3.6-.8L4 20l.8-3.9A8.5 8.5 0 1 1 20 11.5Z"/><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"/></>,
     chart: <><path d="M5 20v-6M10 20V9M15 20V4M20 20v-9"/></>,
@@ -34,6 +34,8 @@ function CoachIcon({ name }: { name: 'chat' | 'chart' | 'dumbbell' | 'calendar' 
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></>,
     arrow: <path d="M12 20V4m0 0-6 6m6-6 6 6"/>,
     plus: <path d="M12 4v16M4 12h16"/>,
+    stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>,
+    ellipsis: <path d="M6 12h.01m5.99 0h.01m5.99 0h.01" strokeWidth="2.5"/>,
   };
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -168,7 +170,7 @@ export function Coach({ coach, folders, plan }: Props) {
   };
   const composerForm = <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
     <textarea ref={composer} rows={1} aria-label="Message your coach" placeholder="Ask your training question..." maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/>
-    {id && coach.streaming[id] ? <button type="button" className="coach-send coach-stop" aria-label="Stop response" onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}>{coach.activity[id] === 'stopping' ? '…' : <span aria-hidden="true">■</span>}<span className="coach-button-label">{coach.activity[id] === 'stopping' ? 'Stopping…' : 'Stop ■'}</span></button> : <button type="submit" className="coach-send" aria-label="Send message" disabled={!input.trim()}><CoachIcon name="arrow"/></button>}
+    {id && coach.streaming[id] ? <button type="button" className="coach-send coach-stop" aria-label={coach.activity[id] === 'stopping' ? 'Stopping response' : 'Stop response'} onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}><CoachIcon name={coach.activity[id] === 'stopping' ? 'ellipsis' : 'stop'}/></button> : <button type="submit" className="coach-send" aria-label="Send message" disabled={!input.trim()}><CoachIcon name="arrow"/></button>}
   </form>;
   const list = <div className="coach-list"><div className="coach-list-head"><h2>Coach</h2><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}><CoachIcon name="plus"/> New chat</button></div><div className="coach-list-body"><span className="coach-recent">Recent</span>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><CoachIcon name="chat"/><b>{item.title}</b><small>{coach.streaming[item.id] ? 'Working' : dateLabel(item.updated_at)}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div></div>;
   return <section className="coach-page"><aside className="coach-desktop-list">{list}</aside><div className={`coach-chat ${hasConversation ? 'has-conversation' : 'is-empty'}`}><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><h1>{hasConversation ? detail?.title ?? 'Coach' : 'Coach'}</h1><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}><CoachIcon name="plus"/></button></header>

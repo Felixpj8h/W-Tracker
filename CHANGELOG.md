@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Center the mobile Resume icon and the Coach stop-response icon.
+
 - Use vivid red for muscle heatmap highlights and the legend in Carbon Black, Midnight Blue, and Blackberry.
 
 - Fix calendar workout drag and drop on desktop and mobile. Drag a workout to an empty day without shifting the calendar grid during the gesture.

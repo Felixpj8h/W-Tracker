@@ -119,7 +119,7 @@ describe('Coach proposal card', () => {
       folders={[]} plan={null}
     />);
     expect(html).toContain('Proposal ready. Preparing reply…');
-    expect(html).toContain('Stop ■');
+    expect(html).toContain('aria-label="Stop response"');
     expect((html.match(/role="status"/g) ?? [])).toHaveLength(1);
     expect(html).not.toContain('Preparing proposal details');
   });
