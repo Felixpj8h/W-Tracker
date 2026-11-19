@@ -2,6 +2,11 @@
 
 ## 19 November 2026
 
+**Scale desktop UI uniformly on large screens**
+
+- Scale the whole app uniformly on screens larger than 1440 × 810 (for example 1440p and 4K monitors), so text, controls and charts keep the same proportions instead of small text with stretched panels.
+- Keep full-height pages exact while scaled by dividing CSS viewport units by the zoom at build time. Smaller screens, phones and Safari are unchanged.
+
 **Animate mobile More menu, lock static pages and add Playwright smoke test**
 
 - Slide the mobile More menu up from the bottom bar when it opens and back down when it closes (0.2 s / 0.15 s, ease-in-out).
