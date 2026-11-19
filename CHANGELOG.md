@@ -2,6 +2,10 @@
 
 ## 19 November 2026
 
+- Fit the mobile Progress page on one screen without its title, with a compact muscle card, refined spacing and chart dates clear of the divider.
+
+- Stop Sets by muscle rows overlapping on mobile; the list now scrolls with full-height rows.
+
 - Restore the original orange-brown for below-goal steps and shorter sleep durations in both Default appearances.
 
 - Remove the background dimming behind the mobile More menu, keep the bottom bar tappable while it is open, and close the menu from any bar button.

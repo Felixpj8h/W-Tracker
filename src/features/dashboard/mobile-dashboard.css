@@ -124,7 +124,7 @@
 
 /* Mobile overview fits the screen without scrolling; Log workout sits beside the week selector. */
 @media(max-width:760px){
-  .dashboard-overview-page{display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px clamp(10px,1.6dvh,16px)!important}
+  .dashboard-overview-page{display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
   .dashboard-overview-page>*{flex:none}
   .dashboard-overview-page .mobile-dashboard-topbar{margin-bottom:clamp(8px,1.8dvh,18px)}
   .dashboard-overview-page .head{gap:clamp(10px,1.6dvh,14px)!important;margin:0!important}
@@ -154,4 +154,48 @@
   .dashboard-overview-page .mobile-card-heading h2{font-size:20px}
   .dashboard-overview-page .mobile-week-days{padding:9px 10px}
   .dashboard-overview-page .mobile-week-days span{gap:7px}
+}
+/* Sets by muscle: rows keep their two-line height and the list scrolls, instead of rows being squeezed into overlap. */
+@media(max-width:760px){
+  .dashboard-workspace .dashboard-volume.sets-mode .muscle-rows{grid-auto-rows:max-content;gap:8px}
+  .dashboard-workspace .dashboard-volume.sets-mode .muscle-row{min-height:60px;align-content:center;row-gap:8px;padding:10px 12px}
+}
+
+/* Mobile Progress page: no title, fixed to the screen. The muscle card has the same compact height in every
+   mode and the bodyweight chart takes the remaining space. --dashboard-pane-bottom clears the fixed page dots (23px). */
+@media(max-width:760px){
+  .dashboard-workspace{--dashboard-pane-bottom:30px;--muscle-panel-height:clamp(168px,25dvh,212px)}
+  .dashboard-workspace .dashboard-analytics{display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
+  .dashboard-workspace .dashboard-analytics>*{flex:none}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight{display:flex!important;flex:1 1 0!important;flex-direction:column;min-height:0!important;margin:0;padding-bottom:26px!important}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight>*{flex:none}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight .chart{flex:1 1 0;height:auto!important;min-height:110px!important;max-height:none}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume{display:flex!important;flex:none!important;flex-direction:column;min-height:0!important;overflow:hidden!important;margin-top:clamp(10px,1.8dvh,16px);padding-top:clamp(10px,1.8dvh,16px)!important}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume>*{flex:none}
+  /* Volume: six compact rows */
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) .muscle-rows{box-sizing:border-box;height:var(--muscle-panel-height);min-height:0;grid-auto-rows:minmax(0,1fr);align-content:stretch;align-items:center;row-gap:2px;margin-top:8px;overflow:hidden}
+  /* Sets: full-height rows, scrolling inside the card only */
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.sets-mode .muscle-rows{box-sizing:border-box;height:var(--muscle-panel-height);min-height:0;margin-top:8px}
+  /* Heatmap: both bodies scale to fit */
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .muscle-heatmap{box-sizing:border-box;display:flex;height:var(--muscle-panel-height);flex-direction:column;min-height:0;margin-top:8px;padding-top:0}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .heatmap-bodies{flex:1 1 0;min-height:0;width:100%;max-width:440px;grid-template-rows:minmax(0,1fr)}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .heatmap-bodies figure{display:grid;grid-template-rows:minmax(0,1fr) auto;height:100%;min-height:0}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .heatmap-figure{height:auto;min-height:0}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .heatmap-bodies figcaption{margin-top:2px}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode :is(.heatmap-legend,.heatmap-empty){flex:none;margin-top:4px}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume.heatmap-mode .heatmap-status{flex:1 1 0;min-height:0}
+  /* Typography and spacing: quieter headings, consistent control heights, compact rows */
+  .dashboard-workspace .dashboard-analytics :is(.dashboard-section-head h2,.muscle-card-head h2){font-size:20px;line-height:1.2;letter-spacing:-.03em}
+  .dashboard-workspace .dashboard-analytics .dashboard-section-head>div:first-child::after{font-size:13px}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight-actions{gap:8px;margin-top:10px}
+  .dashboard-workspace .dashboard-analytics .weight-ranges{height:38px}
+  .dashboard-workspace .dashboard-analytics .weight-ranges button{font-size:12.5px}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight-actions>button{min-height:38px;padding-inline:12px;font-size:13px}
+  .dashboard-workspace .dashboard-analytics .dashboard-weight .chart{margin-top:12px}
+  .dashboard-workspace .dashboard-analytics .muscle-card-head{flex-direction:column;flex-wrap:nowrap;align-items:flex-start;gap:10px}
+  .dashboard-workspace .dashboard-analytics .metric-toggle button{min-height:32px;padding-inline:11px;font-size:12.5px}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) .muscle-row{font-size:13px;gap:10px}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) .muscle-row>b{font-weight:650}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) .muscle-row>div{height:8px}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) :is(.muscle-row>span,.muscle-row>small){font-size:12px}
 }
