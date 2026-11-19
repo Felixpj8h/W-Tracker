@@ -72,6 +72,9 @@
   --heatmap-color: var(--chart-accent);
   --heatmap-highlight-filter: brightness(1);
 }
+:root:is([data-palette="carbon-black"], [data-palette="midnight-blue"], [data-palette="blackberry"]) .app .muscle-heatmap {
+  --heatmap-color: #ff302f;
+}
 :root[data-palette] .app .heatmap-legend i { background: var(--heatmap-color); }
 
 :root[data-palette] .app .health-clock-walking { --clock-color: var(--chart-accent); }

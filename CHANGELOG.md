@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Use vivid red for muscle heatmap highlights and the legend in Carbon Black, Midnight Blue, and Blackberry.
+
 - Fix calendar workout drag and drop on desktop and mobile. Drag a workout to an empty day without shifting the calendar grid during the gesture.
 
 - Match the mobile 7-day Sleep duration bars to the active theme, including nights below the weekly average.
