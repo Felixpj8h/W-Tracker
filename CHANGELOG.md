@@ -2,7 +2,13 @@
 
 ## 19 November 2026
 
-**Uncommitted changes**
+**Animate mobile More menu, lock static pages and add Playwright smoke test**
+
+- Slide the mobile More menu up from the bottom bar when it opens and back down when it closes (0.2 s / 0.15 s, ease-in-out).
+- Add a Playwright iPhone 17 WebKit smoke test that checks dashboard width and captures a screenshot.
+- Lock fixed-height mobile pages (calendar, dashboard, history, coach) to the visible screen so they no longer scroll or bounce on Android and iOS browsers.
+
+**Make mobile calendar static with inline day actions and label menu**
 
 - Let the mobile month grid fill the free space on every screen size, place workout codes right under their dates, and show a Rest day row on empty days.
 - Keep the mobile calendar static: open-planned and remove buttons sit beside the workout, a Label button beside the main action opens a label menu, and rows compact on shorter phones.

@@ -23,6 +23,8 @@ __pycache__/
 .venv/
 /AGENTS.md
 backend/logs/
+/playwright-report/
+/test-results/
 
 # Editor directories and files
 .vscode/*
@@ -34,3 +36,8 @@ backend/logs/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

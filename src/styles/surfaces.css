@@ -36,3 +36,33 @@ body.history-session-open .app::after {
 .health-dialog {
   box-shadow: 0 18px 50px rgba(0, 0, 0, .35), 0 0 0 1px var(--border-subtle, var(--border)) !important;
 }
+
+/* Fixed-height mobile pages (calendar, dashboard, history, coach): lock the document to the visible
+   screen. 100vh on phones is the largest viewport (toolbar hidden), so without this the page is taller
+   than the screen and scrolls/bounces. Panels that should scroll keep their own overflow. */
+@media (max-width: 760px) {
+  html:has(.training-calendar, main.dashboard-workspace, .history-layout, .coach-page),
+  html:has(.training-calendar, main.dashboard-workspace, .history-layout, .coach-page) body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  .app:has(.training-calendar, main.dashboard-workspace, .history-layout, .coach-page) {
+    height: 100dvh;
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+}
+
+/* Mobile More menu: slides up from the bottom bar on open and back down on close (ease-in-out). */
+@keyframes more-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes more-sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
+@media (max-width: 760px) {
+  .more-wrap { overflow: hidden; }
+  .more-sheet { animation: more-sheet-up .2s cubic-bezier(.42, 0, .58, 1) both; will-change: transform; }
+  .more-wrap.closing .more-sheet { animation: more-sheet-down .15s cubic-bezier(.42, 0, .58, 1) both; }
+  .more-wrap.closing { pointer-events: none; }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .more-sheet, .more-wrap.closing .more-sheet { animation: none; }
+}
