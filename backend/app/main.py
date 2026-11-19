@@ -25,7 +25,9 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, object_session, relationship, sessionmaker, with_loader_criteria, selectinload
 
@@ -50,6 +52,7 @@ HEALTH_COACH_CONTEXT_SEPARATOR = (
     "\n\nGive advice only. Do not create, change or apply a plan, diagnose, or invent readings. "
     "Use my own history for comparisons.\nMy Google Health summary (null means unavailable):\n"
 )
+AIOutputLength = Literal["brief", "normal", "comprehensive"]
 
 
 def _session_value(identity: dict[str, str]) -> str:
@@ -304,7 +307,16 @@ class HealthOAuthAttempt(OwnedRecord, Base):
     expires: Mapped[int] = mapped_column(Integer)
 
 
-TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation, HealthConnection, HealthOAuthAttempt)
+class AccountSettings(OwnedRecord, Base):
+    __tablename__ = "account_settings"
+    __table_args__ = (
+        CheckConstraint("ai_output_length IN ('brief', 'normal', 'comprehensive')", name="ck_account_settings_ai_output_length"),
+    )
+    owner_email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    ai_output_length: Mapped[AIOutputLength] = mapped_column(String(13))
+
+
+TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation, HealthConnection, HealthOAuthAttempt, AccountSettings)
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -482,6 +494,10 @@ class TrainingProgramIn(BaseModel):
 
 class ActorContext(BaseModel):
     owner_email: str
+
+
+class AccountSettingsPayload(BaseModel):
+    ai_output_length: AIOutputLength
 
 
 def get_actor_context(request: Request) -> ActorContext:
@@ -1002,6 +1018,28 @@ def session(request: Request):
     }
 
 
+def _account_output_length(db: Session, owner_email: str) -> AIOutputLength:
+    settings = db.get(AccountSettings, owner_email)
+    return settings.ai_output_length if settings else "normal"
+
+
+@app.get("/api/v1/settings", response_model=AccountSettingsPayload)
+def get_account_settings(actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    return AccountSettingsPayload(ai_output_length=_account_output_length(db, actor.owner_email))
+
+
+@app.put("/api/v1/settings", response_model=AccountSettingsPayload)
+def save_account_settings(payload: AccountSettingsPayload, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    insert = postgresql_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    statement = insert(AccountSettings).values(owner_email=actor.owner_email, ai_output_length=payload.ai_output_length)
+    db.execute(statement.on_conflict_do_update(
+        index_elements=[AccountSettings.owner_email],
+        set_={"ai_output_length": statement.excluded.ai_output_length},
+    ))
+    db.commit()
+    return payload
+
+
 @app.post("/api/v1/session/logout")
 def logout(request: Request):
     origin = request.headers.get("origin", "")
@@ -1106,6 +1144,7 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     if not conversation: raise HTTPException(404, "Conversation not found")
     if conversation.status == "generating":
         if conversation.updated_at and datetime.utcnow() - conversation.updated_at < timedelta(minutes=5): raise HTTPException(409, "Conversation is already generating a response")
+    output_length = _account_output_length(db, actor.owner_email)
     question = payload.content.strip()
     metadata = {}
     if payload.health_context is not None:
@@ -1121,7 +1160,8 @@ def create_ai_message(conversation_id: int, payload: AIMessageIn, actor: ActorCo
     cancel_event = begin_cancel_scope(persisted_conversation_id)
     def events():
         try:
-            for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_email, cancel_event.is_set): yield _sse(event)
+            for event in stream_coach_turn(persisted_conversation_id, persisted_message_id, actor.owner_email, cancel_event.is_set, output_length=output_length):
+                yield _sse(event)
         finally:
             end_cancel_scope(persisted_conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1140,13 +1180,15 @@ def retry_ai_message(conversation_id: int, payload: AIRetryIn, actor: ActorConte
     latest_assistant = db.scalar(select(AIMessage).where(AIMessage.conversation_id == conversation_id, AIMessage.role == "assistant").order_by(AIMessage.id.desc()))
     if not latest_user or latest_user.id != payload.user_message_id or not latest_assistant or latest_assistant.id < latest_user.id or latest_assistant.status not in ("failed", "interrupted"):
         raise HTTPException(409, "Only the latest failed response can be retried")
+    output_length = _account_output_length(db, actor.owner_email)
     conversation.status = "generating"; conversation.updated_at = datetime.utcnow()
     db.commit(); db.close()
     from .chatBot import begin_cancel_scope, end_cancel_scope, stream_coach_turn
     cancel_event = begin_cancel_scope(conversation_id)
     def events():
         try:
-            for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_email, cancel_event.is_set): yield _sse(event)
+            for event in stream_coach_turn(conversation_id, payload.user_message_id, actor.owner_email, cancel_event.is_set, output_length=output_length):
+                yield _sse(event)
         finally:
             end_cancel_scope(conversation_id, cancel_event)
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

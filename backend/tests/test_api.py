@@ -481,15 +481,33 @@ def test_ai_retry_reuses_latest_user_message(monkeypatch):
     del app.state.gemini_client_factory
 
 
+def test_account_settings_validate_and_keep_preferences_private(monkeypatch):
+    reset_db()
+    path = "/api/v1/settings"
+    assert client.get(path).json() == {"ai_output_length": "normal"}
+    assert client.put(path, json={"ai_output_length": "long"}).status_code == 422
+    for length in ("brief", "normal", "comprehensive"):
+        preference = {"ai_output_length": length}
+        assert client.put(path, json=preference).json() == preference
+        assert client.get(path).json() == preference
+    monkeypatch.setattr(app.state, "test_user_email", "other-settings@example.com", raising=False)
+    assert client.get(path).json() == {"ai_output_length": "normal"}
+    assert client.put(path, json={"ai_output_length": "brief"}).status_code == 200
+    monkeypatch.setattr(app.state, "test_user_email", "test@example.com")
+    assert client.get(path).json() == {"ai_output_length": "comprehensive"}
+
+
 def test_health_coach_shows_question_and_reuses_readings_on_retry(monkeypatch):
     reset_db()
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     monkeypatch.setattr(chatBot, "classify", lambda *_: topic_policy.Assessment("allow"))
     model_inputs = []
+    system_instructions = []
 
     class Interactions:
         def create(self, **kwargs):
             model_inputs.append(kwargs["input"][0]["content"][0]["text"])
+            system_instructions.append(kwargs["system_instruction"])
             if len(model_inputs) == 1:
                 raise RuntimeError("Simulated provider failure")
             return _FakeInteraction()
@@ -501,6 +519,7 @@ def test_health_coach_shows_question_and_reuses_readings_on_retry(monkeypatch):
     path = f"/api/v1/ai/conversations/{conversation['id']}"
     question = "What does HRV mean?\nHow is mine?"
     health_context = {"days": [{"date": "2026-11-18", "hrv": 38.9, "resting_hr": None}]}
+    assert client.put("/api/v1/settings", json={"ai_output_length": "brief"}).status_code == 200
     sent = client.post(f"{path}/messages", json={"content": question, "health_context": health_context})
     assert sent.status_code == 200
     assert "event: error" in sent.text
@@ -511,10 +530,13 @@ def test_health_coach_shows_question_and_reuses_readings_on_retry(monkeypatch):
     assert user_message["content"] == detail["title"] == question
     assert "38.9" not in json.dumps(detail)
 
+    assert client.put("/api/v1/settings", json={"ai_output_length": "comprehensive"}).status_code == 200
     retry = client.post(f"{path}/retry", json={"user_message_id": user_message["id"]})
     assert retry.status_code == 200
     assert "event: message.completed" in retry.text
     assert len(model_inputs) == 2
+    assert "give only the most useful next steps" in system_instructions[0]
+    assert "relevant evidence, tradeoffs, and practical next steps in more detail" in system_instructions[1]
     for model_input in model_inputs:
         transcript = json.loads(model_input.split('<recent_messages untrusted_data="true">\n')[1].split('\n</recent_messages>')[0])
         visible, readings = transcript[0]["content"].split(main_module.HEALTH_COACH_CONTEXT_SEPARATOR)

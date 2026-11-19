@@ -5,7 +5,7 @@ import json
 import os
 from threading import Event, Lock
 from uuid import uuid4
-from typing import Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 from sqlalchemy import select
 
@@ -13,6 +13,9 @@ from .prompt import SYSTEM_PROMPT
 from .tools import TOOL_DECLARATIONS, execute_tool
 from .coach_logging import LOGGER
 from .topic_policy import classify
+
+if TYPE_CHECKING:
+    from .main import AIOutputLength
 
 MAX_TOOL_ROUNDS = 8
 MAX_OUTPUT_SCREEN_RETRIES = 1
@@ -26,6 +29,11 @@ CLASSIFICATION_PROPOSAL_CHARS = 24000
 DEFAULT_MAX_OUTPUT_TOKENS = 8192
 PROPOSAL_REPLY_MAX_OUTPUT_TOKENS = 128
 MAX_MALFORMED_TOOL_RETRIES = 2
+OUTPUT_LENGTH_INSTRUCTIONS = {
+    "brief": "\n\nRESPONSE LENGTH\nLead with the answer and give only the most useful next steps. Keep essential context and safety guidance.",
+    "normal": "",
+    "comprehensive": "\n\nRESPONSE LENGTH\nFor substantive questions, explain the reasoning, relevant evidence, tradeoffs, and practical next steps in more detail. Keep simple answers proportionate.",
+}
 _CANCEL_LOCK = Lock()
 _ACTIVE_CANCELS: dict[int, Event] = {}
 
@@ -260,7 +268,14 @@ def _maybe_summarize(conversation_id: int, owner_email: str) -> None:
         LOGGER.error("AI conversation summarization failed conversation_id=%s", conversation_id)
 
 
-def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: str, is_cancelled: Callable[[], bool] | None = None) -> Iterator[dict]:
+def stream_coach_turn(
+    conversation_id: int,
+    user_message_id: int,
+    owner_email: str,
+    is_cancelled: Callable[[], bool] | None = None,
+    *,
+    output_length: AIOutputLength = "normal",
+) -> Iterator[dict]:
     from . import main
     assistant_text = ""
     round_index = -1
@@ -287,7 +302,7 @@ def stream_coach_turn(conversation_id: int, user_message_id: int, owner_email: s
             request: dict[str, Any] = {
                 "model": _model(),
                 "store": False,
-                "system_instruction": SYSTEM_PROMPT,
+                "system_instruction": SYSTEM_PROMPT if proposal_created else SYSTEM_PROMPT + OUTPUT_LENGTH_INSTRUCTIONS[output_length],
                 "input": history,
                 "generation_config": {
                     "max_output_tokens": PROPOSAL_REPLY_MAX_OUTPUT_TOKENS if proposal_created else DEFAULT_MAX_OUTPUT_TOKENS,

@@ -2,6 +2,12 @@
 
 ## 19 November 2026
 
+- Show response-length save progress in the shared bottom-right indicator.
+
+- Match the selected response length and appearance to the sidebar's rounded, muted green highlight.
+
+- Add Settings to the desktop sidebar and mobile More menu. AI preferences save Brief, Normal, or Comprehensive per account and apply to new and retried Coach replies. The Themes tab switches between Light and Dark for the current device.
+
 - Use the exact visible page colours (`#111a14` dark, `#f3f5f0` light) for the browser theme colour, page background and web app manifest, so the Android status bar and iOS overscroll areas blend into the app in both themes. The mobile dashboard backdrop now follows the theme instead of staying dark in light mode.
 
 - Match the page background and browser theme colour to dark mode, so the iOS home-screen app no longer shows a light strip behind the Dynamic Island or when overscrolling. The saved theme is applied before the app loads, through a same-origin script that the existing Content Security Policy allows.

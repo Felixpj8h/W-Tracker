@@ -96,7 +96,7 @@ export function DemoApp({ exit }: { exit: () => void }) {
     return () => { controller.abort(); historyRequest.current += 1; };
   }, [retry]);
 
-  const navigate = (next: Page) => { if (next === 'workout' || next === 'coach') return; setWorkout(undefined); setPage(next); };
+  const navigate = (next: Page) => { if (next === 'workout' || next === 'coach' || next === 'settings') return; setWorkout(undefined); setPage(next); };
   return <div className={`app demo-app ${dark ? 'dark' : ''}`}>
     <Sidebar readOnly page={page} setPage={navigate} dark={dark} setDark={setDark} user={profile} exitDemo={exit} footerContent={<div className="demo-tools"><p>Exercise progress covers the most recent 100 completed workouts.</p><button type="button" onClick={() => { void refresh(); }}>Refresh demo</button></div>}/>
     <main className="workspace">
