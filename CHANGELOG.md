@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Restore the original orange-brown for below-goal steps and shorter sleep durations in both Default appearances.
+
 - Remove the background dimming behind the mobile More menu, keep the bottom bar tappable while it is open, and close the menu from any bar button.
 
 - Fit the mobile dashboard overview on one screen without scrolling, with Log workout beside the week selector.

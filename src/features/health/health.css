@@ -6,7 +6,7 @@
 }
 
 .health-page { max-width: 1120px; margin-inline: auto; --health-tint: var(--dashboard-bar-green, var(--accent)); --health-below-target: #c79b71; --health-column-gap: 8px; }
-.health-page { --health-below-threshold: var(--palette-health-below-threshold, #647d91); }
+.health-page { --health-below-threshold: var(--palette-health-below-threshold, var(--health-below-target)); }
 .health-page button:disabled { opacity: .5; cursor: default; }
 .health-page svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .health-page .secondary {
