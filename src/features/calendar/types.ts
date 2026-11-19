@@ -9,3 +9,4 @@ export type WeeklyPlan = { name: string; starts_on: string; days: { weekday: num
 export type CalendarMonth = { plan: WeeklyPlan | null; days: CalendarDay[] };
 
 export type LoadCalendarMonth = (year: number, month: number, force?: boolean) => Promise<CalendarMonth | undefined>;
+export type RefreshWorkoutData = (date: string, previousDate?: string) => Promise<void>;

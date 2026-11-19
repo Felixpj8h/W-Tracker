@@ -52,6 +52,41 @@ def test_logout_revokes_copied_cookie_and_host_cannot_authorize_origin(secure_ap
         assert row.revoked and token not in row.identity
 
 
+@pytest.mark.parametrize("local", [False, True], ids=["browser-session", "localhost"])
+def test_calendar_move_after_session_read_burst(secure_app, monkeypatch, local):
+    client, _ = secure_app
+    if local:
+        monkeypatch.setattr(m, "APP_ENV", "development")
+        client = TestClient(m.app, base_url="http://localhost:8000", client=("127.0.0.1", 50000))
+
+    source, target = "2026-11-17", "2026-11-18"
+    created = client.post("/api/v1/workouts", json={"name": "Upper", "performed_on": source, "exercises": []})
+    assert created.status_code == 200
+    for _ in range(61):
+        assert client.get("/api/v1/session").status_code == 200
+
+    moved = client.post("/api/v1/calendar/move", json={"source": source, "target": target})
+    assert moved.status_code == 200
+    workouts = client.get("/api/v1/workouts").json()
+    assert next(workout for workout in workouts if workout["id"] == created.json()["id"])["performed_on"] == target
+
+
+def test_sign_in_throttle_blocks_token_verification_and_keeps_sessions_working(secure_app, monkeypatch):
+    client, _ = secure_app
+    anonymous = TestClient(m.app, base_url="https://tracker.test")
+    for _ in range(59):  # The fixture already used one sign-in attempt from the same IP.
+        assert anonymous.get("/api/v1/session").status_code == 401
+
+    def unexpected_verification(*_args):
+        pytest.fail("Rate-limited sign-ins should stop before Google token verification")
+
+    monkeypatch.setattr(m.id_token, "verify_oauth2_token", unexpected_verification)
+    limited = anonymous.get("/api/v1/session", headers={"Authorization": "Bearer a"})
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) > 0
+    assert client.get("/api/v1/session").status_code == 200
+
+
 def test_workout_revision_and_completion_boundary(secure_app):
     client, _ = secure_app
     draft = client.post("/api/v1/workouts/draft", json={"name": "Draft"}).json()

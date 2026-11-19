@@ -181,7 +181,7 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
 
 /* Mobile calendar: standard compact month grid (date + marker dots) with the selected day listed below,
    in the dashboard's flat style. Routine picker and weekly planning live in the ⋯ menu. */
-.calendar-menu-routine,.training-code,.training-legend{display:none}
+.calendar-menu-routine,.training-code,.training-legend,.week-planner-head{display:none}
 @media(max-width:760px){
   main.workspace:has(.training-calendar){box-sizing:border-box;height:100dvh!important;min-height:0!important;padding:calc(var(--safe-area-top) + clamp(12px,2dvh,20px)) 16px var(--mobile-nav-height)!important;overflow:hidden!important}
   .workspace .training-calendar{display:flex;flex-direction:column;width:100%;max-width:520px;height:100%;min-height:0;margin:0 auto}
@@ -206,6 +206,11 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .workspace .training-days{display:grid;flex:none!important;width:100%!important;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:clamp(52px,6.6dvh,58px)!important;gap:0!important;padding:0;border:0!important;background:transparent!important}
   .workspace .training-day{position:relative;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-start;height:100%!important;min-height:0!important;padding:3px 0 0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;outline:0;overflow:visible}
   .workspace .training-day .training-date{display:grid;place-items:center;width:30px!important;height:30px!important;margin:0!important;border-radius:50%;background:transparent;color:var(--text-primary);font-size:15px!important;font-weight:500;line-height:1}
+  /* Hairline grid so each date clearly owns its cell and badge */
+  .workspace .training-days{border-bottom:1px solid var(--border-subtle)!important}
+  .workspace .training-day{border-top:1px solid var(--border-subtle)!important;border-left:1px solid var(--border-subtle)!important}
+  .workspace .training-day:nth-child(7n+1){border-left:0!important}
+  .workspace .training-day.outside{background:color-mix(in srgb,var(--text-secondary) 4%,transparent)!important}
   .workspace .training-day.outside .training-date{color:color-mix(in srgb,var(--text-secondary) 55%,transparent)}
   .workspace .training-day.today .training-date{color:var(--accent-bright);font-weight:750}
   .workspace .training-day.selected .training-date{background:var(--accent);color:var(--on-accent);font-weight:750}
@@ -257,3 +262,19 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .workspace .training-detail .calendar-label-control>label,.workspace .training-detail .calendar-label-control>span:first-child{color:var(--text-secondary);font-size:13px;font-weight:600}
   .workspace .training-detail .calendar-label-control :is(select,button){height:40px!important;min-height:40px!important;font-size:13.5px!important}
 }
+/* Mobile weekly plan: a bottom sheet above the nav bar, one row per day. */
+@media(max-width:760px){
+  .workspace .calendar-move-status{margin:0 0 10px;font-size:13px}
+  .workspace .training-calendar .week-planner{position:fixed!important;top:auto!important;right:0!important;bottom:var(--mobile-nav-height)!important;left:0!important;z-index:35;display:flex;flex-direction:column;gap:12px;max-width:none;max-height:calc(100dvh - var(--mobile-nav-height) - var(--safe-area-top) - 24px)!important;margin:0!important;padding:14px 16px 18px!important;overflow-y:auto;overscroll-behavior:contain;border:0!important;border-top:1px solid var(--border-subtle)!important;border-radius:18px 18px 0 0!important;background:var(--surface)!important;box-shadow:0 -16px 40px rgba(0,0,0,.35)!important}
+  .workspace .training-calendar .week-planner-head{display:flex;align-items:center;justify-content:space-between}
+  .workspace .training-calendar .week-planner-head h2{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em}
+  .workspace .training-calendar .week-planner-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid var(--border-subtle);border-radius:10px;background:transparent;color:var(--text-primary);font-size:20px;line-height:1}
+  .workspace .training-calendar .week-planner>label{display:grid;gap:6px;color:var(--text-secondary);font:600 12px/1.2 inherit;letter-spacing:0;text-transform:none}
+  .workspace .training-calendar .week-planner :is(input,select){width:100%;min-width:0;height:40px;min-height:40px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--field);color:var(--text);font-size:14px;font-weight:500}
+  .workspace .training-calendar .week-planner>div{display:grid!important;grid-template-columns:1fr!important;gap:0!important;margin:0!important}
+  .workspace .training-calendar .week-planner>div label{display:grid!important;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border-subtle)}
+  .workspace .training-calendar .week-planner>div label:last-child{border-bottom:1px solid var(--border-subtle)}
+  .workspace .training-calendar .week-planner>div span{color:var(--text-primary);font-size:14px;font-weight:600}
+  .workspace .training-calendar .week-planner>.primary{width:100%;min-height:46px;font-size:14px}
+}
+

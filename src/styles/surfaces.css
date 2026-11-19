@@ -1,0 +1,38 @@
+/* Loaded last. Page surfaces and popup backdrops, shared by every page. */
+
+/* Phones: a solid page background so the area behind the status bar / Dynamic Island
+   matches the theme-color exactly (no decorative gradient tint at the top). */
+@media (max-width: 760px) {
+  .app main,
+  .app main.workspace {
+    background-image: none !important;
+  }
+}
+
+/* Popups never dim or blur the page behind them. The backdrop layers stay in place
+   (they still catch taps to close), they are just transparent. */
+.back,
+.calendar-label-overlay,
+.coach-drawer-backdrop,
+.coach-proposal-backdrop,
+.more-backdrop,
+.mobile-add-backdrop,
+.workout-session .session-search-backdrop {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.health-dialog::backdrop {
+  background: transparent !important;
+}
+body.history-session-open .app::after {
+  content: none !important;
+}
+
+/* Without the dimming, popups carry their own edge and shadow so they still read as layers. */
+.back > :is(.modal, form, section, article, div[role="dialog"], [role="dialog"]),
+.coach-proposal-expanded,
+.coach-drawer,
+.health-dialog {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .35), 0 0 0 1px var(--border-subtle, var(--border)) !important;
+}

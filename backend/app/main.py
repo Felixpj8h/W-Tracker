@@ -631,7 +631,7 @@ def is_local_development_request(request: Request) -> bool:
 
 
 def authenticate_request(request: Request) -> dict[str, str]:
-    """Verify a Google ID token and enforce the configured account allowlist."""
+    """Authenticate local requests, established sessions, and Google sign-ins."""
     if is_local_development_request(request):
         return {"email": "local@workout.local", "name": "Local User", "given_name": "Local"}
     google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -652,6 +652,16 @@ def authenticate_request(request: Request) -> dict[str, str]:
                 if origin not in trusted_origins and not is_development_origin:
                     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid request origin.")
             return identity
+    # Established sessions use the per-account limits in the middleware.
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = _rate_limit(client_ip, "authentication", 60)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Authentication rate limit exceeded.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to use Jern.")
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
@@ -805,14 +815,6 @@ async def require_google_auth(request: Request, call_next):
     if is_api and content_length and content_length.isdigit() and int(content_length) > 1_048_576:
         return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"detail": "Request body is too large."})
     if is_api and not is_public and not getattr(request.app.state, "disable_auth", False):
-        client_ip = request.client.host if request.client else "unknown"
-        auth_retry_after = _rate_limit(client_ip, "authentication", 60)
-        if auth_retry_after is not None:
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "Authentication rate limit exceeded."},
-                headers={"Retry-After": str(auth_retry_after)},
-            )
         try:
             identity = authenticate_request(request)
             request.state.user_email = identity["email"]
@@ -820,7 +822,7 @@ async def require_google_auth(request: Request, call_next):
             request.state.user_given_name = identity["given_name"]
             request.state.user_picture = identity.get("picture", "")
         except HTTPException as error:
-            return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
+            return JSONResponse(status_code=error.status_code, content={"detail": error.detail}, headers=error.headers)
     elif is_api and not is_public:
         request.state.user_email = getattr(request.app.state, "test_user_email", "test@example.com")
         request.state.user_name = getattr(request.app.state, "test_user_name", "Test User")

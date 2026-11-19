@@ -2,135 +2,149 @@
 
 ## 19 November 2026
 
+**Uncommitted changes**
+
+- Apply per-account limits to active sessions so background reads no longer use the sign-in quota and block calendar moves. Refresh each affected month once after a workout is moved.
+- Show the mobile weekly plan as a bottom sheet with one row per day instead of an inline panel that overflowed the screen.
+- Remove background dimming behind all popups, use a solid page background on phones so the status bar area matches the theme, and add hairline cells to the mobile calendar.
+
+**Redesign mobile calendar with workout type codes and centered layout**
+
 - Redesign the mobile calendar as a compact month grid with workout type codes (F, U, L, Ps, Pl…), label dots, a code legend and a flat selected-day section; routine and weekly planning moved to the ⋯ menu.
+
+**Made dashboard on mobile follow the desktop design language**
 
 - Simplify the mobile dashboard overview to the desktop's flat style: header, a divided stat grid and the week, with shorter stat captions.
 
-- Fit the mobile Progress page on one screen without its title, with a compact muscle card, refined spacing and chart dates clear of the divider.
+**Tweaked mobile dashboard**
 
+- Fit the mobile Progress page on one screen without its title, with a compact muscle card, refined spacing and chart dates clear of the divider.
 - Stop Sets by muscle rows overlapping on mobile; the list now scrolls with full-height rows.
+
+**Restored the original orange-brown as palette color to default theme**
 
 - Restore the original orange-brown for below-goal steps and shorter sleep durations in both Default appearances.
 
-- Remove the background dimming behind the mobile More menu, keep the bottom bar tappable while it is open, and close the menu from any bar button.
+**Tweaked dashboard and menu on mobile**
 
+- Remove the background dimming behind the mobile More menu, keep the bottom bar tappable while it is open, and close the menu from any bar button.
 - Fit the mobile dashboard overview on one screen without scrolling, with Log workout beside the week selector.
+
+**Centered the mobile Resume icon and the AI Coach Stop response icon**
 
 - Center the mobile Resume icon and the Coach stop-response icon.
 
+**Tweaked Themes**
+
 - Use vivid red for muscle heatmap highlights and the legend in Carbon Black, Midnight Blue, and Blackberry.
+
+**Fixed calender drag and drop feature**
 
 - Fix calendar workout drag and drop on desktop and mobile. Drag a workout to an empty day without shifting the calendar grid during the gesture.
 
+**Fixed the mobile Sleep Last 7 days chart on mobile bars now follow the active theme**
+
 - Match the mobile 7-day Sleep duration bars to the active theme, including nights below the weekly average.
 
+**Add color themes and refine below-goal step colors**
+
 - Add eight color themes with palette previews in Settings. Default remembers its Light or Dark preference, while each custom theme has a fixed appearance.
-
 - Give below-goal steps a distinct color in every theme, including both Default appearances, on the daily progress bar and weekly chart.
-
 - Revert an exercise swap to restore its original sets and notes, even after resuming a workout. The swap picker offers the last substitute for that exercise on the current device.
 
+**Added Settings + Ai output preference**
+
 - Show response-length save progress in the shared bottom-right indicator.
-
 - Match the selected response length and appearance to the sidebar's rounded, muted green highlight.
-
 - Add Settings to the desktop sidebar and mobile More menu. AI preferences save Brief, Normal, or Comprehensive per account and apply to new and retried Coach replies. The Themes tab switches between Light and Dark for the current device.
 
-- Use the exact visible page colours (`#111a14` dark, `#f3f5f0` light) for the browser theme colour, page background and web app manifest, so the Android status bar and iOS overscroll areas blend into the app in both themes. The mobile dashboard backdrop now follows the theme instead of staying dark in light mode.
+**Match status bar and page background to the app theme**
 
+- Use the exact visible page colours (`#111a14` dark, `#f3f5f0` light) for the browser theme colour, page background and web app manifest, so the Android status bar and iOS overscroll areas blend into the app in both themes. The mobile dashboard backdrop now follows the theme instead of staying dark in light mode.
 - Match the page background and browser theme colour to dark mode, so the iOS home-screen app no longer shows a light strip behind the Dynamic Island or when overscrolling. The saved theme is applied before the app loads, through a same-origin script that the existing Content Security Policy allows.
 
+**Rework the Workout history layout so the page reads as one master/detail view**
+
 - Rework the Workout history layout so the page reads as one master/detail view: the Sessions/Analysis switch now sits beside a smaller title with a session and volume summary, and search and the period filter sit above the list they filter.
-
 - Show per-month session counts in the list and mark the selected session with the sidebar's soft green highlight instead of an outline.
-
 - Give the session details a single scroll area instead of a boxed inner scroller, a divided stat row (exercises, sets, volume, duration), and grouped header actions: Log again, Edit session, and a menu for notes and deletion.
-
 - Show each exercise's volume and set count on the right of its row, show notes as an inline card with a quick Add note button, and hide the one-line set summary while set details are expanded.
-
 - Keep stats on one row on narrower desktops and use the same stat row and actions in the mobile session sheet.
 
 ## 18 November 2026
 
+**Fixed the count-up animations for Current weight, Weekly volume, and Sessions**
+
 - Keep dashboard metrics at full size throughout their count-up animations and hide the final value until the count finishes.
+
+**Fixed the gap at 24:00 on Activity Chart. now the ring closes fully when the animation finishes**
 
 - Close the Activity clock's sweep cleanly so the finished ring has no gap at midnight.
 
-- Add all-time steps and days at the current target from synced Google Health history, and move desktop goal editing beside step progress.
+**On desktop, Edit goal now sits beside step progress and opens a compact dialog**
 
+- Add all-time steps and days at the current target from synced Google Health history, and move desktop goal editing beside step progress.
 - Show just the question in coach chats started from Health while keeping the selected readings available to the coach.
 
+**Refine Health layouts and animate charts and headline metrics**
+
 - Animate Health headline numbers and charts as views appear, including a clockwise Activity clock reveal. Today's active minutes count up only on page load.
-
 - Enlarge the desktop Activity clock and show yesterday's active minutes in smaller text beside it.
-
 - Move activity totals below the mobile clock so the chart can use more of the card width.
-
 - Mark the saved daily goal with a dashed line on the seven-day Steps chart and show its label on desktop.
-
 - Let the mobile Steps chart use the available height and make swiping consistent across Health tabs.
-
 - Enlarge the mobile Activity clock and align the smaller active-minute total with the heading.
-
 - Align the mobile Health action buttons with the two overview card columns.
-
 - Move the mobile Health sync status beside the page title to free up vertical space.
-
 - Bring the desktop charts to mobile Health, with steps, activity, and recovery
   charts grouped together on their respective tabs.
 
+**Refine Health charts and add topic-based coach prompts**
+
 - Show yesterday’s active minutes in a smaller summary above the Activity clock.
-
 - Pin the Activity clock to yesterday with a fixed 24-hour face and refresh it at local midnight.
-
 - Replace the Health Workouts tab with a rolling 24-hour activity clock for
   synced sleep, walking, and workouts. Use asleep stages for sleep duration and
   mark gaps as untracked.
-
 - Refine the Ask coach dialog typography and let users dismiss it by clicking outside.
-
 - Let users add a custom question when sharing a Health topic with the coach.
-
 - Give shared primary buttons a flat green fill and white text, matching the
   selected Health tab in dark mode.
-
 - Add an Ask coach dialog in the Health header that shares readings for one
   selected topic: Sleep, Activity, Steps, or Recovery.
-
 - Remove the Recovery coach shortcut and show the selected baseline directly
   on the chart, with more room for the daily readings.
-
 - Show a switchable HRV and resting heart rate line chart beneath the desktop
   Recovery baseline, with a reference line for the selected metric's average.
 
+**Tweaked step graph colors**
+
 - Use the low-sleep color for step bars and daily progress below the step goal.
 
-- Use the dashboard bar green consistently across Health charts and step progress.
+**Overhauled Health frontend**
 
+- Use the dashboard bar green consistently across Health charts and step progress.
 - Match desktop sleep chart colors to mobile so nights below the seven-day
   average are easy to spot.
-
 - Fill the available height on mobile Health with weekly summaries and compact
   daily readings. Combine recovery history in one view, bring goal editing
   into Steps Today, and paginate long lists. Show seven days of sleep in readable
   rows under the stage timeline, with a compact layout for shorter screens.
-
 - Let the Health grid and charts grow with the desktop viewport so taller
   laptops and large monitors can use more of the screen. Limit chart height
   so daily trends stay readable at a glance.
-
 - Restyle Health with a compact 2×2 desktop grid and a swipeable mobile overview.
   Use dashboard-style controls, surface goal and sleep-stage summaries, and keep
   trends and recorded activities accessible through labeled tabs.
 
 ## 17 November 2026
 
+**Add Google Health integration and dashboard**
+
 - Clarify Health setup requirements for the callback URL, complete encryption
   key and backend restart so environment changes enable the connection.
-
 - Keep the Health connection screen compact with a small page title, one
   connection card and concise status; remove promotional and repeated copy.
-
 - Add a dedicated Health page with daily steps and a personal goal, recorded
   activity, sleep stages and seven-day trends, plus HRV and resting heart rate.
   Share recovery summaries with the existing AI coach for advice without
@@ -142,53 +156,65 @@
 
 ## 12 November 2026
 
+**Screen coach output instead of user prompts**
+
 - Remove the separate coach input-classification gate. Screen complete generated
   replies and tool batches before release or execution, retain whole-request
   refusals, and withhold output when screening is unavailable.
 
+**Include chat history and proposals in coach topic screening**
+
 - Include chat history and previously displayed workout proposals in coach topic
   screening so follow-up questions retain their meaning, with bounded context
   for long chats and the existing ownership and topic restrictions preserved.
-
 - Screen tool-only coach steps in the context of the accepted request, retry
   uncertain output once before any tools run, and avoid asking users to clarify
   clear training requests when internal output screening is uncertain.
-
 - Answer implicit training requests and general health questions directly with
   cautious, non-diagnostic guidance; retain coding, mixed-topic and role-override
   refusals. Render coach equations with accessible math in live and saved replies,
   and keep calculation results readable in plain text.
-
 - Interpret short coach requests in their workout context and combine confidence
   across allowed topics to reduce unnecessary clarifications while retaining
   independent checks for unrelated tasks, coding and role overrides.
-
 - Group changelog entries by the date changes were made and update repository
   instructions to use dated headings for future changes.
 
+**Fix mobile profile photo and refresh Jern app icons**
+
 - Show the signed-in Google profile photo in the mobile dashboard header, with
   an initial fallback when no photo is available or loading fails.
-
 - Give Android install icons distinct Jern filenames so browsers can detect the
   new monogram instead of retaining icons cached before the rebrand.
+
+**Fixed demo dashboard**
 
 - Fix demo dashboard squeezing and overlapping controls by moving demo tools into
   the sidebar and hiding unavailable weight-entry controls.
 
+**Rebranded to Jern**
+
 - Refine the Jern identity with a shared geometric SVG monogram and bold wordmark
   across sidebar, mobile and sign-in, with theme-aware colors and matching app icons.
-
 - Rebrand the app to Jern across desktop/mobile headers, sign-in, browser and
   install metadata, icons, API messages, coach prompts and topic policy, and docs.
   Keep existing database paths, session cookies and deployment service IDs for
   compatibility with saved data and running environments.
 
+**Fix workout autosave revision conflicts**
+
 - Retain acknowledged workout revisions when reopening the logger and coordinate
   background saves with autosave/finish so the client does not conflict with its
   own successful writes. Preserve revision checks against external changes.
+
+**Allow coach capability and usage questions in Jev topic policy**
+
 - Allow questions about the coach's capabilities, supported topics and usage by
   meaning, including contextual follow-ups after refusals; align Gemini's prompt
   and add evaluation cases while retaining coding and mixed-request restrictions.
+
+**Add TypeSafe Jev topic guardrails for the AI coach**
+
 - Remove temporary classifier terminal prints and the phone-preview category
   watcher after debugging; retain structured diagnostic file logging.
 - Include the safe classifier failure reason in terminal debug output so a missing
@@ -202,6 +228,9 @@
   degraded enforcement on technical failures (fail open).
 - Buffer and screen generated tool arguments and conversation summaries; add
   backend-only classifier settings, policy tests and an optional synthetic live evaluation.
+
+**Harden authentication, workout saves, and demo access**
+
 - Ignore the root `AGENTS.md` file so repository instructions stay local.
 
 ## 1.0 — 11 November 2026

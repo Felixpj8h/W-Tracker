@@ -10,7 +10,7 @@ function setup(readOnly = false, status: 'upcoming' | 'missed' | 'completed' = '
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const loadMonth = vi.fn().mockResolvedValue(undefined);
     const moved = vi.fn().mockResolvedValue(undefined);
-    render(<TrainingCalendar readOnly={readOnly} folders={[]} history={[]} months={{ [key]: { plan: null, days: [{ date: `${key}-01`, routine_id: 1, routine_name: 'Upper', status, workout_name: status === 'completed' ? 'Upper' : null, workout_id: status === 'completed' ? 42 : null }] } }} loadMonth={loadMonth} onWorkoutMoved={moved} start={vi.fn()} repeatWorkout={vi.fn()} viewWorkout={vi.fn()} editWorkout={vi.fn()} addNote={vi.fn()}/>);
+    render(<TrainingCalendar readOnly={readOnly} folders={[]} history={[]} months={{ [key]: { plan: null, days: [{ date: `${key}-01`, routine_id: 1, routine_name: 'Upper', status, workout_name: status === 'completed' ? 'Upper' : null, workout_id: status === 'completed' ? 42 : null }] } }} loadMonth={loadMonth} onWorkoutSaved={moved} start={vi.fn()} repeatWorkout={vi.fn()} viewWorkout={vi.fn()} editWorkout={vi.fn()} addNote={vi.fn()}/>);
     const event = screen.getByText('Upper', { selector: '.training-event-full' }).parentElement!;
     const target = document.querySelectorAll('.training-day:not(.outside)')[1];
     const capture = vi.fn();
@@ -33,11 +33,11 @@ it.each(['mouse', 'touch'])('moves a workout using %s and refreshes the calendar
     expect(target.classList.contains('drop-target')).toBe(true);
     fireEvent.pointerUp(event, { ...pointer(pointerType), clientX: 30, clientY: 30 });
     fireEvent.click(event, { detail: 1 });
-    await waitFor(() => expect(moved).toHaveBeenCalledWith(`${key}-02`));
+    await waitFor(() => expect(moved).toHaveBeenCalledWith(`${key}-02`, `${key}-01`));
     expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/calendar/move')).toEqual([
         ['/calendar/move', { method: 'POST', body: JSON.stringify({ source: `${key}-01`, target: `${key}-02` }) }],
     ]);
-    expect(loadMonth).toHaveBeenCalledWith(Number(key.slice(0, 4)), Number(key.slice(5)), true);
+    expect(loadMonth).toHaveBeenCalledExactlyOnceWith(Number(key.slice(0, 4)), Number(key.slice(5)));
 });
 it('clears a cancelled drag without saving and still allows taps to select a workout', () => {
     const { event, target } = setup();
@@ -90,7 +90,7 @@ it.each(['upcoming', 'missed', 'completed'] as const)('removes a %s occurrence a
     expect(api).toHaveBeenCalledWith('/calendar/' + key + '-01' + (status === 'completed' ? '?workout_id=42' : ''), { method: 'DELETE' });
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Are you sure'));
     if (status === 'completed') expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('logged sets and workout history'));
-    expect(loadMonth).toHaveBeenCalledWith(Number(key.slice(0, 4)), Number(key.slice(5)), true);
+    expect(loadMonth).toHaveBeenCalledExactlyOnceWith(Number(key.slice(0, 4)), Number(key.slice(5)));
 });
 it('keeps a workout available when removal fails', async () => {
     vi.mocked(api).mockRejectedValue(new Error('Could not remove workout'));
@@ -119,7 +119,7 @@ it('does not remove a workout when the browser confirmation is cancelled', () =>
 
 it('shows a day label alongside its workout in a read-only calendar', () => {
     const loadMonth = vi.fn().mockResolvedValue(undefined);
-    render(<TrainingCalendar readOnly folders={[]} history={[]} months={{ [key]: { plan: null, days: [{ date: `${key}-01`, routine_id: 1, routine_name: 'Upper', status: 'upcoming', workout_name: null, label: { id: 2, name: 'Sick', color: 'rose' } }] } }} loadMonth={loadMonth} start={vi.fn()} repeatWorkout={vi.fn()} viewWorkout={vi.fn()} editWorkout={vi.fn()} addNote={vi.fn()}/>);
+    render(<TrainingCalendar readOnly folders={[]} history={[]} months={{ [key]: { plan: null, days: [{ date: `${key}-01`, routine_id: 1, routine_name: 'Upper', status: 'upcoming', workout_name: null, label: { id: 2, name: 'Sick', color: 'rose' } }] } }} loadMonth={loadMonth} onWorkoutSaved={vi.fn()} start={vi.fn()} repeatWorkout={vi.fn()} viewWorkout={vi.fn()} editWorkout={vi.fn()} addNote={vi.fn()}/>);
     const day = screen.getByText('Upper', { selector: '.training-event-full' }).closest('.training-day')!;
     expect(day.querySelector('.calendar-grid-label')?.textContent).toBe('Sick');
     expect(day.querySelector('.calendar-grid-label')?.classList.contains('color-rose')).toBe(true);
