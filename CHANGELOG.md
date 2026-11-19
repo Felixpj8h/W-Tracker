@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Simplify the mobile dashboard overview to the desktop's flat style: header, a divided stat grid and the week, with shorter stat captions.
+
 - Fit the mobile Progress page on one screen without its title, with a compact muscle card, refined spacing and chart dates clear of the divider.
 
 - Stop Sets by muscle rows overlapping on mobile; the list now scrolls with full-height rows.

@@ -117,6 +117,7 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
     const plannedSessions = weekDays.filter(day => Boolean(day.plan?.routine_id)).length;
     const completedPlanned = weekDays.filter(day => day.plan?.routine_id && day.workout).length;
     const upcoming = (calendar?.days ?? []).filter(day => day.date >= todayDate && day.status !== 'completed').slice(0, 4);
+    const nextWorkout = (calendar?.days ?? []).find(day => day.date >= todayDate && day.status !== 'completed' && Boolean(day.routine_name ?? day.workout_name));
     const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
     return <>
         <section className="dashboard-overview-page">
@@ -124,12 +125,15 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
         <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={_historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
         <section className="dashboard-metrics" aria-label="Training summary">
-            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : `${weightChange >= 0 ? '+' : ''}${weightChange.toFixed(1)} kg this month ${weightChange >= 0 ? '↑' : '↓'}`}/>}
-            <Stat icon="volume" label={selectedWeek === currentWeek ? "Weekly volume" : "Selected week volume"} value={weekData.loading ? "—" : `${vol(currentVolume)} kg`} sub={volumeChange === null ? 'No comparison yet' : `${volumeChange >= 0 ? '+' : ''}${volumeChange}% vs comparison ${volumeChange >= 0 ? '↑' : '↓'}`}/>
-            <Stat icon="session" label={selectedWeek === currentWeek ? "Sessions this week" : "Sessions in selected week"} value={weekData.loading ? "—" : String(sessionCount)} sub={previousWeekSessions || sessionCount ? `${Number(Math.abs(sessionChange).toFixed(2))} ${sessionChange >= 0 ? 'more' : 'fewer'} than comparison ${sessionChange >= 0 ? '↑' : '↓'}` : 'No sessions logged yet'}/>
-            <Stat icon="clock" label="Last workout" value={lastWorkoutLabel} sub={lastWorkout ? `${lastWorkout.name} · ${workoutSets(lastWorkout)} sets` : 'Log your first workout'}/>
+            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`}/>}
+            <Stat icon="volume" label={selectedWeek === currentWeek ? "Weekly volume" : "Selected week volume"} value={weekData.loading ? "—" : `${vol(currentVolume)} kg`} sub={volumeChange === null ? 'No comparison yet' : volumeChange === 0 ? 'Same as comparison' : `${volumeChange > 0 ? '↑' : '↓'} ${Math.abs(volumeChange)}% vs comparison`}/>
+            <Stat icon="session" label={selectedWeek === currentWeek ? "Sessions this week" : "Sessions in selected week"} value={weekData.loading ? "—" : String(sessionCount)} sub={previousWeekSessions || sessionCount ? (sessionChange === 0 ? 'Same as comparison' : `${sessionChange > 0 ? '↑' : '↓'} ${Number(Math.abs(sessionChange).toFixed(2))} vs comparison`) : 'No sessions logged yet'}/>
+            <Stat icon="clock" label="Last workout" value={lastWorkoutLabel} sub={lastWorkout ? lastWorkout.duration_seconds ? `${workoutSets(lastWorkout)} sets · ${duration(lastWorkout.duration_seconds)}` : `${workoutSets(lastWorkout)} sets` : 'Log your first workout'}/>
         </section>
-        <section className="mobile-dashboard-home" aria-label="This week"><div className="mobile-card-heading"><h2>{selectedWeek === currentWeek ? "This week" : "Selected week"}</h2><button type="button" onClick={openCalendar}>View all →</button></div><div className="mobile-week-days">{weekDays.map(({ date, key, workout }) => <span key={key} className={workout ? 'complete' : ''}><small>{date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3)}</small><i>{workout ? '✓' : ''}</i></span>)}</div></section>
+        <section className="mobile-dashboard-home" aria-label={selectedWeek === currentWeek ? "This week" : "Selected week"}>
+            <div className="mobile-card-heading"><h2>{selectedWeek === currentWeek ? "This week" : "Selected week"}</h2><button type="button" onClick={openCalendar}>Calendar →</button></div>
+            <div className="mobile-week-days">{weekDays.map(({ date, key, workout }) => <span key={key} className={workout ? 'complete' : key === nextWorkout?.date ? 'next' : ''}><small>{date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3)}</small><i>{workout ? '✓' : ''}</i></span>)}</div>
+        </section>
         </section>
         <section className="dashboard-analytics">
             <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly}/>

@@ -122,38 +122,43 @@
   .dashboard-overview-page .dashboard-greeting-line>i{flex:none}
 }
 
-/* Mobile overview fits the screen without scrolling; Log workout sits beside the week selector. */
+/* Mobile overview: the desktop dashboard's flat language reduced to the essentials:
+   header, a hairline-divided stat grid without icons, and the week. Fixed to the screen. */
 @media(max-width:760px){
-  .dashboard-overview-page{display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
+  .dashboard-overview-page{--ov-gap:clamp(16px,3.2dvh,28px);display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
   .dashboard-overview-page>*{flex:none}
-  .dashboard-overview-page .mobile-dashboard-topbar{margin-bottom:clamp(8px,1.8dvh,18px)}
-  .dashboard-overview-page .head{gap:clamp(10px,1.6dvh,14px)!important;margin:0!important}
+  .dashboard-overview-page .mobile-dashboard-topbar{margin-bottom:var(--ov-gap)}
+  .dashboard-overview-page .head{gap:clamp(14px,2.4dvh,20px)!important;margin:0!important;padding:0!important;border:0!important}
+  .dashboard-overview-page .head h1{font-size:clamp(25px,7vw,29px);letter-spacing:-.045em}
+  .dashboard-overview-page .dashboard-greeting{display:none!important}
   .dashboard-overview-page .dashboard-head-actions{display:flex!important;flex-wrap:nowrap;align-items:stretch;gap:10px;width:100%}
-  .dashboard-overview-page .dashboard-log{flex:1 1 auto;width:auto;min-width:0;min-height:48px;padding-inline:12px;white-space:nowrap}
+  .dashboard-overview-page .dashboard-log{flex:1 1 auto;width:auto;min-width:0;min-height:46px;padding-inline:12px;font-size:15px;white-space:nowrap}
   .dashboard-overview-page .week-selector{flex:none;display:flex}
-  .dashboard-overview-page .week-selector .today-control{min-height:48px;height:100%}
-  .dashboard-overview-page .dashboard-metrics{flex:1 1 auto;min-height:0;grid-auto-rows:minmax(0,1fr);gap:10px;margin-top:clamp(12px,2dvh,20px)}
-  .dashboard-overview-page .dashboard-metrics article{overflow:hidden}
-  .dashboard-overview-page .mobile-dashboard-home{margin-top:clamp(10px,1.8dvh,18px)}
-  .dashboard-overview-page .mobile-card-heading button{min-height:36px}
-}
-@media(max-width:760px){
-  .dashboard-overview-page .dashboard-metrics small{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-  .dashboard-overview-page .dashboard-metrics article{display:flex!important;flex-direction:column;align-items:stretch!important}
-  .dashboard-overview-page .dashboard-metrics article>div{display:flex;flex:1;flex-direction:column;min-height:0}
-  .dashboard-overview-page .dashboard-metrics strong{margin-top:auto;font-size:clamp(22px,3.6dvh,34px)}
-}
-@media(max-width:760px) and (max-height:740px){
-  .dashboard-overview-page .mobile-dashboard-topbar .jern-logo{transform:scale(.88);transform-origin:left center}
-  .dashboard-overview-page .head h1{font-size:25px}
-  .dashboard-overview-page .dashboard-metrics article,.dashboard-overview-page .dashboard-metrics article:nth-child(1),.dashboard-overview-page .dashboard-metrics article:nth-child(4){padding:10px 11px!important}
-  .dashboard-overview-page .dashboard-metrics article>.dashboard-icon{top:10px;left:11px;width:22px;height:22px}
-  .dashboard-overview-page .dashboard-metrics article>div>span{min-height:22px;padding-left:29px;font-size:12px}
-  .dashboard-overview-page .dashboard-metrics strong{margin:6px 0 4px;font-size:22px}
-  .dashboard-overview-page .dashboard-metrics small{font-size:11px}
-  .dashboard-overview-page .mobile-card-heading h2{font-size:20px}
-  .dashboard-overview-page .mobile-week-days{padding:9px 10px}
-  .dashboard-overview-page .mobile-week-days span{gap:7px}
+  .dashboard-overview-page .week-selector .today-control{min-height:46px;height:100%}
+  .dashboard-overview-page .dashboard-period-context:empty{display:none}
+
+  /* Stats: label, number, one short line; hairline dividers only */
+  .dashboard-overview-page .dashboard-metrics{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:0!important;margin:var(--ov-gap) 0 0!important;padding:0!important;border-top:1px solid var(--border-subtle)!important;border-bottom:1px solid var(--border-subtle)!important}
+  .dashboard-overview-page .dashboard-metrics article,.dashboard-overview-page .dashboard-metrics article:nth-child(1),.dashboard-overview-page .dashboard-metrics article:nth-child(4){display:block!important;min-height:0;margin:0!important;padding:clamp(12px,2.2dvh,18px) 0 clamp(12px,2.2dvh,18px) 16px!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+  .dashboard-overview-page .dashboard-metrics article:nth-child(odd){padding-left:0!important;padding-right:16px!important}
+  .dashboard-overview-page .dashboard-metrics article:nth-child(even){border-left:1px solid var(--border-subtle)!important}
+  .dashboard-overview-page .dashboard-metrics article:nth-child(n+3){border-top:1px solid var(--border-subtle)!important}
+  .dashboard-overview-page .dashboard-metrics article>.dashboard-icon{display:none!important}
+  .dashboard-overview-page .dashboard-metrics article>div>span{display:block;min-height:0;padding:0;color:var(--text-secondary);font-size:13px;font-weight:500;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dashboard-overview-page .dashboard-metrics strong{display:block;margin:6px 0 4px;font-size:clamp(24px,6.6vw,28px);line-height:1.1;white-space:nowrap}
+  .dashboard-overview-page .dashboard-metrics small{display:block;font-size:12.5px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Week */
+  .dashboard-overview-page .mobile-dashboard-home{display:block;margin:var(--ov-gap) 0 0}
+  .dashboard-overview-page .mobile-dashboard-home h2{margin:0;color:var(--text-primary);font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .dashboard-overview-page .mobile-card-heading{display:flex;align-items:center;justify-content:space-between}
+  .dashboard-overview-page .mobile-card-heading button{min-height:32px;padding:0;background:transparent;color:var(--accent-bright);font-size:14px;font-weight:600}
+  .dashboard-overview-page .mobile-week-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;margin:14px 0 0;padding:0;border:0;border-radius:0;background:transparent}
+  .dashboard-overview-page .mobile-week-days span{display:grid;justify-items:center;gap:8px}
+  .dashboard-overview-page .mobile-week-days small{color:var(--text-secondary);font-size:12px}
+  .dashboard-overview-page .mobile-week-days i{display:grid;place-items:center;width:28px;height:28px;border:1.5px solid var(--border-subtle);border-radius:50%;background:transparent;color:var(--on-accent);font-size:13px;font-style:normal;font-weight:800}
+  .dashboard-overview-page .mobile-week-days .complete i{border-color:var(--accent);background:var(--accent)}
+  .dashboard-overview-page .mobile-week-days .next i{border-color:var(--accent)}
 }
 /* Sets by muscle: rows keep their two-line height and the list scrolls, instead of rows being squeezed into overlap. */
 @media(max-width:760px){
