@@ -4,6 +4,11 @@
 
 **Uncommitted changes**
 
+- Let the mobile month grid fill the free space on every screen size, place workout codes right under their dates, and show a Rest day row on empty days.
+- Keep the mobile calendar static: open-planned and remove buttons sit beside the workout, a Label button beside the main action opens a label menu, and rows compact on shorter phones.
+
+**Fix calendar move throttling and polish mobile layouts**
+
 - Apply per-account limits to active sessions so background reads no longer use the sign-in quota and block calendar moves. Refresh each affected month once after a workout is moved.
 - Show the mobile weekly plan as a bottom sheet with one row per day instead of an inline panel that overflowed the screen.
 - Remove background dimming behind all popups, use a solid page background on phones so the status bar area matches the theme, and add hairline cells to the mobile calendar.

@@ -181,7 +181,8 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
 
 /* Mobile calendar: standard compact month grid (date + marker dots) with the selected day listed below,
    in the dashboard's flat style. Routine picker and weekly planning live in the ⋯ menu. */
-.calendar-menu-routine,.training-code,.training-legend,.week-planner-head{display:none}
+.calendar-menu-routine,.training-code,.training-legend,.week-planner-head,.training-detail-row-actions,.training-detail-label{display:none}
+@media(min-width:761px){.training-detail-rest{display:none!important}}
 @media(max-width:760px){
   main.workspace:has(.training-calendar){box-sizing:border-box;height:100dvh!important;min-height:0!important;padding:calc(var(--safe-area-top) + clamp(12px,2dvh,20px)) 16px var(--mobile-nav-height)!important;overflow:hidden!important}
   .workspace .training-calendar{display:flex;flex-direction:column;width:100%;max-width:520px;height:100%;min-height:0;margin:0 auto}
@@ -276,5 +277,76 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .workspace .training-calendar .week-planner>div label:last-child{border-bottom:1px solid var(--border-subtle)}
   .workspace .training-calendar .week-planner>div span{color:var(--text-primary);font-size:14px;font-weight:600}
   .workspace .training-calendar .week-planner>.primary{width:100%;min-height:46px;font-size:14px}
+}
+/* Day label menu: a bottom sheet listing existing labels plus "New label". */
+.calendar-label-picker-wrap{position:fixed;inset:0;z-index:45}
+.calendar-label-picker-backdrop{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:transparent}
+.calendar-label-picker{position:absolute;right:0;bottom:var(--mobile-nav-height,0px);left:0;display:flex;flex-direction:column;gap:10px;max-height:calc(100dvh - var(--mobile-nav-height,0px) - 40px);padding:14px 16px 18px;overflow-y:auto;border-top:1px solid var(--border-subtle,var(--border));border-radius:18px 18px 0 0;background:var(--surface);box-shadow:0 -16px 40px rgba(0,0,0,.35)}
+.calendar-label-picker header{display:flex;align-items:center;justify-content:space-between}
+.calendar-label-picker h2{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em}
+.calendar-label-picker-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid var(--border-subtle,var(--border));border-radius:10px;background:transparent;color:var(--text);font-size:20px;line-height:1}
+.calendar-label-options{display:grid}
+.calendar-label-options button{display:flex;align-items:center;justify-content:space-between;min-height:46px;padding:0 4px;border:0;border-top:1px solid var(--border-subtle,var(--border));border-radius:0;background:transparent;color:var(--text);text-align:left}
+.calendar-label-options button:last-child{border-bottom:1px solid var(--border-subtle,var(--border))}
+.calendar-label-options i{color:var(--accent-bright,var(--accent));font-style:normal;font-weight:800}
+.calendar-label-none{color:var(--text-secondary,var(--muted));font-size:14px}
+.calendar-label-picker-new{min-height:44px;border:1px solid var(--border-subtle,var(--border));border-radius:10px;background:transparent;color:var(--accent-bright,var(--accent-dark));font-size:14px;font-weight:700}
+@media(min-width:761px){.calendar-label-picker{right:auto;bottom:auto;top:50%;left:50%;width:min(380px,90vw);border:1px solid var(--border);border-radius:14px;transform:translate(-50%,-50%)}}
+
+/* Mobile day section: workout actions inline, Label beside the main button, nothing scrolls. */
+@media(max-width:760px){
+  .workspace .training-detail{overflow:hidden!important}
+  .workspace .training-detail-workout>div{flex:1;min-width:0}
+  .workspace .training-detail-workout h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .workspace .training-detail-row-actions{display:flex;flex:none;align-items:center;gap:6px}
+  .workspace .training-detail-row-actions button{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid var(--border-subtle);border-radius:10px;background:transparent;color:var(--text-primary);font-size:20px;line-height:1}
+  .workspace .training-detail-row-actions .training-detail-remove{color:var(--negative,#c46f7e)}
+  .workspace .training-detail-row-actions button:disabled{opacity:.45}
+  .workspace .training-detail-buttons{display:flex;gap:8px;margin-top:14px}
+  .workspace .training-detail-buttons .training-detail-primary{flex:1;min-width:0;margin:0!important}
+  .workspace .training-detail-label{display:inline-flex;flex:none;align-items:center;justify-content:center;gap:6px;min-width:88px;max-width:42%;height:44px;padding:0 12px;border:1px solid var(--border-subtle);border-radius:10px;background:transparent;color:var(--text-primary);font-size:14px;font-weight:600;white-space:nowrap}
+  .workspace .training-detail-label .calendar-label-chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .workspace .training-detail .calendar-label-control,.workspace .training-detail-actions .training-open-planned,.workspace .training-detail-actions .calendar-remove-workout{display:none!important}
+  .workspace .training-detail-actions:not(:has(>button:not(.training-open-planned):not(.calendar-remove-workout))){display:none!important}
+  .workspace .training-detail-actions:has(>button:nth-child(4)){grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+/* Shorter phones: compact rows and spacing so the month and the selected day both fit without scrolling. */
+@media(max-width:760px) and (max-height:760px){
+  .workspace .training-calendar-header{margin-bottom:10px!important}
+  .workspace .training-weekdays{padding-bottom:4px}
+  .workspace .training-days{grid-auto-rows:44px!important}
+  .workspace .training-day{padding-top:2px!important}
+  .workspace .training-day .training-date{width:26px!important;height:26px!important;font-size:14px!important}
+  .workspace .training-day .training-code{bottom:2px;height:13px;min-width:18px;font-size:9px}
+  .workspace .training-day .calendar-grid-label{top:3px!important;left:calc(50% + 9px)}
+  .workspace .training-legend{margin-top:4px;font-size:11.5px}
+  .workspace .training-detail{margin-top:6px!important;padding:10px 0 6px!important}
+  .workspace .training-detail-workout{margin-top:6px!important;padding:8px 0!important}
+  .workspace .training-detail-buttons{margin-top:10px}
+  .workspace .training-detail-buttons .training-detail-primary,.workspace .training-detail-label{height:42px;min-height:42px!important}
+  .workspace .training-detail-actions{margin-top:8px!important}
+  .workspace .training-detail-actions button{min-height:34px!important}
+}
+/* Mobile: the month grid fills all space left by the day section (rows at least 44px), so there is no empty gap.
+   The day section keeps one height (its largest case) so the grid does not jump between days. */
+@media(max-width:760px){
+  .workspace .training-month{display:flex!important;flex:1 1 auto!important;flex-direction:column;min-height:0!important}
+  .workspace .training-days{flex:1 1 auto!important;grid-auto-rows:minmax(0,1fr)!important;min-height:calc(var(--weeks,6) * 44px)}
+  .workspace .training-detail{flex:none!important;height:auto!important;min-height:238px}
+}
+@media(max-width:760px) and (max-height:760px){
+  .workspace .training-detail{min-height:198px}
+}
+/* Mobile: badge sits right under its date; empty days show a Rest day row the same height as a workout row. */
+@media(max-width:760px){
+  .workspace .training-day{padding-top:5px!important}
+  .workspace .training-day .training-code{top:38px;bottom:auto}
+  .workspace .training-detail .training-detail-empty{display:none!important}
+  .workspace .training-detail .training-detail-rest{display:flex!important}
+  .workspace .training-detail-rest .training-detail-icon{background:var(--soft);color:var(--text-secondary)}
+}
+@media(max-width:760px) and (max-height:760px){
+  .workspace .training-day{padding-top:3px!important}
+  .workspace .training-day .training-code{top:32px}
 }
 
