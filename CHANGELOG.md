@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Redesign the mobile calendar as a compact month grid with workout type codes (F, U, L, Ps, Pl…), label dots, a code legend and a flat selected-day section; routine and weekly planning moved to the ⋯ menu.
+
 - Simplify the mobile dashboard overview to the desktop's flat style: header, a divided stat grid and the week, with shorter stat captions.
 
 - Fit the mobile Progress page on one screen without its title, with a compact muscle card, refined spacing and chart dates clear of the divider.
