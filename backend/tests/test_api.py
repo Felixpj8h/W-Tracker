@@ -73,6 +73,42 @@ def reset_db():
         db.commit()
 
 
+def test_workout_substitution_snapshot_survives_resume_and_is_removed_on_finish():
+    reset_db()
+    bench_id = client.get("/api/v1/exercises", params={"q": "Bench press"}).json()[0]["id"]
+    row_id = client.get("/api/v1/exercises", params={"q": "Seated row"}).json()[0]["id"]
+    payload = {"name": "Upper", "performed_on": date.today().isoformat()}
+    draft = client.post("/api/v1/workouts/draft", json=payload).json()
+    path = f"/api/v1/workouts/{draft['id']}"
+    bench = {
+        "cached_exercise_id": bench_id,
+        "name": "Bench press",
+        "note": "Narrow grip",
+        "rest_seconds": 120,
+        "sets": [{"weight": 65, "reps": 8, "completed": True, "exertion": 8}],
+    }
+    row = {"exercise_id": row_id, "sets": [{"weight": 30, "reps": 8}], "substituted_from": bench}
+    saved = client.patch(path, json={**payload, "revision": draft["revision"], "exercises": [row]})
+    assert saved.status_code == 200
+    resumed = client.get("/api/v1/workouts/active").json()[0]
+    replacement = resumed["exercises"][0]
+    snapshot = replacement["substituted_from"]
+    assert replacement["name"] == "Seated row"
+    assert snapshot["exercise_id"] == bench_id
+    assert snapshot["note"] == "Narrow grip"
+    assert snapshot["rest_seconds"] == 120
+    assert snapshot["sets"][0]["completed"] is True
+
+    reverted = client.patch(path, json={**payload, "revision": resumed["revision"], "exercises": [snapshot]}).json()
+    assert reverted["exercises"][0]["cached_exercise_id"] == bench_id
+    assert reverted["exercises"][0]["sets"][0]["weight"] == 65
+    again = client.patch(path, json={**payload, "revision": reverted["revision"], "exercises": [row]}).json()
+    finished = client.put(path, json={**payload, "revision": again["revision"], "exercises": again["exercises"]}).json()
+    assert finished["completed"] is True
+    assert finished["exercises"][0]["name"] == "Seated row"
+    assert "substituted_from" not in finished["exercises"][0]
+
+
 def test_calendar_day_labels_are_reusable_and_do_not_change_workouts():
     reset_db()
     day = "2026-09-30"

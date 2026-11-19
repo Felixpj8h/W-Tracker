@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
 import { activateAccount, accountKey, invalidateAccount, sessionGeneration, sessionIsCurrent } from '../auth/auth';
-import { ACTIVE_WORKOUT_KEY, storedWorkout } from './session';
+import { ACTIVE_WORKOUT_KEY, lastSubstituteFor, rememberSubstituteFor, storedWorkout } from './session';
 
 const draft = { id: 71, revision: 1, name: 'Private A workout', completed: false, exercises: [] };
 
@@ -34,4 +34,20 @@ it('a delayed logout from another tab cannot erase the new account cache', () =>
     activateAccount('a@example.test');
     invalidateAccount();
     expect(localStorage.getItem(bKey)).toContain('B draft');
+});
+
+it('remembers only the latest substitute for each exercise and account', () => {
+    const bench = { cached_exercise_id: 7, name: 'Bench press' };
+    const row = { exercise_id: 8, name: 'Cable row' };
+    const pulldown = { id: 10, name: 'Lat pulldown', equipment: 'Cable' };
+    const dumbbellPress = { id: 11, name: 'Dumbbell press', equipment: 'Dumbbell' };
+    activateAccount('a@example.test');
+    rememberSubstituteFor(bench, { id: 9, name: 'Push-up', equipment: 'Bodyweight' });
+    rememberSubstituteFor(row, pulldown);
+    rememberSubstituteFor(bench, dumbbellPress);
+
+    expect(lastSubstituteFor({ exercise_id: 7, name: 'Barbell bench press' })).toEqual(dumbbellPress);
+    expect(lastSubstituteFor(row)).toEqual(pulldown);
+    activateAccount('b@example.test');
+    expect(lastSubstituteFor(bench)).toBeNull();
 });

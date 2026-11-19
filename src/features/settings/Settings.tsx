@@ -1,5 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { PageHeader } from '../../shared/ui/PageHeader';
+import { THEMES, type ApplicationTheme } from '../../shared/lib/theme';
 import { AI_OUTPUT_LENGTHS, type AccountSettingsController } from './useAccountSettings';
 import './settings.css';
 
@@ -14,7 +15,7 @@ function MoonIcon() {
     return <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>;
 }
 
-export function Settings({ settings, dark, setDark }: { settings: AccountSettingsController; dark: boolean; setDark: (dark: boolean) => void }) {
+export function Settings({ settings, theme }: { settings: AccountSettingsController; theme: ApplicationTheme }) {
     const [tab, setTab] = useState<Tab>('ai');
     const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
     const moveTab = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -45,13 +46,22 @@ export function Settings({ settings, dark, setDark }: { settings: AccountSetting
             {saveError && <p className="settings-status settings-error" role="alert">{saveError}</p>}
         </div>}
         {tab === 'themes' && <div className="settings-panel" role="tabpanel" id="settings-panel-themes" aria-labelledby="settings-tab-themes">
-            <div className="settings-row">
+            <div className="settings-theme-picker" role="radiogroup" aria-label="Color theme">
+                {THEMES.map(option => <label key={option.id} className="settings-theme-card">
+                    <input type="radio" name="settings-color-theme" value={option.id} checked={theme.id === option.id} onChange={() => theme.selectTheme(option.id)}/>
+                    <span>{option.name}</span>
+                    <span aria-hidden="true" className="settings-theme-swatches" data-palette={option.id === 'default' ? undefined : option.id} data-default-mode={option.id === 'default' ? (theme.defaultDark ? 'dark' : 'light') : undefined}>
+                        <i/><i/><i/>
+                    </span>
+                </label>)}
+            </div>
+            {theme.id === 'default' && <div className="settings-row settings-default-appearance">
                 <h2 id="settings-theme">Appearance</h2>
                 <div className="settings-theme-options" role="group" aria-labelledby="settings-theme">
-                    <button type="button" aria-pressed={!dark} className={!dark ? 'active' : ''} onClick={() => setDark(false)}><SunIcon/><span>Light</span></button>
-                    <button type="button" aria-pressed={dark} className={dark ? 'active' : ''} onClick={() => setDark(true)}><MoonIcon/><span>Dark</span></button>
+                    <button type="button" aria-pressed={!theme.defaultDark} className={!theme.defaultDark ? 'active' : ''} onClick={() => theme.selectDefaultMode(false)}><SunIcon/><span>Light</span></button>
+                    <button type="button" aria-pressed={theme.defaultDark} className={theme.defaultDark ? 'active' : ''} onClick={() => theme.selectDefaultMode(true)}><MoonIcon/><span>Dark</span></button>
                 </div>
-            </div>
+            </div>}
         </div>}
     </section>;
 }

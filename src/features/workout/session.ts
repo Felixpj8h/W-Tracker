@@ -1,10 +1,37 @@
 import { accountKey } from '../auth/auth';
 import type { Workout } from './types';
+import type { Exercise, Item } from '../exercises/types';
 import { cleanMuscleLabel } from '../exercises/muscles';
 import type { Routine } from '../routines/types';
 import { today } from '../../shared/lib/format';
 
 export const ACTIVE_WORKOUT_KEY = 'workout-active-session';
+
+const normalizedName = (name: string) => name.trim().toLowerCase();
+
+const recentSubstituteKey = (exercise: Item) => {
+    const id = exercise.exercise_id ?? exercise.cached_exercise_id;
+    const identity = id ? `id:${id}` : `name:${encodeURIComponent(normalizedName(exercise.name))}`;
+    return accountKey(`workout-last-substitute:${identity}`);
+};
+
+export const isSameExercise = (item: Item, exercise: Exercise) => {
+    const id = item.exercise_id ?? item.cached_exercise_id;
+    return id ? id === exercise.id : normalizedName(item.name) === normalizedName(exercise.name);
+};
+
+export function lastSubstituteFor(exercise: Item): Exercise | null {
+    try {
+        const match = JSON.parse(localStorage.getItem(recentSubstituteKey(exercise)) ?? 'null') as Exercise | null;
+        return match && Number.isInteger(match.id) && typeof match.name === 'string' && !isSameExercise(exercise, match) ? match : null;
+    } catch { return null; }
+}
+
+export function rememberSubstituteFor(exercise: Item, substitute: Exercise) {
+    try {
+        localStorage.setItem(recentSubstituteKey(exercise), JSON.stringify(substitute));
+    } catch { /* The picker still works when browser storage is unavailable. */ }
+}
 
 export const storedWorkout = (): Workout | null => {
     try {

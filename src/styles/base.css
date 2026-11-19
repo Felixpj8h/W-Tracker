@@ -158,8 +158,8 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .app:not(.dark) .dashboard-section-head form,.app:not(.dark) .weight-ranges,.app:not(.dark) .metric-toggle,.app:not(.dark) .today-control{background:rgba(255,255,255,.55)}
 .app:not(.dark) .dashboard-section-head form button,.app:not(.dark) .weight-ranges button.active,.app:not(.dark) .metric-toggle button.active{background:#d7e6d9;color:#244c31}
 .app:not(.dark) .muscle-row>div{background:#dbe3db}
-.app{--dashboard-bar-green:#83b68d}
-.app:not(.dark){--dashboard-bar-green:#73a680}
+.app{--default-dashboard-bar:#83b68d;--dashboard-bar-green:var(--default-dashboard-bar)}
+.app:not(.dark){--default-dashboard-bar:#73a680}
 .app:not(.dark) .muscle-row>div i{background:var(--dashboard-bar-green)}
 .app:not(.dark) .recent-row,.app:not(.dark) .upcoming-row{background:rgba(255,255,255,.46)}
 .app:not(.dark) .week-row{background:rgba(255,255,255,.38)}

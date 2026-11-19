@@ -1,0 +1,84 @@
+/* Loaded before theme-init.js so the document and the app share the same colors. */
+:root {
+  --default-background: #f3f5f0;
+  --document-background: var(--palette-background, var(--default-background));
+}
+
+:root[data-theme="dark"] { --default-background: #111a14; }
+
+[data-palette="pastel-pink"] {
+  --palette-mode: light;
+  --palette-background: #fff0f5;
+  --palette-sidebar: #fad8e8;
+  --palette-surface: #fff8fb;
+  --palette-accent: #ff8ac1;
+  --palette-ink: #40243d;
+  --palette-link: #a51a61;
+  --palette-chart: #c82276;
+}
+
+[data-palette="carbon-black"] {
+  --palette-mode: dark;
+  --palette-background: #000000;
+  --palette-sidebar: #101012;
+  --palette-surface: #171719;
+  --palette-accent: #ededf0;
+  --palette-ink: #f4f4f5;
+}
+
+[data-palette="batman"] {
+  --palette-mode: dark;
+  --palette-background: #11141d;
+  --palette-sidebar: #1c2331;
+  --palette-surface: #202838;
+  --palette-accent: #ffd426;
+  --palette-ink: #f3f5fb;
+}
+
+[data-palette="arcade"] {
+  --palette-mode: dark;
+  --palette-background: #231544;
+  --palette-sidebar: #35215b;
+  --palette-surface: #2d1c50;
+  --palette-accent: #55ebd6;
+  --palette-ink: #f9f2ff;
+  --palette-link: #f48bda;
+  --palette-bars: #f48bda;
+}
+
+[data-palette="midnight-blue"] {
+  --palette-mode: dark;
+  --palette-background: #111722;
+  --palette-sidebar: #192435;
+  --palette-surface: #1b2638;
+  --palette-accent: #9eb9f8;
+  --palette-ink: #f0f4ff;
+}
+
+[data-palette="iron-copper"] {
+  --palette-mode: dark;
+  --palette-background: #181716;
+  --palette-sidebar: #24211f;
+  --palette-surface: #282421;
+  --palette-accent: #e3a278;
+  --palette-ink: #faf0e7;
+}
+
+[data-palette="blackberry"] {
+  --palette-mode: dark;
+  --palette-background: #18141e;
+  --palette-sidebar: #241e2d;
+  --palette-surface: #2b2335;
+  --palette-accent: #c6adf0;
+  --palette-ink: #f4effa;
+}
+
+[data-palette="chalk-ink"] {
+  --palette-mode: light;
+  --palette-background: #f5f2eb;
+  --palette-sidebar: #ebe7dd;
+  --palette-surface: #fffcf7;
+  --palette-accent: #3f5a73;
+  --palette-ink: #24272d;
+  --palette-on-accent: #ffffff;
+}

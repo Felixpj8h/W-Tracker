@@ -12,3 +12,4 @@ import '../features/dashboard/bodyweight-chart-add.css';
 import '../features/calendar/calendar.css';
 import '../features/history/history-page.css';
 import '../features/history/history-analysis.css';
+import '../styles/themes.css';

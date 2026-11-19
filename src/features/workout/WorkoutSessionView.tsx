@@ -11,7 +11,7 @@ type Props = {
  onFinish: () => void; onPause?: () => void; onCancel?: () => void; pausing: boolean; error: string;
  restRemaining: number; onRest: (seconds: number) => void; onSkipRest: () => void;
  onMoveExercise: (from: number, to: number) => void;
- searchOpen: boolean; substituteIndex: number | null; supersetSearch: boolean; onOpenSearch: (index: number | null, forSuperset?: boolean) => void; onCloseSearch: () => void;
+ searchOpen: boolean; substituteIndex: number | null; recentSubstitute: Exercise | null; onRevert: () => void; supersetSearch: boolean; onOpenSearch: (index: number | null, forSuperset?: boolean) => void; onCloseSearch: () => void;
  query: string; onQuery: (query: string) => void; results: Exercise[]; onChoose: (exercise: Exercise) => void; searchLoading: boolean; searchError: string;
 };
 const muscle = (value?: string | null) => (value ?? '').replace(/^(?:(?:Primary|Secondary):\s*)+/i, '').split(' · ')[0].trim();
@@ -20,7 +20,7 @@ const progress = (item: Workout['exercises'][number]) => {
  return { total, checked, label: total > 0 && checked === total ? 'Completed' : checked ? 'In progress' : 'Not started' };
 };
 export function WorkoutSessionView(p: Props) {
- const {workout, editing, onChange, open, onOpen, onMoveExercise, onRemoveExercise, onPair, previous, onFinish, onPause, onCancel, pausing, error, restRemaining, onRest, onSkipRest, searchOpen, substituteIndex, supersetSearch, onOpenSearch, onCloseSearch, query, onQuery, results, onChoose, searchLoading, searchError} = p;
+ const {workout, editing, onChange, open, onOpen, onMoveExercise, onRemoveExercise, onPair, previous, onFinish, onPause, onCancel, pausing, error, restRemaining, onRest, onSkipRest, searchOpen, substituteIndex, recentSubstitute, onRevert, supersetSearch, onOpenSearch, onCloseSearch, query, onQuery, results, onChoose, searchLoading, searchError} = p;
  const [overview, setOverview] = useState(false);
  const [review, setReview] = useState(false);
  const dialog = useRef<HTMLElement>(null), heading = useRef<HTMLDivElement>(null);
@@ -32,7 +32,9 @@ export function WorkoutSessionView(p: Props) {
   if (!modalOpen) return;
   const trigger = document.activeElement as HTMLElement;
   const panel = dialog.current;
-  (panel?.querySelector<HTMLElement>('input') ?? panel?.querySelector<HTMLElement>('button'))?.focus();
+  const firstAction = panel?.querySelector<HTMLElement>('.session-recent-substitute')
+   ?? panel?.querySelector<HTMLElement>('input') ?? panel?.querySelector<HTMLElement>('button');
+  firstAction?.focus();
   const overflow = document.body.style.overflow; document.body.style.overflow = 'hidden';
   const key = (event: KeyboardEvent) => {
    if (event.key === 'Escape') { setOverview(false); closeSearchRef.current(); }
@@ -79,7 +81,10 @@ export function WorkoutSessionView(p: Props) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 5v6h6"/><path d="M12 7v5l3 2"/></svg>
     <span className="session-last-copy"><span>Last time</span><b>{lastTime}</b></span>
    </summary><div><span>{lastSession.performed_on}</span><span>Best: {previous?.personal_best_weight} kg · est. 1RM {previous?.personal_best_1rm.toFixed(1)} kg</span></div></DismissibleDetails> : <span className="session-history-empty">No previous sets</span>}
-   {!editing && <button type="button" className="session-substitute" onClick={() => onOpenSearch(open)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"/></svg>Substitute</button>}
+   {!editing && <button type="button" className="session-substitute" disabled={pausing} aria-label={item.substituted_from ? `Revert to ${item.substituted_from.name}` : undefined} onClick={item.substituted_from ? onRevert : () => onOpenSearch(open)}>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={item.substituted_from ? "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2" : "M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4"}/></svg>
+    {item.substituted_from ? 'Revert' : 'Substitute'}
+   </button>}
   </div>
   <button type="button" className="session-add-warmup" onClick={() => {const sets = item.sets ?? []; const index = sets.findIndex(set => !set.is_warmup); update(open,{sets:[...sets.slice(0,index < 0 ? sets.length : index),{weight:0,reps:0,completed:false,is_warmup:true},...sets.slice(index < 0 ? sets.length : index)]});}}>＋ Add warm-up set</button>
   <div className="session-set-labels" aria-hidden="true"><span>SET</span><span>KG</span><span>REPS</span><span>RPE</span><span>✓</span></div>
@@ -98,7 +103,16 @@ export function WorkoutSessionView(p: Props) {
     <div><dt>Volume lifted</dt><dd>{formatStat(totalVolume)} <small>kg</small></dd></div>
    </dl>
    <p>Reps and volume include checked sets only.</p>
-  </section>}{workout.exercises.length > 1 && <p className="session-order-hint">Use the arrows to change exercise order.</p>}<div className="session-overview-list">{workout.exercises.map((x,i) => {const state=progress(x);return <div className="session-overview-row" key={`${x.exercise_id ?? x.cached_exercise_id ?? x.name}-${workout.exercises.slice(0,i).filter(entry => (entry.exercise_id ?? entry.cached_exercise_id ?? entry.name) === (x.exercise_id ?? x.cached_exercise_id ?? x.name)).length}`}><button type="button" aria-current={open===i ? 'step' : undefined} onClick={() => {setOverview(false);navigate(i);}}><span className="session-exercise-number">{String(i+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{state.checked} of {state.total} sets checked · {state.label}</small>{open===i && <small className="session-selected-label">Selected</small>}</span>{state.label === 'Completed' && <svg className="session-overview-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}</button>{workout.exercises.length > 1 && <ExerciseOrderControls name={x.name} index={i} count={workout.exercises.length} disabled={pausing} onMove={onMoveExercise}/>}</div>;})}</div>{review && <button type="button" className="session-review-finish" disabled={pausing} onClick={onFinish}>{editing ? 'Save changes' : 'Finish workout'}</button>}</> : <><input type="search" aria-label={substituteIndex===null ? 'Search exercises' : 'Search replacement exercise'} value={query} onChange={e => onQuery(e.target.value)} placeholder={supersetSearch ? 'Search an exercise to pair…' : 'Search exercises…'}/><div className="session-search-results">{supersetSearch && query.trim() && workout.exercises.map((exercise, index) => index !== open && !exercise.superset_id && exercise.name.toLowerCase().includes(query.trim().toLowerCase()) ? <button type="button" key={`workout-${index}`} aria-label={`Pair with ${exercise.name} in this workout`} onClick={() => {onPair(index); onCloseSearch();}}><span><b>{exercise.name}</b><small>In this workout</small></span><span>Pair</span></button> : null)}{searchLoading ? <p role="status">Searching…</p> : searchError ? <p role="alert">{searchError}</p> : results.length ? results.map(exercise => <button type="button" key={exercise.id} onClick={() => onChoose(exercise)}><span><b>{exercise.name}</b><small>{[muscle(exercise.primary_muscle),exercise.equipment].filter(Boolean).join(' · ')}</small></span><span>{substituteIndex===null ? '＋' : 'Replace'}</span></button>) : <p>{query.trim().length<2 ? 'Type an exercise name to choose it.' : 'No other exercises found.'}</p>}</div></>}
+  </section>}{workout.exercises.length > 1 && <p className="session-order-hint">Use the arrows to change exercise order.</p>}<div className="session-overview-list">{workout.exercises.map((x,i) => {const state=progress(x);return <div className="session-overview-row" key={`${x.exercise_id ?? x.cached_exercise_id ?? x.name}-${workout.exercises.slice(0,i).filter(entry => (entry.exercise_id ?? entry.cached_exercise_id ?? entry.name) === (x.exercise_id ?? x.cached_exercise_id ?? x.name)).length}`}><button type="button" aria-current={open===i ? 'step' : undefined} onClick={() => {setOverview(false);navigate(i);}}><span className="session-exercise-number">{String(i+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{state.checked} of {state.total} sets checked · {state.label}</small>{open===i && <small className="session-selected-label">Selected</small>}</span>{state.label === 'Completed' && <svg className="session-overview-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}</button>{workout.exercises.length > 1 && <ExerciseOrderControls name={x.name} index={i} count={workout.exercises.length} disabled={pausing} onMove={onMoveExercise}/>}</div>;})}</div>{review && <button type="button" className="session-review-finish" disabled={pausing} onClick={onFinish}>{editing ? 'Save changes' : 'Finish workout'}</button>}</> : <>
+   <input type="search" aria-label={substituteIndex===null ? 'Search exercises' : 'Search replacement exercise'} value={query} onChange={e => onQuery(e.target.value)} placeholder={supersetSearch ? 'Search an exercise to pair…' : 'Search exercises…'}/>
+   <div className="session-search-results">
+    {recentSubstitute && <button type="button" className="session-recent-substitute" onClick={() => onChoose(recentSubstitute)}>
+     <span><b>{recentSubstitute.name}</b><small>Last substitute</small></span><span>Replace</span>
+    </button>}
+    {supersetSearch && query.trim() && workout.exercises.map((exercise, index) => index !== open && !exercise.superset_id && exercise.name.toLowerCase().includes(query.trim().toLowerCase()) ? <button type="button" key={`workout-${index}`} aria-label={`Pair with ${exercise.name} in this workout`} onClick={() => {onPair(index); onCloseSearch();}}><span><b>{exercise.name}</b><small>In this workout</small></span><span>Pair</span></button> : null)}
+    {searchLoading ? <p role="status">Searching…</p> : searchError ? <p role="alert">{searchError}</p> : results.length ? results.filter(exercise => exercise.id !== recentSubstitute?.id).map(exercise => <button type="button" key={exercise.id} onClick={() => onChoose(exercise)}><span><b>{exercise.name}</b><small>{[muscle(exercise.primary_muscle),exercise.equipment].filter(Boolean).join(' · ')}</small></span><span>{substituteIndex===null ? '＋' : 'Replace'}</span></button>) : query.trim().length >= 2 ? <p>No other exercises found.</p> : !recentSubstitute && <p>Type an exercise name to choose it.</p>}
+   </div>
+  </>}
   </section></div>}
  </section>;
 }

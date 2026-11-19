@@ -153,16 +153,19 @@ it('opens exercise search from the full-width Add exercise button', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
 });
 
-it('replaces an exercise in place and loads the replacement history', async () => {
+it('replaces an exercise, restores its original data, and offers the last substitute without searching', async () => {
     const changed = vi.fn();
     const replacement = { id: 8, name: 'Cable row', primary_muscle: 'Lats', equipment: 'Cable' };
+    const bench = { cached_exercise_id: 7, name: 'Bench press', note: 'Use a narrow grip', rest_seconds: 120,
+        primary_muscle: 'Primary: Pectoralis major · Secondary: Anterior deltoid, Triceps brachii, Pectoralis minor',
+        sets: [{ weight: 65, reps: 8, exertion: 9, completed: true }, { weight: 60, reps: 10 }] };
     vi.mocked(api).mockImplementation(async path => {
         if (path.startsWith('/exercises?q=')) return [replacement];
         if (path.startsWith('/exercises/8/progress')) return { sessions: [{ performed_on: '2026-10-12', sets: [{ weight: 35, reps: 8 }] }], personal_best_weight: 35, personal_best_1rm: 44 };
         return {};
     });
     function Harness() {
-        const [workout, update] = useState<Workout>({ ...original, completed: false, exercises: [{ cached_exercise_id: 7, name: 'Bench press', rest_seconds: 120, sets: [{ weight: 65, reps: 8, exertion: 9 }, { weight: 60, reps: 10 }] }] });
+        const [workout, update] = useState<Workout>({ ...original, completed: false, exercises: [bench] });
         return <WorkoutLogger {...props} editing={false} workout={workout} setWorkout={next => { changed(next); update(next); }}/>;
     }
     render(<Harness/>);
@@ -175,6 +178,31 @@ it('replaces an exercise in place and loads the replacement history', async () =
     expect(saved.exercises[0].cached_exercise_id).toBeUndefined();
     expect(saved.exercises[0].sets?.[0].exertion).toBeUndefined();
     expect(await screen.findByText('35 kg × 8')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Substitute' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Revert to Bench press' }));
+    expect(changed.mock.lastCall![0].exercises).toEqual([{ ...bench, primary_muscle: 'Pectoralis major', superset_id: undefined }]);
+    expect(screen.getByRole('checkbox', { name: 'Complete Bench press set 1' })).toBeChecked();
+
+    vi.mocked(api).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Substitute' }));
+    const shortcut = screen.getByRole('button', { name: /Cable row.*Last substitute.*Replace/ });
+    expect(shortcut).toHaveFocus();
+    fireEvent.click(shortcut);
+    expect(screen.getByRole('button', { name: 'Revert to Bench press' })).toBeTruthy();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.startsWith('/exercises?q='))).toBe(false);
+});
+
+it('can revert a saved substitution without restoring an old superset link or discarding logged data without confirmation', () => {
+    const bench = { exercise_id: 7, name: 'Bench press', superset_id: 'old-pair', sets: [{ weight: 40, reps: 8 }] };
+    const substitute = { exercise_id: 8, name: 'Cable row', superset_id: null, sets: [{ weight: 30, reps: 10, completed: true }], substituted_from: bench };
+    const confirmed = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal('confirm', confirmed);
+    render(<WorkoutLogger {...props} editing={false} workout={{ ...original, completed: false, exercises: [substitute] }}/>);
+    const revert = screen.getByRole('button', { name: 'Revert to Bench press' });
+    fireEvent.click(revert);
+    expect(props.setWorkout).not.toHaveBeenCalled();
+    fireEvent.click(revert);
+    expect(props.setWorkout).toHaveBeenCalledWith(expect.objectContaining({ exercises: [{ ...bench, superset_id: null }] }));
 });
 
 it('cancels substitution without changing the exercise', () => {

@@ -77,6 +77,7 @@
 .workout-session .session-search-results>button{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:64px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--accent-dark);text-align:left}
 .workout-session .session-search-results>button>span:first-child{display:grid;gap:5px;min-width:0;color:var(--text)}
 .workout-session .session-search-results small{font-size:12px;color:var(--muted)}
+.workout-session .session-search-results>button.session-recent-substitute{background:var(--accent-soft);border-color:transparent}
 @media(max-width:760px){
     main.workspace:has(.workout-session){padding:calc(var(--safe-area-top) + 18px) 16px var(--mobile-nav-height)!important;background:var(--bg-main,var(--surface))}
     .workout-session{padding-bottom:20px}

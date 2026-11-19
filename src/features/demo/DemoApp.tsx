@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { useDocumentTheme } from '../../shared/lib/theme';
+import { useDefaultAppearance, useDocumentTheme } from '../../shared/lib/theme';
 import { Sidebar } from '../../app/Sidebar';
 import { MobileNavigation } from '../../app/MobileNavigation';
 import type { Page } from '../../app/types';
@@ -23,7 +23,7 @@ const monthKey = (year: number, month: number) => `${year}-${String(month).padSt
 
 export function DemoApp({ exit }: { exit: () => void }) {
   const [page, setPage] = useState<Page>('dashboard');
-  const [dark, setDark] = useState(() => localStorage.getItem('workout-theme') !== 'light');
+  const { dark, selectMode: setDark } = useDefaultAppearance();
   const [dashboardPage, setDashboardPage] = useState(0);
   const [dash, setDash] = useState<Dash | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -71,7 +71,6 @@ export function DemoApp({ exit }: { exit: () => void }) {
     }
   }, []);
 
-  useEffect(() => { localStorage.setItem('workout-theme', dark ? 'dark' : 'light'); }, [dark]);
   useDocumentTheme(dark);
   useEffect(() => {
     const controller = new AbortController();

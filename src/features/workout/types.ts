@@ -1,5 +1,7 @@
 import type { Item } from '../exercises/types';
 
+export type WorkoutExercise = Item & { substituted_from?: Item };
+
 export type Workout = {
     id?: number;
     revision?: number;
@@ -11,5 +13,5 @@ export type Workout = {
     completed_at?: string | null;
     duration_seconds?: number | null;
     completed?: boolean;
-    exercises: Item[];
+    exercises: WorkoutExercise[];
 };

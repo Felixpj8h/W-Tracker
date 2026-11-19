@@ -3,7 +3,7 @@ import type { Folder, Routine } from '../routines/types';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Exercise, ExerciseProgress } from '../exercises/types';
 import { api, API } from '../../shared/api/client';
-import { ACTIVE_WORKOUT_KEY } from './session';
+import { ACTIVE_WORKOUT_KEY, isSameExercise, lastSubstituteFor, rememberSubstituteFor } from './session';
 import { WorkoutSessionView } from './WorkoutSessionView';
 import { authHeaders, accountKey, sessionGeneration, sessionIsCurrent } from '../auth/auth';
 import { routineMuscles } from '../routines/routineMuscles';
@@ -23,6 +23,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     }, [workout?.id, workout?.revision, acknowledgedRevision]);
     const [q, setQ] = useState(''), [results, setResults] = useState<Exercise[]>([]), [open, setOpen] = useState(0), [progressByExercise, setProgressByExercise] = useState<Record<number, ExerciseProgress>>({}), [restUntil, setRestUntil] = useState<number | null>(null), [now, setNow] = useState(Date.now), [extraExerciseOpen, setExtraExerciseOpen] = useState(false);
     const [substituteIndex, setSubstituteIndex] = useState<number | null>(null);
+    const [recentSubstitute, setRecentSubstitute] = useState<Exercise | null>(null);
     const [supersetSource, setSupersetSource] = useState<number | null>(null);
     const [pausing, setPausing] = useState(false);
     const [pauseError, setPauseError] = useState('');
@@ -84,10 +85,10 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const boundedIndex = workout?.exercises.length ? Math.max(0, Math.min(open, workout.exercises.length - 1)) : 0;
     const retainedIndex = workout?.exercises.findIndex(item => exerciseIdentity(item) === positionRef.current.identity) ?? -1;
     const selectedIndex = open === positionRef.current.index && retainedIndex >= 0 && exerciseIdentity(workout?.exercises[boundedIndex]) !== positionRef.current.identity ? retainedIndex : boundedIndex;
-    const selectExercise = (index: number) => {
-        const clamped = Math.max(0, Math.min(index, (workout?.exercises.length ?? 1) - 1));
+    const selectExercise = (index: number, exercises = workout?.exercises) => {
+        const clamped = Math.max(0, Math.min(index, (exercises?.length ?? 1) - 1));
         setOpen(clamped);
-        positionRef.current = { ...positionRef.current, index: clamped, identity: exerciseIdentity(workout?.exercises[clamped]) };
+        positionRef.current = { ...positionRef.current, index: clamped, identity: exerciseIdentity(exercises?.[clamped]) };
         if (positionKey) try { localStorage.setItem(positionKey, JSON.stringify(positionRef.current)); } catch { /* Storage is optional. */ }
     };
     useEffect(() => {
@@ -179,19 +180,38 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         const muscleSummary = routineMuscles;
         return <div className="workout-chooser"><PageHeader action={<button className="chooser-empty-action" onClick={() => void startAdHoc()}>Start empty <span aria-hidden="true">＋</span></button>}><h1>Choose workout</h1><p>Select a routine to begin.</p></PageHeader>{active.length > 0 && <section className="active-sessions"><p className="overline">READY TO RESUME</p>{active.map(x => <button key={x.id} onClick={() => { setWorkout(x); }}><span><b>{x.name}</b><small>Started {x.started_at ? new Date(x.started_at).toLocaleString() : 'earlier'}</small></span><strong>Resume →</strong></button>)}</section>}{folders.length > 0 && <><div className={`chooser-tabs tabs-${Math.min(folders.length, 4)}`} role="tablist" aria-label="Workout routines">{folders.map(folder => <button type="button" role="tab" aria-selected={folder.id === selectedFolder?.id} key={folder.id} className={folder.id === selectedFolder?.id ? 'selected' : ''} onClick={() => setSelectedFolderId(folder.id)}><strong>{folder.name}</strong><small>{folder.routines.length} workout {folder.routines.length === 1 ? 'day' : 'days'}</small></button>)}</div><section className="chooser-selected" aria-labelledby="selected-routine-name"><div className="chooser-selected-heading"><h2 id="selected-routine-name">{selectedFolder.name}</h2><p>{selectedFolder.routines.length} workout {selectedFolder.routines.length === 1 ? 'day' : 'days'}</p></div><div className="chooser-days">{selectedFolder.routines.map((routine, index) => <button type="button" className="chooser-day" onClick={() => start(routine)} key={routine.id}><span className="chooser-day-number">Day {index + 1}</span><span className="chooser-day-copy"><strong>{routine.name}</strong><small>{routine.exercises.length} {routine.exercises.length === 1 ? 'exercise' : 'exercises'}{muscleSummary(routine) ? ` · ${muscleSummary(routine)}` : ''}</small></span><span className="chooser-start">Start <span aria-hidden="true">→</span></span></button>)}{selectedFolder.routines.length === 0 && <p className="chooser-empty">No workout days in this routine yet.</p>}</div></section></>}{folders.length === 0 && <div className="empty">No routine required — use “Start empty” to add exercises as you go.</div>}</div>;
     }
+    const replaced = substituteIndex === null ? undefined : workout.exercises[substituteIndex];
     const addExercise = (exercise: Exercise) => {
-        const replaced = substituteIndex === null ? null : workout.exercises[substituteIndex];
+        if (substituteIndex !== null && (!replaced || isSameExercise(replaced, exercise))) return;
         const next = { exercise_id: exercise.id, name: exercise.name, primary_muscle: exercise.primary_muscle, secondary_muscles: exercise.secondary_muscles, muscle_group: exercise.muscle_group,
             rest_seconds: replaced?.rest_seconds ?? 90,
             sets: replaced ? (replaced.sets?.length ? replaced.sets.map(set => ({ weight: 0, reps: set.reps, is_warmup: set.is_warmup })) : [{ weight: 0, reps: 0 }]) : [{ weight: 0, reps: 0 }] };
         const pairId = supersetSource === null ? null : crypto.randomUUID();
-        const exercises = substituteIndex === null ? [...workout.exercises, { ...next, superset_id: pairId }] : workout.exercises.map((item, index) => index === substituteIndex ? { ...next, superset_id: item.superset_id } : item);
+        const exercises = substituteIndex === null ? [...workout.exercises, { ...next, superset_id: pairId }] : workout.exercises.map((item, index) => {
+            if (index !== substituteIndex) return item;
+            const primaryMuscle = item.primary_muscle?.split(' · ', 1)[0].replace(/^(?:Primary:\s*)+/i, '');
+            return { ...next, superset_id: item.superset_id, substituted_from: { ...item, primary_muscle: primaryMuscle ?? item.primary_muscle } };
+        });
         if (pairId !== null && supersetSource !== null) exercises[supersetSource] = { ...exercises[supersetSource], superset_id: pairId };
+        if (replaced) {
+            rememberSubstituteFor(replaced, exercise);
+            setRestUntil(null);
+        }
+        selectExercise(substituteIndex ?? workout.exercises.length, exercises);
         setWorkout({ ...workout, exercises });
-        selectExercise(substituteIndex ?? workout.exercises.length);
-        setOpen(substituteIndex ?? workout.exercises.length);
-        if (substituteIndex !== null) setRestUntil(null);
-        setSubstituteIndex(null); setSupersetSource(null); setQ(''); setResults([]); setExtraExerciseOpen(false);
+        closeSearch();
+    };
+    const revertExercise = () => {
+        const item = workout.exercises[selectedIndex];
+        const original = item?.substituted_from;
+        if (!original) return;
+        const hasLoggedData = item.note || item.sets?.some((set, index) =>
+            set.completed || set.weight > 0 || (set.exertion ?? 0) > 0 || set.reps !== (original.sets?.[index]?.reps ?? 0));
+        if (hasLoggedData && !window.confirm(`Revert to ${original.name} and discard the sets and notes entered for ${item.name}?`)) return;
+        const exercises = workout.exercises.map((exercise, index) => index === selectedIndex ? { ...original, superset_id: item.superset_id } : exercise);
+        selectExercise(selectedIndex, exercises);
+        setRestUntil(null);
+        setWorkout({ ...workout, exercises });
     };
     const moveExercise = (from: number, to: number) => {
         const exercises = moveItem(workout.exercises, from, to);
@@ -246,6 +266,11 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         onFinish={() => void finishSession()} onPause={!editing && pause ? () => void pauseSession() : undefined}
         onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} error={pauseError || saveError}
         restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}
-        searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} supersetSearch={supersetSource !== null} onOpenSearch={(index, forSuperset = false) => { setSubstituteIndex(index); setSupersetSource(forSuperset ? selectedIndex : null); setQ(''); setResults([]); setSearchError(''); setExtraExerciseOpen(true); }}
-        onCloseSearch={closeSearch} query={q} onQuery={setQ} results={results} onChoose={addExercise} searchLoading={searchLoading} searchError={searchError}/>;
+        searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} recentSubstitute={replaced ? recentSubstitute : null} onRevert={revertExercise} supersetSearch={supersetSource !== null} onOpenSearch={(index, forSuperset = false) => {
+            setSubstituteIndex(index);
+            setRecentSubstitute(index === null ? null : lastSubstituteFor(workout.exercises[index]));
+            setSupersetSource(forSuperset ? selectedIndex : null);
+            setQ(''); setResults([]); setSearchError(''); setExtraExerciseOpen(true);
+        }}
+        onCloseSearch={closeSearch} query={q} onQuery={setQ} results={replaced ? results.filter(exercise => !isSameExercise(replaced, exercise)) : results} onChoose={addExercise} searchLoading={searchLoading} searchError={searchError}/>;
 }

@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../../shared/api/client';
+import { useApplicationTheme } from '../../shared/lib/theme';
 import { Settings } from './Settings';
 import { useAccountSettings } from './useAccountSettings';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn() }));
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.palette;
+    document.documentElement.style.removeProperty('color-scheme');
+});
 
-function Harness({ initialDark = true }: { initialDark?: boolean }) {
+function Harness() {
     const settings = useAccountSettings(true);
-    const [dark, setDark] = useState(initialDark);
-    return <><Settings settings={settings} dark={dark} setDark={setDark}/><output data-testid="dark">{String(dark)}</output></>;
+    const theme = useApplicationTheme();
+    return <Settings settings={settings} theme={theme}/>;
 }
 
 const deferred = <T,>() => { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -85,13 +92,49 @@ it.each(['Normal', 'Comprehensive'])('saves a newer %s choice made while a faili
     expect(screen.queryByRole('alert')).toBeNull();
 });
 
-it('switches the theme from the Themes tab', async () => {
+it('preserves the Default appearance when visiting a fixed theme and after remounting', async () => {
     vi.mocked(api).mockResolvedValue({ ai_output_length: 'normal' });
-    render(<Harness/>);
+    const view = render(<Harness/>);
     fireEvent.click(screen.getByRole('tab', { name: 'Themes' }));
+    expect(radio('Default').checked).toBe(true);
     expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Light' }));
-    expect(screen.getByTestId('dark').textContent).toBe('false');
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    fireEvent.click(radio('Batman'));
+    expect(document.documentElement.dataset.palette).toBe('batman');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.queryByRole('group', { name: 'Appearance' })).toBeNull();
+
+    view.unmount();
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Themes' }));
+    expect(radio('Batman').checked).toBe(true);
+    fireEvent.click(radio('Default'));
     expect(screen.getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(document.documentElement.dataset.palette).toBeUndefined();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalled());
+});
+
+it('applies the fixed appearance of every custom theme', async () => {
+    vi.mocked(api).mockResolvedValue({ ai_output_length: 'normal' });
+    localStorage.setItem('workout-palette', 'unknown-theme');
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Themes' }));
+    expect(radio('Default').checked).toBe(true);
+
+    const palettes = [
+        ['Pastel Pink', 'pastel-pink', 'light'], ['Carbon Black', 'carbon-black', 'dark'],
+        ['Batman', 'batman', 'dark'], ['Arcade', 'arcade', 'dark'], ['Midnight Blue', 'midnight-blue', 'dark'],
+        ['Iron & Copper', 'iron-copper', 'dark'], ['Blackberry', 'blackberry', 'dark'], ['Chalk & Ink', 'chalk-ink', 'light'],
+    ];
+    for (const [name, id, mode] of palettes) {
+        fireEvent.click(radio(name));
+        expect(radio(name).checked).toBe(true);
+        expect(document.documentElement.dataset.palette).toBe(id);
+        expect(document.documentElement.dataset.theme).toBe(mode);
+        expect(screen.queryByRole('group', { name: 'Appearance' })).toBeNull();
+    }
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalled());
 });

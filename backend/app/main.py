@@ -25,7 +25,7 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -173,6 +173,7 @@ class WorkoutExercise(Base):
     note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     rest_seconds: Mapped[int] = mapped_column(Integer, default=90)
     superset_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    substituted_from: Mapped[Optional[dict]] = mapped_column(JSON(none_as_null=True))
     sets: Mapped[list["WorkoutSet"]] = relationship(cascade="all, delete-orphan", order_by="WorkoutSet.position")
 
 
@@ -431,7 +432,7 @@ class LoggedSetIn(BaseModel):
     is_warmup: bool = False
 
 
-class WorkoutExerciseIn(BaseModel):
+class WorkoutExerciseDetailsIn(BaseModel):
     exercise_id: Optional[int] = None; name: Optional[str] = Field(None, max_length=180); primary_muscle: Optional[str] = Field(None, max_length=80); secondary_muscles: list[str] = Field(default_factory=list, max_length=20); muscle_group: Optional[str] = Field(None, max_length=20); note: Optional[str] = Field(None, max_length=1000); rest_seconds: int = Field(default=90, ge=0, le=1800); superset_id: Optional[str] = Field(None, max_length=40); sets: list[LoggedSetIn] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="before")
@@ -441,6 +442,10 @@ class WorkoutExerciseIn(BaseModel):
         if isinstance(value, dict) and value.get("exercise_id") is None and value.get("cached_exercise_id") is not None:
             return {**value, "exercise_id": value["cached_exercise_id"]}
         return value
+
+
+class WorkoutExerciseIn(WorkoutExerciseDetailsIn):
+    substituted_from: WorkoutExerciseDetailsIn | None = None
 
 
 class WorkoutIn(BaseModel):
@@ -907,6 +912,8 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN rest_seconds INTEGER DEFAULT 90")
         if "superset_id" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN superset_id VARCHAR(40)")
+        if "substituted_from" not in workout_exercise_columns:
+            connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN substituted_from JSON")
         workout_set_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_sets)")}
         if "exertion" not in workout_set_columns:
             connection.exec_driver_sql("ALTER TABLE workout_sets ADD COLUMN exertion FLOAT")
@@ -1493,7 +1500,10 @@ def workout_out(workout: Workout) -> dict:
         primary = canonical_muscle(e.primary_muscle) or "Unmapped"
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-        return {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
+        payload = {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
+        if e.substituted_from is not None:
+            payload["substituted_from"] = e.substituted_from
+        return payload
     return {"id": workout.id, "revision": workout.revision, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
@@ -1505,6 +1515,8 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
         primary = cached.primary_muscle if cached else canonical_muscle(item.primary_muscle)
         secondary = cached.secondary_muscles if cached else "|".join(stored_secondary_muscles("|".join(item.secondary_muscles)))
         wex = WorkoutExercise(cached_exercise_id=cached.id if cached else None, name=cached.name if cached else (item.name or "Exercise"), primary_muscle=primary, secondary_muscles=secondary, muscle_group=cached.muscle_group if cached else (item.muscle_group or group_for(primary)), position=pos, note=item.note, rest_seconds=item.rest_seconds, superset_id=item.superset_id)
+        if not workout.completed and item.substituted_from is not None:
+            wex.substituted_from = item.substituted_from.model_dump(exclude_none=True)
         wex.sets = [WorkoutSet(position=i, weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed, is_warmup=s.is_warmup) for i, s in enumerate(item.sets)]
         workout.exercises.append(wex)
 
@@ -1544,10 +1556,10 @@ def claim_workout(workout_id: int, payload: WorkoutIn, db: Session):
 @app.put("/api/v1/workouts/{workout_id}")
 def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(get_db)):
     workout = claim_workout(workout_id, payload, db)
-    populate_workout(workout, payload, db)
     if not workout.completed:
         workout.completed_at = datetime.utcnow()
     workout.completed = True
+    populate_workout(workout, payload, db)
     db.commit(); return saved_response(workout_out(workout))
 
 

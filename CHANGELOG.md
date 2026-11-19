@@ -2,6 +2,12 @@
 
 ## 19 November 2026
 
+- Add eight color themes with palette previews in Settings. Default remembers its Light or Dark preference, while each custom theme has a fixed appearance.
+
+- Give below-goal steps a distinct color in every theme, including both Default appearances, on the daily progress bar and weekly chart.
+
+- Revert an exercise swap to restore its original sets and notes, even after resuming a workout. The swap picker offers the last substitute for that exercise on the current device.
+
 - Show response-length save progress in the shared bottom-right indicator.
 
 - Match the selected response length and appearance to the sidebar's rounded, muted green highlight.

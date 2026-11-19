@@ -1,0 +1,88 @@
+/* Map custom palettes to the same semantic colors the default themes use. */
+:root[data-palette] .app {
+  --bg-main: var(--palette-background);
+  --bg-sidebar: var(--palette-sidebar);
+  --bg-surface: var(--palette-surface);
+  --bg-surface-hover: color-mix(in srgb, var(--bg-surface) 92%, var(--text-primary));
+  --bg-active: var(--accent-deep);
+  --border-subtle: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  --border-medium: color-mix(in srgb, var(--text-primary) 28%, transparent);
+  --text-primary: var(--palette-ink);
+  --text-secondary: color-mix(in srgb, var(--text-primary) 74%, var(--bg-main));
+  --text-muted: color-mix(in srgb, var(--text-primary) 60%, var(--bg-main));
+  --accent: var(--palette-accent);
+  --accent-bright: var(--palette-link, var(--accent));
+  --accent-dark: var(--accent-bright);
+  --accent-deep: color-mix(in srgb, var(--accent-bright) 22%, var(--bg-surface));
+  --accent-muted: color-mix(in srgb, var(--accent-bright) 15%, transparent);
+  --on-accent: var(--palette-on-accent, #141319);
+  --soft: color-mix(in srgb, var(--bg-surface) 95%, var(--text-primary));
+  --field: color-mix(in srgb, var(--bg-main) 64%, var(--bg-surface));
+  --shadow: rgb(0 0 0 / 9%);
+  --chart-accent: var(--palette-chart, var(--accent));
+  --dashboard-bar-green: var(--palette-bars, var(--chart-accent));
+  --theme-track: color-mix(in srgb, var(--text-primary) 16%, var(--bg-surface));
+}
+
+:root[data-palette] .app main { background: var(--bg-main); }
+:root[data-palette] .app .person i { background: var(--accent-soft); color: var(--accent-bright); }
+:root[data-palette] .app .sidebar nav button:hover { background: var(--accent-soft) !important; }
+:root[data-palette] .app .sidebar nav button.active {
+  background: var(--bg-active) !important;
+  color: var(--accent-bright) !important;
+}
+
+:root[data-palette] .app .primary { --primary-fill: var(--accent); color: var(--on-accent); }
+:root[data-palette] .app .routine-manager .head .primary,
+:root[data-palette] .app .routine-create button { color: var(--on-accent); }
+:root[data-palette] .app .dashboard-workspace .primary.dashboard-log { background: var(--accent); }
+:root[data-palette] .app .dashboard-workspace .primary.dashboard-log:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text-primary));
+}
+:root[data-palette] .app .dashboard-workspace .primary.dashboard-log:active {
+  background: color-mix(in srgb, var(--accent) 80%, var(--text-primary));
+}
+
+:root[data-palette] .app .dashboard-section-head form,
+:root[data-palette] .app .weight-ranges,
+:root[data-palette] .app .metric-toggle,
+:root[data-palette] .app .today-control { background: var(--field); }
+:root[data-palette] .app .dashboard-section-head form button,
+:root[data-palette] .app .weight-ranges button.active,
+:root[data-palette] .app .metric-toggle button.active { background: var(--accent-deep); color: var(--accent-bright); }
+:root[data-palette] .app .dashboard-section-head form button:hover { background: var(--bg-active); color: var(--text-primary); }
+:root[data-palette] .app .dashboard-metrics article > .dashboard-icon { color: var(--text-secondary); }
+:root[data-palette] .app .dashboard-weight .chart .weight-curve { stroke: var(--chart-accent); }
+:root[data-palette] .app .dashboard-weight .chart stop { stop-color: var(--chart-accent); }
+:root[data-palette] .app .dashboard-weight .chart .weight-point-dot { fill: var(--chart-accent); }
+:root[data-palette] .app .muscle-row > div,
+:root[data-palette] .app .week-row:not(:has(i))::after { background: var(--theme-track); }
+:root[data-palette] .app .recent-row,
+:root[data-palette] .app .upcoming-row,
+:root[data-palette] .app .week-row { background: var(--surface); }
+:root[data-palette] .app .recent-row:hover,
+:root[data-palette] .app .upcoming-row:hover,
+:root[data-palette] .app .today-control:hover,
+:root[data-palette] .app .week-row:nth-child(odd) { background: var(--bg-surface-hover); }
+
+:root[data-palette] .app .coach-desktop-list,
+:root[data-palette] .app .coach-drawer { background: var(--bg-sidebar); }
+
+:root[data-palette] .app .muscle-heatmap {
+  --heatmap-color: var(--chart-accent);
+  --heatmap-highlight-filter: brightness(1);
+}
+:root[data-palette] .app .heatmap-legend i { background: var(--heatmap-color); }
+
+:root[data-palette] .app .health-clock-walking { --clock-color: var(--chart-accent); }
+:root[data-palette] .app .health-clock-untracked { --clock-color: var(--theme-track); }
+
+/* These colors are only used by the Steps charts and progress indicator. */
+:root[data-palette="pastel-pink"] .app { --palette-steps-below-goal: #a47bb8; }
+:root[data-palette="carbon-black"] .app { --palette-steps-below-goal: #606060; }
+:root[data-palette="batman"] .app { --palette-steps-below-goal: #66758c; }
+:root[data-palette="arcade"] .app { --palette-steps-below-goal: #7b70cd; }
+:root[data-palette="midnight-blue"] .app { --palette-steps-below-goal: #657188; }
+:root[data-palette="iron-copper"] .app { --palette-steps-below-goal: #76838e; }
+:root[data-palette="blackberry"] .app { --palette-steps-below-goal: #668793; }
+:root[data-palette="chalk-ink"] .app { --palette-steps-below-goal: #618179; }

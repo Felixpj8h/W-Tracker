@@ -8,7 +8,7 @@ export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }
     const [muscles, setMuscles] = useState<BodyMapMuscle[] | null>(null);
     const [unavailable, setUnavailable] = useState(false);
     const [retry, setRetry] = useState(0);
-    const filterId = `heatmap-green-${useId().replace(/:/g, '')}`;
+    const filterId = `heatmap-color-${useId().replace(/:/g, '')}`;
 
     useEffect(() => {
         const controller = new AbortController();
@@ -31,7 +31,8 @@ export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }
     return <div className="muscle-heatmap">
         <svg className="heatmap-filters" aria-hidden="true" width="0" height="0">
             <defs><filter id={filterId} colorInterpolationFilters="sRGB">
-                <feColorMatrix type="matrix" values="0 0 0 0 0.192  0 0 0 0 0.357  0 0 0 0 0.251  0 0 0 1 0" />
+                <feFlood style={{ floodColor: 'var(--heatmap-color, #315b40)' }} />
+                <feComposite in2="SourceAlpha" operator="in" />
             </filter></defs>
         </svg>
         <div className="heatmap-bodies">
