@@ -154,9 +154,8 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .training-calendar .week-planner{position:static;max-height:none;margin-bottom:14px;box-shadow:none}
 }
 
-.training-event[draggable="true"]{cursor:grab}
-.training-event[draggable="true"]:active{cursor:grabbing}
-@media(pointer:coarse){.training-event[draggable="true"]{touch-action:none}}
+.training-event[data-movable]{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.training-event[data-movable]:active{cursor:grabbing}
 .training-day.drag-source .training-event{opacity:.4}
 .training-day.drop-target{outline:3px dashed var(--accent);outline-offset:-4px;background:var(--accent-soft)}
 .calendar-move-status{flex:none;margin:0 0 12px;color:var(--muted);font-size:14px}

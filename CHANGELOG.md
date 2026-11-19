@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Fix calendar workout drag and drop on desktop and mobile. Drag a workout to an empty day without shifting the calendar grid during the gesture.
+
 - Match the mobile 7-day Sleep duration bars to the active theme, including nights below the weekly average.
 
 - Add eight color themes with palette previews in Settings. Default remembers its Light or Dark preference, while each custom theme has a fixed appearance.
