@@ -1,5 +1,17 @@
 # Changelog
 
+## 19 November 2026
+
+- Rework the Workout history layout so the page reads as one master/detail view: the Sessions/Analysis switch now sits beside a smaller title with a session and volume summary, and search and the period filter sit above the list they filter.
+
+- Show per-month session counts in the list and mark the selected session with the sidebar's soft green highlight instead of an outline.
+
+- Give the session details a single scroll area instead of a boxed inner scroller, a divided stat row (exercises, sets, volume, duration), and grouped header actions: Log again, Edit session, and a menu for notes and deletion.
+
+- Show each exercise's volume and set count on the right of its row, show notes as an inline card with a quick Add note button, and hide the one-line set summary while set details are expanded.
+
+- Keep stats on one row on narrower desktops and use the same stat row and actions in the mobile session sheet.
+
 ## 18 November 2026
 
 - Keep dashboard metrics at full size throughout their count-up animations and hide the final value until the count finishes.
