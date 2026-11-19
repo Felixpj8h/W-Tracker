@@ -2,6 +2,10 @@
 
 ## 19 November 2026
 
+- Use the exact visible page colours (`#111a14` dark, `#f3f5f0` light) for the browser theme colour, page background and web app manifest, so the Android status bar and iOS overscroll areas blend into the app in both themes. The mobile dashboard backdrop now follows the theme instead of staying dark in light mode.
+
+- Match the page background and browser theme colour to dark mode, so the iOS home-screen app no longer shows a light strip behind the Dynamic Island or when overscrolling. The saved theme is applied before the app loads, through a same-origin script that the existing Content Security Policy allows.
+
 - Rework the Workout history layout so the page reads as one master/detail view: the Sessions/Analysis switch now sits beside a smaller title with a session and volume summary, and search and the period filter sit above the list they filter.
 
 - Show per-month session counts in the list and mark the selected session with the sidebar's soft green highlight instead of an outline.

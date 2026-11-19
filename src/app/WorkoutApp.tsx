@@ -1,4 +1,5 @@
 import { activateAccount, accountKey, sessionGeneration, sessionIsCurrent } from '../features/auth/auth';
+import { useDocumentTheme } from '../shared/lib/theme';
 import type { UserProfile } from '../features/auth/profile';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Workout } from '../features/workout/types';
@@ -72,7 +73,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     });
     const now = new Date(), currentCalendarKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const refreshWorkoutData = async (calendarDate: string | Date = now) => { const date = typeof calendarDate === 'string' ? new Date(`${calendarDate}T12:00:00`) : calendarDate; await Promise.allSettled([loadDashboard(), loadHistory(), loadActive(), loadCalendar(date.getFullYear(), date.getMonth() + 1, true)]); };
-    useEffect(() => { const initialDate = new Date(); void loadDashboard(); void loadFolders(); void loadHistory(); void loadActive(); void loadCalendar(initialDate.getFullYear(), initialDate.getMonth() + 1); }, [loadCalendar]); useEffect(() => localStorage.setItem('workout-theme', dark ? 'dark' : 'light'), [dark]);
+    useEffect(() => { const initialDate = new Date(); void loadDashboard(); void loadFolders(); void loadHistory(); void loadActive(); void loadCalendar(initialDate.getFullYear(), initialDate.getMonth() + 1); }, [loadCalendar]); useEffect(() => localStorage.setItem('workout-theme', dark ? 'dark' : 'light'), [dark]); useDocumentTheme(dark);
     useEffect(() => {
         if (!sessionIsCurrent(generation.current) || !workout?.id || workout.completed || editing) return;
         const revision = Math.max(workout.revision ?? 0, acknowledgedRevisions.current.get(workout.id) ?? 0) || undefined;

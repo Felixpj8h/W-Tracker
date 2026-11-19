@@ -4,8 +4,8 @@
   "description": "Your personal workout tracker.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#111713",
-  "theme_color": "#111713",
+  "background_color": "#111a14",
+  "theme_color": "#111a14",
   "icons": [
     {
       "src": "/favicon/jern-monogram-192.png",

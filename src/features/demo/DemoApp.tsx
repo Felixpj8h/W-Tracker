@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { useDocumentTheme } from '../../shared/lib/theme';
 import { Sidebar } from '../../app/Sidebar';
 import { MobileNavigation } from '../../app/MobileNavigation';
 import type { Page } from '../../app/types';
@@ -71,6 +72,7 @@ export function DemoApp({ exit }: { exit: () => void }) {
   }, []);
 
   useEffect(() => { localStorage.setItem('workout-theme', dark ? 'dark' : 'light'); }, [dark]);
+  useDocumentTheme(dark);
   useEffect(() => {
     const controller = new AbortController();
     const date = new Date();
