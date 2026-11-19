@@ -2,6 +2,10 @@
 
 ## 19 November 2026
 
+- Remove the background dimming behind the mobile More menu, keep the bottom bar tappable while it is open, and close the menu from any bar button.
+
+- Fit the mobile dashboard overview on one screen without scrolling, with Log workout beside the week selector.
+
 - Center the mobile Resume icon and the Coach stop-response icon.
 
 - Use vivid red for muscle heatmap highlights and the legend in Carbon Black, Midnight Blue, and Blackberry.
