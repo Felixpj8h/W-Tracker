@@ -77,12 +77,12 @@
 :root[data-palette] .app .health-clock-walking { --clock-color: var(--chart-accent); }
 :root[data-palette] .app .health-clock-untracked { --clock-color: var(--theme-track); }
 
-/* These colors are only used by the Steps charts and progress indicator. */
-:root[data-palette="pastel-pink"] .app { --palette-steps-below-goal: #a47bb8; }
-:root[data-palette="carbon-black"] .app { --palette-steps-below-goal: #606060; }
-:root[data-palette="batman"] .app { --palette-steps-below-goal: #66758c; }
-:root[data-palette="arcade"] .app { --palette-steps-below-goal: #7b70cd; }
-:root[data-palette="midnight-blue"] .app { --palette-steps-below-goal: #657188; }
-:root[data-palette="iron-copper"] .app { --palette-steps-below-goal: #76838e; }
-:root[data-palette="blackberry"] .app { --palette-steps-below-goal: #668793; }
-:root[data-palette="chalk-ink"] .app { --palette-steps-below-goal: #618179; }
+/* Secondary bars for steps below the goal and sleep below the weekly average. */
+:root[data-palette="pastel-pink"] .app { --palette-health-below-threshold: #a47bb8; }
+:root[data-palette="carbon-black"] .app { --palette-health-below-threshold: #606060; }
+:root[data-palette="batman"] .app { --palette-health-below-threshold: #66758c; }
+:root[data-palette="arcade"] .app { --palette-health-below-threshold: #7b70cd; }
+:root[data-palette="midnight-blue"] .app { --palette-health-below-threshold: #657188; }
+:root[data-palette="iron-copper"] .app { --palette-health-below-threshold: #76838e; }
+:root[data-palette="blackberry"] .app { --palette-health-below-threshold: #668793; }
+:root[data-palette="chalk-ink"] .app { --palette-health-below-threshold: #618179; }

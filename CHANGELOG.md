@@ -2,6 +2,8 @@
 
 ## 19 November 2026
 
+- Match the mobile 7-day Sleep duration bars to the active theme, including nights below the weekly average.
+
 - Add eight color themes with palette previews in Settings. Default remembers its Light or Dark preference, while each custom theme has a fixed appearance.
 
 - Give below-goal steps a distinct color in every theme, including both Default appearances, on the daily progress bar and weekly chart.
