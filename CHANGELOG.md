@@ -1,5 +1,9 @@
 # Changelog
 
+## 20 November 2026
+
+- Add a Sign out button to mobile Settings so users can end their session from either Settings tab.
+
 ## 19 November 2026
 
 **Scale desktop UI uniformly on large screens**

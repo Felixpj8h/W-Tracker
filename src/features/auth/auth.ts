@@ -4,6 +4,10 @@ export function setGoogleIdToken(token: string) {
   googleIdToken = token
 }
 
+export function requestSignOut() {
+  window.dispatchEvent(new Event('google-sign-out'))
+}
+
 export function authHeaders(headers?: HeadersInit): Headers {
   const result = new Headers(headers)
   if (googleIdToken) result.set('Authorization', `Bearer ${googleIdToken}`)

@@ -3,7 +3,7 @@
 .settings-tabs button{margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;background:transparent;color:var(--muted);font-size:13px;font-weight:800}
 .settings-tabs button:hover{color:var(--text)}
 .settings-tabs button.active{border-bottom-color:var(--accent);color:var(--accent-dark)}
-.settings-tabs button:focus-visible,.settings-theme-options button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.settings-tabs button:focus-visible,.settings-theme-options button:focus-visible,.settings-sign-out:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .settings-panel{padding:22px;background:var(--surface);border:1px solid var(--border);border-radius:16px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:18px}
 .settings-row h2{margin:0;font-size:16px}
@@ -33,6 +33,14 @@
 .settings-error{color:#c46f7e}
 .settings-error button{padding:0;margin-left:4px;background:transparent;color:var(--accent-dark);font-weight:800;text-decoration:underline}
 .sidebar .settings-link svg{flex:0 0 18px}
-@media(max-width:760px){.settings-panel{padding:18px 16px}.settings-row{align-items:stretch;flex-direction:column;gap:14px}.settings-segmented{width:100%}.settings-segmented label{flex:1;justify-content:center;min-height:42px;padding-inline:4px}.settings-theme-options button{flex:1;justify-content:center;min-height:46px}}
-@media(max-width:760px){.settings-theme-picker{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.settings-sign-out{display:none}
+@media(max-width:760px){
+    .settings-panel{padding:18px 16px}
+    .settings-row{align-items:stretch;flex-direction:column;gap:14px}
+    .settings-segmented{width:100%}
+    .settings-segmented label{flex:1;justify-content:center;min-height:42px;padding-inline:4px}
+    .settings-theme-options button{flex:1;justify-content:center;min-height:46px}
+    .settings-theme-picker{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .settings-sign-out{display:block;width:100%;min-height:44px;margin-top:18px;padding:8px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px;font-weight:800}
+}
 .sidebar footer .settings-link{width:calc(100% + 20px)!important;margin-inline:-10px}

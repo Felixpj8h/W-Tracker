@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { THEMES, type ApplicationTheme } from '../../shared/lib/theme';
+import { requestSignOut } from '../auth/auth';
 import { AI_OUTPUT_LENGTHS, type AccountSettingsController } from './useAccountSettings';
 import './settings.css';
 
@@ -63,5 +64,6 @@ export function Settings({ settings, theme }: { settings: AccountSettingsControl
                 </div>
             </div>}
         </div>}
+        <button type="button" className="settings-sign-out" onClick={requestSignOut}>Sign out</button>
     </section>;
 }
