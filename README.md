@@ -1,206 +1,259 @@
 # Jern
 
-A local, Hevy-inspired workout tracker with routines, editable workout sessions, bodyweight logging, weekly muscle-group volume analytics, and Wger-powered exercise search.
+Jern is a self-hosted strength training tracker. Plan routines on a calendar,
+log sets from your phone, watch your progress, and ask an AI coach to review or
+rewrite your plan. Jern runs as a React app that you can install from the
+browser on your phone, backed by a FastAPI and SQLite server.
 
-See the backend guide for the API, database, integrations, and build process. [Backend README](backend/README.md)
+For the API, database, and backend build, see the [Backend README](backend/README.md).
 
-## Run the app
+## Features
 
-Replace `C:\path\to\Jern` below with your actual checkout path.
+| Area | What it does |
+| --- | --- |
+| **Dashboard** | Greets you with this week's training summary, current bodyweight, and last workout. A front and back body map shows each muscle's volume, set count, or an activity heatmap for any week. Lists completed and upcoming workouts for the selected week. |
+| **Workout tracking** | Logs one exercise at a time with weight, reps, and RPE, plus warm-up sets, supersets, exercise swaps, notes, and a rest timer. Shows last time's sets, best weight, and estimated one-rep max (1RM) for each exercise. Saves as you go, so you can pause and resume a workout. |
+| **Routines** | Reusable workout templates grouped in folders. Each exercise has a set count, rep range, optional target weight, and rest time. Share a routine or a whole folder as a link, and import one from a link. |
+| **Calendar** | Month view that combines planned and logged workouts. Set a repeating weekly plan, move or remove a single day, and label days. |
+| **History** | Every completed session, plus per-exercise volume charts over 1 month, 3 months, 6 months, 1 year, or all time. |
+| **Bodyweight** | Log weigh-ins and follow the trend on a chart from the dashboard. |
+| **Coach** | Chat with an AI coach that reads your training data. It answers training, recovery, and nutrition questions. You approve any change it suggests to routines or the weekly plan before it is applied. See [The coach's AI pipeline](#the-coachs-ai-pipeline). |
+| **Health** | Optional read-only Google Health connection for steps, active minutes, sleep stages, heart rate variability (HRV), and resting heart rate. Includes 7-day trends and an editable step goal. [Google Health setup](docs/google-health.md) |
+| **Settings** | Colour theme, coach response length, and sign out. |
+| **Demo** | Optional public, read-only view of one account's training. Disabled by default. |
 
-Install the backend requirements:
+Exercise search uses the open [Wger](https://wger.de/) catalogue, which is cached
+on the server so search still works when Wger is offline. Sign-in uses Google
+accounts on an allowlist you set.
 
-```powershell
-cd 'C:\path\to\Jern\backend'
-python -m pip install -r requirements.txt
+## Training
+
+### How a training week works
+
+1. **Build routines.** Create a routine such as *Push A* and add exercises from
+   the catalogue. Give each exercise a set count, rep range (for example 8 to
+   12), rest time, and optionally a target weight. Group routines into a
+   folder for each program.
+2. **Schedule them.** In the calendar, assign routines to weekdays as a weekly
+   plan. Move or skip a single day without changing the rest of the plan.
+3. **Start the workout.** Starting today's workout copies the routine's
+   exercises and sets into a new session. The routine itself does not change,
+   so edits during a workout affect only that session.
+4. **Log each set.** Enter weight, reps, and optionally RPE, then tick the set.
+   Tap **Rest** to start the timer for that exercise's rest time. Warm-up sets
+   are logged but excluded from volume and progress.
+5. **Finish.** The finished session appears in your calendar, history,
+   dashboard, and the coach's view of your training.
+
+### How to progress
+
+Get stronger through **progressive overload**: do a little more than last time.
+Add reps within the range first, then add weight.
+
+1. Start each exercise at a weight you can lift for the bottom of the rep
+   range with about two reps in reserve (RPE 8).
+2. Each session, open the **Last time** panel and try to beat it by adding a
+   rep to one or more sets at the same weight.
+3. When every working set reaches the top of the range at about RPE 8, raise
+   the weight by the smallest step available and work back up from the bottom
+   of the range.
+4. If performance stalls for several sessions, check recovery, sleep, and
+   weekly sets on the dashboard before adding more volume. Ask the coach to
+   review the plan.
+
+Track it in three places:
+
+- **During a workout:** last session's sets, best weight, and estimated 1RM
+  for the current exercise. Estimated 1RM uses the Epley formula,
+  weight × (1 + reps ÷ 30), from your best working set.
+- **Dashboard:** weekly sets and volume per muscle. Compound exercises also
+  count toward their secondary muscles, so treat the totals as an estimate.
+- **History:** volume per exercise over time and the change across the
+  selected period.
+
+Volume is weight × reps for working sets, counted in Monday to Sunday weeks.
+
+## The coach's AI pipeline
+
+The coach uses Google's Gemini as its conversational model. TypeSafe Jev, a
+separate classifier, screens every generated reply and tool call before you
+see the reply or the server runs a tool. Both run only on the backend, so API
+keys never reach the browser.
+
+```mermaid
+flowchart TD
+    User["You send a message"] --> Save["API saves the message<br/>and opens a stream"]
+    Save --> Context["Build context:<br/>last 14 days of training, routines,<br/>pending proposal, recent messages"]
+    Context --> Gemini["Gemini generates a reply<br/>or tool calls"]
+    Gemini --> Jev{"TypeSafe Jev<br/>screens the output"}
+    Jev -->|"uncertain, first time"| Gemini
+    Jev -->|"blocked"| Refuse["Fixed refusal message"]
+    Jev -->|"approved tool calls"| Tools["Run read tools<br/>or create a proposal"]
+    Tools -->|"results"| Gemini
+    Jev -->|"approved reply"| Stream["Stream reply to the browser"]
+    Tools -.->|"proposal"| Card["Proposal card in chat"]
+    Card -->|"you confirm"| Apply["Backend applies the change"]
 ```
 
-### Configure the AI coach
+1. **Context.** The backend sends Gemini a snapshot of the last 14 days of
+   training and your routines, along with any pending proposal, a summary of
+   older messages, and the 8 most recent messages. All data is marked as
+   untrusted so names or notes cannot change the coach's instructions.
+2. **Tools.** Gemini can call read-only tools for anything not in the snapshot:
+   training summary, routines, recent workouts, per-exercise progress, the
+   weekly plan, and exercise search. One turn can use up to eight rounds of
+   tool calls.
+3. **Screening.** Jev checks each complete generation, including every tool
+   call's arguments, before any of it runs. Approved output continues. If the
+   result is uncertain, Gemini regenerates it once and nothing from the first
+   attempt runs. Blocked output, or a second uncertain result, returns a fixed
+   message. If the classifier is unavailable, the output is withheld.
+4. **Proposals, not edits.** The coach cannot change your data directly. To
+   create, update, or delete a routine, change the weekly plan, or create a
+   whole program, it creates a proposal with a summary and its reasoning. The
+   change is applied only after you confirm it, and only if the routine has
+   not changed since the proposal was made.
+5. **Streaming.** Progress, tool activity, proposals, and the reply reach the
+   browser as Server-Sent Events. You can stop a response at any time.
+6. **Memory.** After 16 messages, older messages are summarized for later turns.
+   The summary is also screened before it is saved.
 
-The AI coach uses Google's Gemini API for conversation and TypeSafe Jev for
-independent backend screening of generated replies and tool calls. Requests go
-directly to the coach; Jev checks the buffered generation before release or execution.
-Copy `.env.example` to `.env`, then add both API keys. The `.env` file is ignored by Git and must not be
-committed.
+Failures show an error reference that matches an entry in
+`backend/logs/coach.log`. For the topic scope, thresholds, and evaluation
+process, see the [coach topic policy](docs/coach-topic-policy.md).
 
-```powershell
-cd 'C:\path\to\Jern'
-Copy-Item .env.example .env
-```
+## Quick start
 
-Edit `.env` so it contains:
+You need Python 3.12 and Node.js 24. Run the commands from the repository root
+in PowerShell.
 
-```dotenv
-GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-TYPESAFE_API_KEY=your_typesafe_key_here
-TYPESAFE_MODEL=jev-latest
-```
-
-Only backend settings use these keys; never prefix either secret with `VITE_`.
-Technical classifier failures withhold generated content and tool execution.
-Uncertain output gets one internal regeneration attempt. Only approved output is
-released; classifier judgments still need ongoing evaluation. See
-[coach topic policy](docs/coach-topic-policy.md) for thresholds, privacy,
-verification limits, and the optional live synthetic evaluation.
-
-### Configure Google sign-in
-
-Create a Google OAuth client with application type **Web application**. Add
-`http://localhost:5173` (and each deployed frontend URL) under **Authorized
-JavaScript origins**, then configure the same client ID for the frontend and
-backend:
-
-```dotenv
-VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
-GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
-ALLOWED_EMAILS=you@example.com
-SESSION_SECRET=your_long_random_secret
-```
-
-`ALLOWED_EMAILS` accepts a comma-separated list. The API verifies every Google
-ID token and rejects accounts outside this allowlist. `/api/v1/health` remains
-public for deployment health checks.
-
-Browser sessions use random tokens backed by revocable database records.
-Logout revokes the session shared by app tabs. The cookie expires when the
-browser session ends or after 24 hours, whichever comes first. Sessions survive
-backend restarts while their database records remain valid. `SESSION_SECRET` is
-retained as a legacy deployment setting.
-
-The backend reads these settings from its process environment. Before starting
-it directly with Uvicorn, load them from the project-level `.env` file:
-
-```powershell
-cd 'C:\path\to\Jern\backend'
-$env:GEMINI_API_KEY = ((Get-Content ..\.env | Where-Object { $_ -match '^GEMINI_API_KEY=' }) -split '=', 2)[1].Trim()
-$env:GEMINI_MODEL = ((Get-Content ..\.env | Where-Object { $_ -match '^GEMINI_MODEL=' }) -split '=', 2)[1].Trim()
-```
-
-If you use Uvicorn directly, first change into `backend`. Running the command from another folder (such as `C:\\Windows\\System32`) causes `ModuleNotFoundError: No module named 'app'`:
-
-```powershell
-cd 'C:\path\to\Jern\backend'
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-The server runs at `http://localhost:8000` and creates
-`backend/workout_tracker.db` automatically. Then, in a separate terminal at
-the project root, run:
-
-```text
-npm run dev
-```
-
-The Vite interface is available at `http://localhost:5173`.
-
-### Local development without Google sign-in
-
-With `APP_ENV=development`, requests to `localhost` or a loopback IP from a
-loopback connection automatically use the separate `local@workout.local`
-workspace. The frontend restores this local session without loading Google
-sign-in. Restart the backend after changing this setting; ensure its process
-environment does not override it with `APP_ENV=production`.
-
-Public hostnames, LAN clients, and production deployments still require Google
-authentication. Docker Compose and the Render Blueprint explicitly set
-`APP_ENV=production`, so their login remains enabled even when accessed locally.
-Local development data is separate from your Google account's data.
-
-Coach failures are written to `backend/logs/coach.log`. The chat shows an error
-reference that you can search for in this file. Logs rotate at 2 MB and keep
-three older files. The log folder is ignored by Git.
-
-### Port 8000 is already in use
-
-If Uvicorn reports `WinError 10048`, another process is already listening on
-port 8000. Find it with:
-
-```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen |
-  Select-Object LocalAddress, LocalPort, OwningProcess
-```
-
-If it is an old backend process, stop it using the displayed process ID:
-
-```powershell
-Stop-Process -Id <OwningProcess>
-```
-
-## Notes
-
-- SQLite stores one local user’s routines, workout history, and bodyweight entries.
-- Weekly volume is weight × reps, using Monday–Sunday weeks.
-- Volume is counted once against each exercise’s primary mapped muscle group: legs, back, core, chest, shoulders, or arms.
-- Exercise search is performed by FastAPI against Wger and cached locally. A small fallback catalogue is seeded for offline use.
-# Jern
-
-## Run on your Wi-Fi
-
-Start the API in one terminal:
+**1. Start the API** in one terminal:
 
 ```powershell
 cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.in
+$env:APP_ENV = 'development'
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Then start the frontend in another:
+The API runs at `http://localhost:8000` and creates `backend/workout_tracker.db`
+on first start.
+
+**2. Start the frontend** in a second terminal:
 
 ```powershell
-npm run dev -- --host
+npm ci
+npm run dev
 ```
 
-Open the Network address Vite prints on your phone. The app will now automatically call the API on the same computer, using port 8000.
+Open `http://localhost:5173`. In development, requests from this computer skip
+Google sign-in and use a separate local `local@workout.local` workspace.
 
-## Production deployment (Docker/VPS)
+**3. Add optional services.** The tracker works without any API keys. To turn
+on more features, copy `.env.example` to `.env` and fill in the matching
+settings, then restart the API. Never commit `.env`, and never give a secret a
+`VITE_` prefix.
 
-For Render hosting at `workout.felixjohannessen.no`, follow
-[the Render deployment guide](docs/render-deployment.md) instead. The root
-`render.yaml` provisions the frontend, private backend, and persistent SQLite
-disk. Local Docker Compose remains supported.
+| Feature | Settings |
+| --- | --- |
+| Google sign-in | `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID` (same Web client ID), `ALLOWED_EMAILS` |
+| Coach | `GEMINI_API_KEY`, `GEMINI_MODEL`, `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` |
+| Health | `GOOGLE_HEALTH_CLIENT_ID`, `GOOGLE_HEALTH_CLIENT_SECRET`, `GOOGLE_HEALTH_REDIRECT_URI`, `GOOGLE_HEALTH_TOKEN_KEY` |
 
-The production stack serves the frontend and API from one HTTPS origin. Nginx
-serves the Vite build on `127.0.0.1:8080` and proxies `/api/v1` to a single
-FastAPI worker. Put a TLS terminator such as Caddy, Traefik, or Cloudflare in
-front of port 8080; do not expose the backend container directly.
+For Google sign-in, add `http://localhost:5173` and each deployed address under
+**Authorized JavaScript origins** in the Google OAuth client.
+`ALLOWED_EMAILS` takes a comma-separated list of accounts.
 
-1. Copy `.env.example` to `.env` and set `PUBLIC_ORIGIN` and
-   `ALLOWED_ORIGINS` to the exact public HTTPS origin, without a trailing slash.
-2. Set the same Google Web client ID in `GOOGLE_CLIENT_ID` and
-   `VITE_GOOGLE_CLIENT_ID`. Add the public origin to Google's authorized
-   JavaScript origins.
-3. Set `ALLOWED_EMAILS` to the comma-separated accounts that may sign in, plus
-   `GEMINI_API_KEY`. Never commit `.env`.
-4. Run `docker compose up --build -d`, then check
+**Use it on your phone.** Run `npm run dev -- --host` instead and open the
+Network address that Vite prints. The app calls the API on the same computer.
+Requests from other devices still need Google sign-in.
+
+**Port 8000 already in use?** Find the process with
+`Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`
+and stop it with `Stop-Process -Id <id>`. If you see
+`No module named 'app'`, start Uvicorn from the `backend` folder.
+
+## How it works
+
+```mermaid
+flowchart TD
+    Client["Phone or laptop<br/>browser or installed app"] -->|"HTTPS"| Web
+    subgraph Server["Your server"]
+        Web["web<br/>Nginx: serves the React build,<br/>proxies /api/v1"] -->|"/api/v1"| API["api<br/>FastAPI on Uvicorn,<br/>Google sign-in sessions"]
+        API -->|"SQLAlchemy"| DB[("/data<br/>SQLite database")]
+    end
+    API -.->|"coach only"| AI["Gemini and TypeSafe Jev<br/>optional, your keys"]
+    API -.->|"optional"| Health["Google Health<br/>read-only"]
+    API -.->|"cached"| Wger["Wger<br/>exercise catalogue"]
+```
+
+- **Frontend.** React 19 and TypeScript, built with Vite. Each feature (dashboard,
+  workout, routines, calendar, coach, health) keeps its components, styles, and
+  tests together in `src/features`. [Source layout](src/README.md)
+- **Backend.** FastAPI validates requests with Pydantic and stores data with
+  SQLAlchemy. Alembic manages schema migrations. [Backend README](backend/README.md)
+- **Sign-in.** The browser sends a Google ID token once. The API checks it
+  against `ALLOWED_EMAILS` and sets an HttpOnly cookie linked to a session in
+  the database. Sessions end when the browser closes or after 24 hours, and
+  signing out revokes them. Every account's data is kept separate.
+- **Saving.** Workouts save as you log them. Each save carries a revision, so a
+  stale tab gets a conflict instead of overwriting newer data.
+- **One origin.** Locally, Vite forwards `/api` to port 8000. In production,
+  Nginx serves the app and forwards `/api/v1` to the API, which is never
+  exposed directly. `/healthz` checks that the API is up.
+
+### Deploy with Docker
+
+For Render, follow [the Render deployment guide](docs/render-deployment.md).
+`render.yaml` sets up the frontend, a private backend, and a persistent disk
+for SQLite.
+
+For your own server, Docker Compose runs Nginx on `127.0.0.1:8080`. Put a TLS
+proxy such as Caddy, Traefik, or Cloudflare in front of it.
+
+1. Copy `.env.example` to `.env`. Set `PUBLIC_ORIGIN` and `ALLOWED_ORIGINS` to
+   your exact HTTPS address, without a trailing slash.
+2. Set the Google sign-in and any optional service settings from the
+   [Quick start](#quick-start), and add your address to the Google OAuth
+   client's authorized JavaScript origins.
+3. Run `docker compose up --build -d`, then open
    `https://your-domain.example/healthz`.
 
-The first backend start runs `alembic upgrade head` against the named
-`workout_data` volume. SQLite is intentionally limited to one Uvicorn worker;
-move to PostgreSQL before adding backend replicas.
+Each backend start runs `alembic upgrade head` before the API starts. SQLite
+supports one Uvicorn worker, so move to PostgreSQL before adding backend
+replicas.
 
-### Upgrades, backups, and recovery
+### Back up and restore
 
-Before an upgrade, stop writes and copy `/data/workout_tracker.db` from the
-`workout_data` volume to encrypted backup storage. Then pull the new release
-and run `docker compose up --build -d`; migrations run before the API starts.
-To recover, stop the stack, restore the database file into the volume, and
-start the stack again. Keep backup access restricted because the database
-contains workout, bodyweight, and coach-conversation data.
+The database holds workout, bodyweight, and coach conversation data, so keep
+backups encrypted and access restricted.
 
-### Dependency locks and checks
+- **Back up:** stop writes, then copy `/data/workout_tracker.db` from the
+  `workout_data` volume.
+- **Upgrade:** take a backup, pull the new release, and run
+  `docker compose up --build -d`. Migrations run automatically.
+- **Restore:** stop the stack, copy the backup into the volume, and start the
+  stack again.
 
-Production Python dependencies are hash-pinned in
-`backend/requirements.lock`; development and audit tools are pinned in
-`backend/requirements-dev.lock`. Regenerate them on Linux/Python 3.12 with:
+### Tests and dependencies
+
+```powershell
+npm test                     # frontend unit tests
+npm run lint
+npm run build
+cd backend; .\.venv\Scripts\python.exe -m pytest -q
+```
+
+CI also audits npm and Python dependencies, runs migrations on a test database,
+and builds both containers. Production Python dependencies are hash-pinned in
+`backend/requirements.lock`, and development tools in
+`backend/requirements-dev.lock`. Regenerate them on Linux with Python 3.12:
 
 ```text
 uv pip compile backend/requirements.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --output-file backend/requirements.lock
 uv pip compile backend/requirements-dev.in --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --output-file backend/requirements-dev.lock
 ```
 
-CI runs frontend tests, lint, production builds, npm and Python vulnerability
-audits, backend tests, migrations, and both container builds.
-
-## Security upgrade
-
-See [the security remediation notes](docs/security-remediation.md) for the session and workout API changes, proxy configuration, migration verification, and coordinated release and recovery steps.
+See [the security remediation notes](docs/security-remediation.md) for session
+changes, proxy settings, and release and recovery steps.
