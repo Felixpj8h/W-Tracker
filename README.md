@@ -2,6 +2,8 @@
 
 A local, Hevy-inspired workout tracker with routines, editable workout sessions, bodyweight logging, weekly muscle-group volume analytics, and Wger-powered exercise search.
 
+See the backend guide for the API, database, integrations, and build process. [Backend README](backend/README.md)
+
 ## Run the app
 
 Replace `C:\path\to\Jern` below with your actual checkout path.

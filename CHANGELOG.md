@@ -2,6 +2,7 @@
 
 ## 20 November 2026
 
+- Add a linked backend README so contributors can trace how the API, database, and integrations fit together and run the service locally.
 - Add a Sign out button to mobile Settings so users can end their session from either Settings tab.
 
 ## 19 November 2026
