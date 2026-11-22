@@ -26,6 +26,8 @@ import { History } from '../features/history/History';
 import { Settings } from '../features/settings/Settings';
 import { useAccountSettings } from '../features/settings/useAccountSettings';
 
+const RESUME_REFRESH_AFTER_MS = 5 * 60 * 1000;
+
 export function WorkoutApp({ user }: { user: UserProfile }) {
     const [initialWorkout] = useState<Workout | null>(() => { activateAccount(user.email); return storedWorkout(); });
     const [restoringDraft, setRestoringDraft] = useState(Boolean(initialWorkout));
@@ -84,6 +86,20 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         ]);
     };
     useEffect(() => { const initialDate = new Date(); void loadDashboard(); void loadFolders(); void loadHistory(); void loadActive(); void loadCalendar(initialDate.getFullYear(), initialDate.getMonth() + 1); }, [loadCalendar]);
+    // A Home Screen app resumes where it left off instead of reloading. After a
+    // longer break, fetch the overview data again so today's week and stats are current.
+    useEffect(() => {
+        let hiddenAt = 0;
+        const refreshAfterBreak = () => {
+            if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+            if (!hiddenAt || Date.now() - hiddenAt < RESUME_REFRESH_AFTER_MS) return;
+            hiddenAt = 0;
+            const date = new Date();
+            void loadDashboard(); void loadHistory(); void loadActive(); void loadCalendar(date.getFullYear(), date.getMonth() + 1, true);
+        };
+        document.addEventListener('visibilitychange', refreshAfterBreak);
+        return () => document.removeEventListener('visibilitychange', refreshAfterBreak);
+    }, [loadCalendar]);
     useEffect(() => {
         if (!sessionIsCurrent(generation.current) || !workout?.id || workout.completed || editing) return;
         const revision = Math.max(workout.revision ?? 0, acknowledgedRevisions.current.get(workout.id) ?? 0) || undefined;

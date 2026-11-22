@@ -21,5 +21,9 @@ export default defineConfig({
         browserName: 'webkit',
       },
     },
+    {
+      name: 'Android Chrome',
+      use: { ...devices['Pixel 7'], browserName: 'chromium' },
+    },
   ],
 });

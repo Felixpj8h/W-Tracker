@@ -2,6 +2,14 @@
 
 ## 22 November 2026
 
+- Keep the workout search field, close button, and scrollable results above the mobile keyboard. Closing search returns focus and keeps the workout at the same scroll position.
+- Fit Coach and text-entry dialogs to the space above the keyboard, and keep dashboard and More menu actions reachable on short displays.
+- Give Home Screen installs a stable app identity, prefer fullscreen where supported, and keep the sign-in screen clear of phone cutouts. Document installation on iPhone and Android.
+- Run mobile regression tests in iPhone WebKit and Android Chromium, including simulated keyboard resize and viewport panning.
+- Stop iOS from zooming into the History search, calendar pickers, and other small fields when they are focused. In the Home Screen app there was no way to zoom back out. Pinch-zoom still works, and Android is unchanged.
+- Keep the phone screen awake while a live workout is open, so it does not lock between sets. The screen sleeps normally on other pages, when editing a past workout, or when the system denies the request (for example in Low Power Mode).
+- Refresh the dashboard, history, active workouts, and this month's calendar when the app returns after at least five minutes away. Installed apps resume instead of reloading, so the week view and stats could otherwise be out of date.
+- Remove the grey tap flash, double-tap zoom on quick repeated taps, and long-press text selection on buttons. Buttons now dim briefly while pressed. These changes apply only on touch screens.
 - Have Coach check recent working sets before suggesting an exercise weight. If no usable sets are logged, it can use a saved routine weight or explain how to choose a starting load.
 - Shorten the weight advice instructions to reduce the input tokens sent with each Coach request.
 

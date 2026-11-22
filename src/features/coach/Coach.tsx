@@ -146,6 +146,15 @@ export function Coach({ coach, folders, plan }: Props) {
   useEffect(() => { void coach.load(); }, [coach.load]);
   useEffect(() => { if (id && !detail) void coach.refresh(id); }, [id, detail, coach.refresh]);
   useEffect(() => { if (nearBottom && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; }, [id, messages.length, id && coach.drafts[id], nearBottom]);
+  useEffect(() => {
+    const node = timeline.current;
+    if (!nearBottom || !node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (document.documentElement.hasAttribute('data-mobile-keyboard')) node.scrollTop = node.scrollHeight;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nearBottom]);
   useLayoutEffect(() => {
     const resizeComposer = () => {
       const field = composer.current;
@@ -166,7 +175,7 @@ export function Coach({ coach, folders, plan }: Props) {
   const submit = async (value = input) => {
     const text = value.trim(); if (!text || text.length > 4000 || (id && coach.streaming[id])) return;
     setInput('');
-    try { await coach.send(text, id); composer.current?.focus(); } catch (error) { setInput(text); window.alert((error as Error).message); }
+    try { await coach.send(text, id); composer.current?.focus({ preventScroll: true }); } catch (error) { setInput(text); window.alert((error as Error).message); }
   };
   const composerForm = <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
     <textarea ref={composer} rows={1} aria-label="Message your coach" placeholder="Ask your training question..." maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/>

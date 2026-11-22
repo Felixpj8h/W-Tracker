@@ -52,6 +52,31 @@ body.history-session-open .app::after {
     min-height: 0 !important;
     overflow: hidden;
   }
+
+  html:has(.session-search-overlay),
+  html:has(.session-search-overlay) body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html[data-mobile-keyboard] {
+    --mobile-visible-safe-top: max(0px, var(--safe-area-top) - var(--mobile-visible-top));
+  }
+  html[data-mobile-keyboard] .mobile { visibility: hidden; }
+
+  html[data-mobile-keyboard] .back {
+    inset: var(--mobile-visible-top) 0 auto;
+    height: var(--mobile-visible-height);
+    padding-top: max(12px, var(--mobile-visible-safe-top));
+    padding-inline: max(12px, var(--safe-area-left)) max(12px, var(--safe-area-right));
+  }
+  html[data-mobile-keyboard] .back > :is([role="dialog"], .calendar-editor-panel) {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 12px;
+  }
 }
 
 /* Mobile More menu: slides up from the bottom bar on open and back down on close (ease-in-out). */
@@ -59,7 +84,14 @@ body.history-session-open .app::after {
 @keyframes more-sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
 @media (max-width: 760px) {
   .more-wrap { overflow: hidden; }
-  .more-sheet { animation: more-sheet-up .2s cubic-bezier(.42, 0, .58, 1) both; will-change: transform; }
+  .more-sheet {
+    max-height: calc(100% - var(--safe-area-top));
+    padding-inline: max(18px, var(--safe-area-left)) max(18px, var(--safe-area-right));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    animation: more-sheet-up .2s cubic-bezier(.42, 0, .58, 1) both;
+    will-change: transform;
+  }
   .more-wrap.closing .more-sheet { animation: more-sheet-down .15s cubic-bezier(.42, 0, .58, 1) both; }
   .more-wrap.closing { pointer-events: none; }
 }

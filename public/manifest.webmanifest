@@ -2,8 +2,11 @@
   "name": "Jern",
   "short_name": "Jern",
   "description": "Your personal workout tracker.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["fullscreen"],
   "background_color": "#111a14",
   "theme_color": "#111a14",
   "icons": [

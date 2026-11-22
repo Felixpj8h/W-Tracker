@@ -169,6 +169,12 @@ For Google sign-in, add `http://localhost:5173` and each deployed address under
 Network address that Vite prints. The app calls the API on the same computer.
 Requests from other devices still need Google sign-in.
 
+**Install Jern on your phone.** Open the hosted app over HTTPS. On iPhone,
+open the Share menu in Safari, choose **Add to Home Screen**, enable
+**Open as Web App** if shown, and tap **Add**. On Android, open the Chrome menu
+and choose **Install app** or **Add to Home screen**. Launch Jern from its Home
+Screen icon to open it without browser toolbars.
+
 **Port 8000 already in use?** Find the process with
 `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`
 and stop it with `Stop-Process -Id <id>`. If you see

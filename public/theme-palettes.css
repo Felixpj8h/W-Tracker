@@ -2,6 +2,7 @@
 :root {
   --default-background: #f3f5f0;
   --document-background: var(--palette-background, var(--default-background));
+  background: var(--document-background);
 }
 
 :root[data-theme="dark"] { --default-background: #111a14; }

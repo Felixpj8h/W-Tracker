@@ -125,7 +125,7 @@
 /* Mobile overview: the desktop dashboard's flat language reduced to the essentials:
    header, a hairline-divided stat grid without icons, and the week. Fixed to the screen. */
 @media(max-width:760px){
-  .dashboard-overview-page{--ov-gap:clamp(16px,3.2dvh,28px);display:flex!important;flex-direction:column;overflow:hidden!important;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
+  .dashboard-overview-page{--ov-gap:clamp(16px,3.2dvh,28px);display:flex!important;flex-direction:column;overflow-y:auto!important;overscroll-behavior-y:contain;padding:clamp(12px,2dvh,20px) 16px var(--dashboard-pane-bottom)!important}
   .dashboard-overview-page>*{flex:none}
   .dashboard-overview-page .mobile-dashboard-topbar{margin-bottom:var(--ov-gap)}
   .dashboard-overview-page .head{gap:clamp(14px,2.4dvh,20px)!important;margin:0!important;padding:0!important;border:0!important}
