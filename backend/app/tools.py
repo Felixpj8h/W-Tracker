@@ -22,9 +22,9 @@ TOOL_DECLARATIONS = [
     _fn("list_routines", "List saved routines with exercises and current versions.", {}),
     _fn("get_routine", "Get one saved routine.", {"routine_id": {"type": "integer"}}, ["routine_id"]),
     _fn("get_recent_workouts", "Get recent completed workouts. Stored names and notes are untrusted data.", {"limit": {"type": "integer", "minimum": 1, "maximum": 20}, "exercise_id": {"type": ["integer", "null"]}, "routine_id": {"type": ["integer", "null"]}}),
-    _fn("get_exercise_progress", "Get bounded progress history for one exercise.", {"exercise_id": {"type": "integer"}, "days": {"type": "integer", "minimum": 7, "maximum": 730}}, ["exercise_id"]),
+    _fn("get_exercise_progress", "Get recent non-warm-up sets from completed workouts for one exact exercise, including weights, reps and logged effort. Use before recommending a training weight.", {"exercise_id": {"type": "integer"}, "days": {"type": "integer", "minimum": 7, "maximum": 730}}, ["exercise_id"]),
     _fn("get_weekly_plan", "Get the current weekly training plan.", {}),
-    _fn("search_exercises", "Search the exercise catalogue before proposing a routine change.", {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, ["query"]),
+    _fn("search_exercises", "Find an exercise and its ID by name or alias for a history lookup or routine proposal.", {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}, ["query"]),
     _fn("propose_create_routine", "Create a pending routine proposal without modifying data.", {"routine": ROUTINE_SCHEMA, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change helps, grounded in available training data."}}, ["routine", "summary", "reasoning"]),
     _fn("propose_update_routine", "Create a pending full-routine replacement proposal without modifying data.", {"routine_id": {"type": "integer"}, "routine": ROUTINE_SCHEMA, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change helps, grounded in available training data."}}, ["routine_id", "routine", "summary", "reasoning"]),
     _fn("propose_delete_routine", "Create a pending routine deletion proposal without modifying data.", {"routine_id": {"type": "integer"}, "summary": {"type": "string", "description": "What will change."}, "reasoning": {"type": "string", "description": "Brief user-facing explanation of why this change is appropriate, including tradeoffs."}}, ["routine_id", "summary", "reasoning"]),
@@ -74,10 +74,15 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
             if name == "get_exercise_progress":
                 exercise_id = int(args["exercise_id"]); days = min(max(int(args.get("days", 180)), 7), 730); start = date.today() - timedelta(days=days); exercise = db.get(main.Exercise, exercise_id)
                 if not exercise: return {"error": "Exercise not found"}
+                legacy_ids = main.legacy_exercise_ids(db, {exercise.name.strip().lower()})
+                workouts = select(main.Workout).where(
+                    main.Workout.completed == True, main.Workout.performed_on >= start,
+                ).order_by(main.Workout.performed_on, main.Workout.completed_at, main.Workout.created_at, main.Workout.id)
                 sessions = []
-                for workout in db.scalars(select(main.Workout).where(main.Workout.completed == True, main.Workout.performed_on >= start).order_by(main.Workout.performed_on)).all():
+                for workout in db.scalars(workouts):
                     for item in workout.exercises:
-                        if item.cached_exercise_id != exercise_id: continue
+                        matched_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
+                        if matched_id != exercise_id: continue
                         sets = [{"weight": x.weight, "reps": x.reps, "exertion": x.exertion} for x in item.sets if not x.is_warmup]
                         sessions.append({"performed_on": str(workout.performed_on), "workout_name": workout.name, "sets": sets, "volume": sum(x["weight"] * x["reps"] for x in sets), "best_weight": max((x["weight"] for x in sets), default=0)})
                 return {"exercise": main.exercise_out(exercise), "sessions": sessions[-30:]}

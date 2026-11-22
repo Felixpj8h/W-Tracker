@@ -1,8 +1,9 @@
-"""Gemini contract checks that never touch the workout database."""
+"""Gemini contract checks that use synthetic data and no live provider."""
 
-from types import SimpleNamespace
+from datetime import date
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 
 from sqlalchemy import create_engine
@@ -194,6 +195,75 @@ def test_conversation_input_includes_latest_pending_proposal_and_exercise_names(
     assert "<latest_pending_proposal" in content
     assert '"name": "Upper A"' in content
     assert f'"{exercise_id}": "Barbell bench press"' in content
+    engine.dispose()
+
+
+@pytest.mark.parametrize(("history", "planned_weight"), [
+    ("linked", None),
+    ("legacy", 65),
+    (None, 65),
+    (None, None),
+], ids=["blank-target-with-history", "legacy-history-with-target", "saved-target-only", "no-weight-data"])
+def test_weight_advice_receives_working_sets_and_optional_routine_target(monkeypatch, history, planned_weight):
+    from app import main
+
+    owner = "test@example.com"
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    main.Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, info={"owner_email": owner})
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    with session_factory() as db:
+        bench = main.Exercise(name="Barbell bench press", equipment="Barbell")
+        dumbbell_bench = main.Exercise(name="Dumbbell bench press", equipment="Dumbbell")
+        conversation = main.AIConversation(owner_email=owner, title="Coach")
+        db.add_all([bench, dumbbell_bench, conversation])
+        db.flush()
+        routine = main.Routine(name="Push day", exercises=[main.RoutineExercise(
+            exercise_id=bench.id, position=0, planned_sets=3, target_weight=planned_weight,
+        )])
+        workout = main.Workout(name="Push day", performed_on=date.today(), completed=True, exercises=[main.WorkoutExercise(
+            cached_exercise_id=dumbbell_bench.id, name=dumbbell_bench.name, position=0,
+            sets=[main.WorkoutSet(position=0, weight=25, reps=8)],
+        )])
+        if history:
+            workout.exercises.append(main.WorkoutExercise(
+                cached_exercise_id=bench.id if history == "linked" else None, name=bench.name, position=1,
+                sets=[main.WorkoutSet(position=0, weight=20, reps=10, is_warmup=True),
+                      main.WorkoutSet(position=1, weight=60, reps=8, exertion=8)],
+            ))
+        message = main.AIMessage(conversation_id=conversation.id, role="user", status="completed",
+                                 content="What weight should I use for barbell bench press on Push day?")
+        db.add_all([routine, workout, message])
+        db.commit()
+        conversation_id, message_id, bench_id = conversation.id, message.id, bench.id
+
+    def create(**request):
+        if request["input"][-1]["type"] == "function_result":
+            result = request["input"][-1]["result"]
+            assert result["exercise"]["id"] == bench_id
+            assert [session["sets"] for session in result["sessions"]] == (
+                [[{"weight": 60, "reps": 8, "exertion": 8}]] if history else []
+            )
+            return SimpleNamespace(steps=[], output_text="Here is my bench press recommendation.")
+        context = request["input"][0]["content"][0]["text"]
+        assert f'"target_weight": {json.dumps(planned_weight)}' in context
+        assert "What weight should I use for barbell bench press" in context
+        system_instruction = request["system_instruction"]
+        guidance = system_instruction.split("RECOMMENDING EXERCISE WEIGHTS", 1)[1].split("MODIFYING WORKOUT PLANS", 1)[0]
+        assert "Call get_exercise_progress" in guidance
+        assert "most recent usable working sets" in guidance
+        assert "saved planned weight" in guidance
+        assert "pick a cautious starting load" in guidance
+        assert "keep raw field names and null values out of the reply" in guidance
+        return SimpleNamespace(steps=[{
+            "type": "function_call", "name": "get_exercise_progress", "id": "bench-history",
+            "arguments": {"exercise_id": bench_id},
+        }], output_text="")
+
+    monkeypatch.setattr(chatBot, "_client", lambda: SimpleNamespace(interactions=SimpleNamespace(create=create)))
+    events = list(chatBot.stream_coach_turn(conversation_id, message_id, owner))
+    assert any(event["type"] == "tool.completed" and event["ok"] for event in events)
+    assert events[-1]["type"] == "message.completed"
     engine.dispose()
 
 

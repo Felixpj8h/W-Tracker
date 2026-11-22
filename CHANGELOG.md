@@ -1,5 +1,10 @@
 # Changelog
 
+## 22 November 2026
+
+- Have Coach check recent working sets before suggesting an exercise weight. If no usable sets are logged, it can use a saved routine weight or explain how to choose a starting load.
+- Shorten the weight advice instructions to reduce the input tokens sent with each Coach request.
+
 ## 20 November 2026
 
 - Make the Playwright iPhone tests start Jern and use mock API responses, so GitHub Actions can verify the dashboard and mobile sign-out without a backend. Upload an HTML report for each run.
