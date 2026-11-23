@@ -29,8 +29,8 @@ coach proposal decisions with conditional database updates.
 
 ## Proxy configuration
 
-The owner confirmed that Railway hosts the public service. The Render
-blueprint remains an alternative deployment configuration.
+Railway hosts the public service; see the [Railway deployment guide](railway-deployment.md).
+The Render blueprint has been removed.
 
 Set TRUSTED_EDGE_HEADER to X-Real-IP for Railway, which documents that header
 as its client-address header. Configure TRUSTED_EDGE_CIDR on the web service
@@ -73,6 +73,9 @@ SQLite triggers enforce the association independently of ORM validation.
 | Session replay after logout | Full API tests for copied cookies, expiry, allowlist removal and fresh database connections |
 | Stale workout saves | API tests for missing/stale revisions, completed-workout draft rejection, intentional edits, and concurrent saves |
 | Duplicate coach operations | Independent database sessions synchronized before concurrent confirm/confirm and confirm/reject claims |
+| Cross-account access | Account B reads, edits, deletes and references every one of account A's records by ID or date, then A's data is compared before and after. The test fails when a new ID-based route has no check |
+| Development settings in production | `APP_ENV` defaults to `production` and rejects values other than `development` or `production` |
+| Shared custom exercises | API tests that one account cannot find, delete, use or relabel another account's custom exercise, that signed-in requests cannot change or delete catalogue rows, and that migration `0011` assigns existing custom exercises only when exactly one account uses them |
 | Forwarded IP spoofing | Real Nginx/Uvicorn container tests prove trusted ingress sanitization, distinct client buckets, and rejection of forged identity headers from untrusted peers |
 | Public history/progress growth | Pagination, full-history filtering and aggregate totals, duplicate-free cursors, and SQL-count limits with 135 additional workouts |
 | Foreign routine folders | API rejection, direct SQL trigger rejection, and migration repair preserving routine contents |

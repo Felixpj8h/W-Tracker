@@ -215,9 +215,9 @@ flowchart TD
 
 ### Deploy with Docker
 
-For Render, follow [the Render deployment guide](docs/render-deployment.md).
-`render.yaml` sets up the frontend, a private backend, and a persistent disk
-for SQLite.
+Jern is hosted on Railway. Follow [the Railway deployment guide](docs/railway-deployment.md)
+to set up the frontend, a private backend, and a volume for SQLite, and to back
+up the database before migrations.
 
 For your own server, Docker Compose runs Nginx on `127.0.0.1:8080`. Put a TLS
 proxy such as Caddy, Traefik, or Cloudflare in front of it.

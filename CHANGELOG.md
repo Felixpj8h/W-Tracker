@@ -2,6 +2,11 @@
 
 ## 23 November 2026
 
+- Make custom exercises private to the account that created them. Other accounts could find them, delete them, or relabel a catalogue exercise's muscle. Migration `0011_private_custom_exercises` gives each existing custom exercise to the one account that uses it. Back up before deploying.
+- Add `scripts/backup-railway.ps1` to download a verified copy of the production database over `railway ssh`, since Railway's Hobby plan has no volume backups.
+- Replace the Render deployment files with `docs/railway-deployment.md`, since Jern is hosted on Railway.
+- Default `APP_ENV` to `production` and reject unknown values, so a missing setting cannot turn on development settings. Local development sets `APP_ENV=development`.
+- Add a test where a second account tries every ID-based route against the first account's records. It found the shared custom exercises.
 - Fix live workouts failing to save with HTTP 409 after leaving and reopening the app on Android. Saves now carry a device id, so a device can retry its own save after a lost response; saves from other devices still conflict. Adds the `workouts.last_writer_id` column (migration `0010_workout_last_writer`).
 - Stop showing "TypeError: Failed to fetch" during workouts. Android often cuts the network for a backgrounded app, so the save sent on leaving can fail; it is now retried when the app returns instead.
 - Make "Reload saved workout" load the saved copy from the server instead of reloading the page, which restored the same conflicting copy.

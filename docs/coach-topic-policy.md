@@ -14,7 +14,7 @@ remain available only for explicit evaluation diagnostics.
 
 Set `TYPESAFE_API_KEY` in the root `.env` for local development or the backend
 service environment for deployment. Keep it separate from `GEMINI_API_KEY`.
-The backend loads `.env`; Compose, Render and the phone preview script pass the
+The backend loads `.env`; Compose, the Railway service variables and the phone preview script pass the
 classifier settings. Never use frontend `VITE_` variables for either secret.
 
 | Setting | Initial value | Meaning |

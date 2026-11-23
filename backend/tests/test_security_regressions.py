@@ -1,9 +1,15 @@
 import hashlib
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from threading import Barrier
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select, func
 from sqlalchemy.exc import IntegrityError
@@ -218,3 +224,234 @@ def test_proposal_resolution_is_atomic(secure_app, actions):
         count = db.scalar(select(func.count()).select_from(m.Routine))
         assert count == (1 if state == "applied" else 0)
         assert state in ("applied", "rejected")
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, "production"), ("", "production"), (" Development ", "development"), ("production", "production"), ("prod", None), ("staging", None)])
+def test_app_env_fails_closed(tmp_path, value, expected):
+    environment = {key: item for key, item in os.environ.items() if key not in {"APP_ENV", "ENABLE_API_DOCS"}}
+    environment.update({"PYTHON_DOTENV_DISABLED": "1", "DATABASE_URL": f"sqlite:///{tmp_path / 'env.db'}"})
+    if value is not None:
+        environment["APP_ENV"] = value
+    result = subprocess.run([sys.executable, "-c", "from app import main; print(main.APP_ENV, main.DOCS_ENABLED)"],
+        cwd=Path(__file__).resolve().parents[1], env=environment, capture_output=True, text=True, timeout=120)
+    if expected is None:
+        assert result.returncode != 0
+        assert "APP_ENV must be 'development' or 'production'" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split()[-2:] == [expected, str(expected == "development")]
+
+
+def _signed_in_client(account: str) -> TestClient:
+    client = TestClient(m.app, base_url="https://tracker.test", headers={"Origin": "https://tracker.test"})
+    assert client.get("/api/v1/session", headers={"Authorization": f"Bearer {account}"}).status_code == 200
+    return client
+
+
+def _account_a_with_data(a: TestClient, engine) -> dict:
+    """Give account A one of everything an ID-based route can reach."""
+    with Session(engine) as db:
+        exercise = m.Exercise(wger_id="isolation-bench", name="Isolation Bench Press", equipment="Barbell", primary_muscle="Chest", muscle_group="Chest")
+        db.add(exercise); db.commit(); exercise_id = exercise.id
+    custom = a.post("/api/v1/exercises/custom", json={"name": "A secret exercise", "primary_muscle": "Chest"}).json()["id"]
+    folder = a.post("/api/v1/folders", json={"name": "A folder"}).json()["id"]
+    choice = {"exercise_id": exercise_id, "planned_sets": 3, "target_reps": 8}
+    custom_choice = {"exercise_id": custom, "planned_sets": 2, "target_reps": 12}
+    routine = a.post("/api/v1/routines", json={"name": "A routine", "folder_id": folder, "exercises": [choice, custom_choice]}).json()["id"]
+    draft = a.post(f"/api/v1/routines/{routine}/start").json()
+    completed = a.post("/api/v1/workouts", json={"name": "A finished", "performed_on": "2026-03-10", "exercises": [{"exercise_id": exercise_id, "sets": [{"weight": 60, "reps": 8}]}]}).json()
+    label = a.post("/api/v1/calendar/labels", json={"name": "A label", "color": "rose"}).json()["id"]
+    for response in (
+        a.put("/api/v1/calendar/2026-03-11/label", json={"label_id": label}),
+        a.put(f"/api/v1/calendar/2026-03-12/routine/{routine}", json={"name": "A planned", "folder_id": folder, "exercises": [choice]}),
+        a.post("/api/v1/calendar/plan", json={"name": "A plan", "starts_on": "2026-03-02", "days": [{"weekday": 0, "routine_id": routine}]}),
+        a.post("/api/v1/bodyweight", json={"recorded_on": "2026-03-10", "weight": 80.5}),
+        a.put("/api/v1/settings", json={"ai_output_length": "brief"}),
+    ):
+        assert response.status_code == 200, response.text
+    conversation = a.post("/api/v1/ai/conversations", json={"title": "A chat"}).json()["id"]
+    with Session(engine) as db:
+        proposal = m.AIChangeProposal(conversation_id=conversation, operation="create_routine",
+                                      payload=json.dumps({"name": "A proposal", "exercises": []}), summary="A proposal")
+        db.add(proposal); db.commit(); proposal_id = proposal.id
+    return {"exercise": exercise_id, "custom": custom, "folder": folder, "routine": routine, "draft": draft, "completed": completed,
+            "label": label, "conversation": conversation, "proposal": proposal_id}
+
+
+def _account_view(client: TestClient, ids: dict) -> dict:
+    """Everything an account can read about its own data, for a before/after comparison."""
+    paths = ["/api/v1/folders", "/api/v1/workouts", "/api/v1/workouts/active", "/api/v1/calendar/labels", "/api/v1/calendar/plan",
+             "/api/v1/calendar?year=2026&month=3", "/api/v1/bodyweight", "/api/v1/settings", "/api/v1/ai/conversations",
+             f"/api/v1/ai/conversations/{ids['conversation']}", f"/api/v1/workouts/{ids['draft']['id']}", f"/api/v1/workouts/{ids['completed']['id']}",
+             "/api/v1/exercises?q=secret", f"/api/v1/exercises/{ids['custom']}/progress"]
+    view = {}
+    for path in paths:
+        response = client.get(path)
+        view[path] = (response.status_code, response.json())
+    return view
+
+
+# Text that appears only in account A's records.
+A_MARKERS = ("A folder", "A routine", "A finished", "A label", "A planned", "A plan", "A chat", "A proposal", "A secret exercise", "80.5")
+
+
+def test_one_account_cannot_read_or_change_another_accounts_data(secure_app, monkeypatch):
+    a, engine = secure_app
+    # Coach routes check their configuration before the conversation owner.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-never-used")
+    ids = _account_a_with_data(a, engine)
+    before = _account_view(a, ids)
+    assert all(status == 200 for status, _ in before.values()), before
+    draft, completed = ids["draft"], ids["completed"]
+    workout_body = {**draft, "name": "Taken over"}
+    choice = {"exercise_id": ids["exercise"], "planned_sets": 1}
+    conversation, proposal = ids["conversation"], ids["proposal"]
+    # Every route here names one of account A's records. Account B must not
+    # read it, change it, or attach its own data to it.
+    attacks = {
+        ("GET", "/api/v1/ai/conversations/{conversation_id}"): [("GET", f"/api/v1/ai/conversations/{conversation}", None)],
+        ("DELETE", "/api/v1/ai/conversations/{conversation_id}"): [("DELETE", f"/api/v1/ai/conversations/{conversation}", None)],
+        ("POST", "/api/v1/ai/conversations/{conversation_id}/messages"): [("POST", f"/api/v1/ai/conversations/{conversation}/messages", {"content": "Show me the plan"})],
+        ("POST", "/api/v1/ai/conversations/{conversation_id}/retry"): [("POST", f"/api/v1/ai/conversations/{conversation}/retry", {"user_message_id": 1})],
+        ("POST", "/api/v1/ai/conversations/{conversation_id}/cancel"): [("POST", f"/api/v1/ai/conversations/{conversation}/cancel", None)],
+        ("POST", "/api/v1/ai/proposals/{proposal_id}/confirm"): [("POST", f"/api/v1/ai/proposals/{proposal}/confirm", None)],
+        ("POST", "/api/v1/ai/proposals/{proposal_id}/reject"): [("POST", f"/api/v1/ai/proposals/{proposal}/reject", None)],
+        ("PUT", "/api/v1/folders/{folder_id}"): [("PUT", f"/api/v1/folders/{ids['folder']}", {"name": "Taken over"})],
+        ("DELETE", "/api/v1/folders/{folder_id}"): [("DELETE", f"/api/v1/folders/{ids['folder']}", None)],
+        ("PUT", "/api/v1/routines/{routine_id}"): [("PUT", f"/api/v1/routines/{ids['routine']}", {"name": "Taken over", "exercises": []})],
+        ("DELETE", "/api/v1/routines/{routine_id}"): [("DELETE", f"/api/v1/routines/{ids['routine']}", None)],
+        ("POST", "/api/v1/routines/{routine_id}/start"): [("POST", f"/api/v1/routines/{ids['routine']}/start", None)],
+        ("GET", "/api/v1/workouts/{workout_id}"): [("GET", f"/api/v1/workouts/{draft['id']}", None), ("GET", f"/api/v1/workouts/{completed['id']}", None)],
+        ("PUT", "/api/v1/workouts/{workout_id}"): [("PUT", f"/api/v1/workouts/{draft['id']}", workout_body)],
+        ("PATCH", "/api/v1/workouts/{workout_id}"): [("PATCH", f"/api/v1/workouts/{draft['id']}", workout_body),
+                                                     ("PATCH", f"/api/v1/workouts/{completed['id']}", {**completed, "intent": "edit", "note": "Taken over"})],
+        ("DELETE", "/api/v1/workouts/{workout_id}"): [("DELETE", f"/api/v1/workouts/{draft['id']}", None), ("DELETE", f"/api/v1/workouts/{completed['id']}", None)],
+        ("GET", "/api/v1/workouts/{workout_id}/exercise-progress"): [("GET", f"/api/v1/workouts/{completed['id']}/exercise-progress", None)],
+        ("PATCH", "/api/v1/calendar/labels/{label_id}"): [("PATCH", f"/api/v1/calendar/labels/{ids['label']}", {"name": "Taken over", "color": "slate"})],
+        ("DELETE", "/api/v1/calendar/labels/{label_id}"): [("DELETE", f"/api/v1/calendar/labels/{ids['label']}", None)],
+        ("PUT", "/api/v1/calendar/{day}/label"): [("PUT", "/api/v1/calendar/2026-03-13/label", {"label_id": ids["label"]})],
+        ("DELETE", "/api/v1/calendar/{day}/label"): [("DELETE", "/api/v1/calendar/2026-03-11/label", None)],
+        ("DELETE", "/api/v1/calendar/{day}"): [("DELETE", "/api/v1/calendar/2026-03-12", None), ("DELETE", "/api/v1/calendar/2026-03-10", None)],
+        ("PUT", "/api/v1/calendar/{day}/routine/{routine_id}"): [("PUT", f"/api/v1/calendar/2026-03-14/routine/{ids['routine']}", {"name": "B planned", "exercises": [choice]})],
+        ("GET", "/api/v1/exercises/{exercise_id}/progress"): [("GET", f"/api/v1/exercises/{ids['exercise']}/progress", None),
+                                                              ("GET", f"/api/v1/exercises/{ids['custom']}/progress", None)],
+        ("DELETE", "/api/v1/exercises/custom/{exercise_id}"): [("DELETE", f"/api/v1/exercises/custom/{ids['custom']}", None),
+                                                               ("DELETE", f"/api/v1/exercises/custom/{ids['exercise']}", None)],
+    }
+    # Routes that name another account's records in the request body or by date.
+    body_references = [
+        ("POST", "/api/v1/routines", {"name": "B routine", "folder_id": ids["folder"], "exercises": []}),
+        ("POST", "/api/v1/calendar/plan", {"name": "B plan", "starts_on": "2026-03-02", "days": [{"weekday": 1, "routine_id": ids["routine"]}]}),
+        ("POST", "/api/v1/calendar/move", {"source": "2026-03-10", "target": "2026-03-20"}),
+        ("POST", "/api/v1/routines", {"name": "B routine", "exercises": [{"exercise_id": ids["custom"], "planned_sets": 1}]}),
+        ("POST", "/api/v1/workouts", {"name": "B workout", "performed_on": "2026-03-15", "exercises": [{"exercise_id": ids["custom"], "sets": []}]}),
+        ("POST", "/api/v1/exercises/custom", {"name": "Isolation Bench Press", "primary_muscle": "Legs"}),
+    ]
+    # A new route with an ID or date in its path must be added to the attacks above.
+    id_routes = {(method, route.path) for route in m.app.routes
+                 if isinstance(route, APIRoute) and "{" in route.path and route.path.startswith("/api/v1/")
+                 and not route.path.startswith(("/api/v1/demo", "/api/v1/health")) for method in route.methods}
+    assert id_routes == set(attacks), f"Add cross-account checks for: {sorted(id_routes ^ set(attacks))}"
+    with _signed_in_client("b") as b:
+        for method, path, body in [request for requests in attacks.values() for request in requests] + body_references:
+            response = b.request(method, path, json=body)
+            assert response.status_code < 500, (method, path, response.text)
+            if method == "GET" and not path.endswith(f"/exercises/{ids['exercise']}/progress"):
+                assert response.status_code == 404, (method, path, response.text)
+            assert not any(marker in response.text for marker in A_MARKERS), (method, path, response.text)
+        # Account B sees none of account A's records anywhere it can list them.
+        for path in ("/api/v1/folders", "/api/v1/workouts", "/api/v1/workouts/active", "/api/v1/calendar/labels", "/api/v1/calendar/plan",
+                     "/api/v1/calendar?year=2026&month=3", "/api/v1/bodyweight", "/api/v1/ai/conversations", "/api/v1/dashboard",
+                     f"/api/v1/exercises/{ids['exercise']}/progress"):
+            response = b.get(path)
+            assert response.status_code == 200, (path, response.text)
+            assert not any(marker in response.text for marker in A_MARKERS), (path, response.text)
+        assert b.get("/api/v1/settings").json()["ai_output_length"] == "normal"
+    assert _account_view(a, ids) == before
+
+
+
+def test_custom_exercises_stay_private_to_their_account(secure_app):
+    a, engine = secure_app
+    with Session(engine) as db:
+        catalogue = m.Exercise(wger_id="isolation-squat", name="Isolation Squat", equipment="Barbell", primary_muscle="Quadriceps", muscle_group="Legs")
+        db.add(catalogue); db.commit(); catalogue_id = catalogue.id
+    custom = a.post("/api/v1/exercises/custom", json={"name": "A secret exercise", "primary_muscle": "Chest"}).json()
+    assert custom["name"] == "A secret exercise"
+    # Creating it again returns the same row and may update its muscle.
+    again = a.post("/api/v1/exercises/custom", json={"name": "a secret EXERCISE", "primary_muscle": "Back"}).json()
+    assert again["id"] == custom["id"] and again["muscle_group"] == "Back"
+    # A shared catalogue name returns the catalogue exercise unchanged.
+    shared = a.post("/api/v1/exercises/custom", json={"name": "isolation squat", "primary_muscle": "Chest"}).json()
+    assert shared["id"] == catalogue_id and shared["muscle_group"] == "Legs"
+    # LIKE wildcards in a name do not match other exercises.
+    wildcard = a.post("/api/v1/exercises/custom", json={"name": "Isolation_Squat"}).json()
+    assert wildcard["id"] not in (catalogue_id, custom["id"])
+    with _signed_in_client("b") as b:
+        assert "A secret exercise" not in b.get("/api/v1/exercises", params={"q": "secret"}).text
+        assert b.delete(f"/api/v1/exercises/custom/{custom['id']}").status_code == 404
+        assert b.delete(f"/api/v1/exercises/custom/{catalogue_id}").status_code == 404
+        assert b.post("/api/v1/routines", json={"name": "B", "exercises": [{"exercise_id": custom["id"], "planned_sets": 1}]}).status_code == 404
+        # B can have its own exercise with the same name, separate from A's.
+        own = b.post("/api/v1/exercises/custom", json={"name": "A secret exercise"}).json()
+        assert own["id"] != custom["id"]
+        assert [item["id"] for item in b.get("/api/v1/exercises", params={"q": "secret"}).json()] == [own["id"]]
+        assert any(item["id"] == catalogue_id for item in b.get("/api/v1/exercises", params={"q": "squat"}).json())
+    assert [item["id"] for item in a.get("/api/v1/exercises", params={"q": "secret"}).json()] == [custom["id"]]
+    with Session(engine) as db:
+        assert db.get(m.Exercise, catalogue_id).primary_muscle == "Quadriceps"
+        assert db.get(m.Exercise, custom["id"]).owner_email == "a@example.test"
+    assert a.delete(f"/api/v1/exercises/custom/{custom['id']}").status_code == 200
+    assert a.get("/api/v1/exercises", params={"q": "secret"}).json() == []
+
+
+def test_signed_in_requests_cannot_change_shared_catalogue_exercises(secure_app):
+    _, engine = secure_app
+    with Session(engine) as db:
+        catalogue = m.Exercise(wger_id="isolation-row", name="Isolation Row", equipment="Cable", primary_muscle="Lats", muscle_group="Back")
+        db.add(catalogue); db.commit(); catalogue_id = catalogue.id
+    with Session(engine, info={"owner_email": "a@example.test"}) as db:
+        db.get(m.Exercise, catalogue_id).primary_muscle = "Chest"
+        with pytest.raises(PermissionError):
+            db.flush()
+    with Session(engine, info={"owner_email": "a@example.test"}) as db:
+        db.delete(db.get(m.Exercise, catalogue_id))
+        with pytest.raises(PermissionError):
+            db.flush()
+    with Session(engine, info={"owner_email": "a@example.test"}) as db:
+        db.add(m.Exercise(wger_id="forged", name="Forged catalogue row"))
+        with pytest.raises(PermissionError):
+            db.flush()
+    with Session(engine) as db:
+        assert db.get(m.Exercise, catalogue_id).primary_muscle == "Lats"
+
+
+def test_existing_custom_exercises_are_assigned_to_the_one_account_using_them(tmp_path):
+    from app.exercise_ownership import assign_custom_exercise_owners
+    engine = create_engine(f"sqlite:///{tmp_path / 'owners.db'}")
+    m.Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        def exercise(name, wger_id=None):
+            item = m.Exercise(name=name, wger_id=wger_id); db.add(item); db.flush(); return item.id
+        catalogue, routine_only, workout_only, override_only, shared, unused = (
+            exercise("Catalogue", "catalogue-1"), exercise("Routine only"), exercise("Workout only"),
+            exercise("Override only"), exercise("Used by two"), exercise("Unused"))
+        routine = m.Routine(name="A routine", owner_email="a@example.test"); db.add(routine); db.flush()
+        db.add_all([m.RoutineExercise(routine_id=routine.id, exercise_id=routine_only, position=0, planned_sets=3),
+                    m.RoutineExercise(routine_id=routine.id, exercise_id=catalogue, position=1, planned_sets=3),
+                    m.RoutineExercise(routine_id=routine.id, exercise_id=shared, position=2, planned_sets=3)])
+        workout = m.Workout(name="B workout", owner_email="b@example.test"); db.add(workout); db.flush()
+        db.add_all([m.WorkoutExercise(workout_id=workout.id, cached_exercise_id=workout_only, name="Workout only", position=0),
+                    m.WorkoutExercise(workout_id=workout.id, cached_exercise_id=shared, name="Used by two", position=1)])
+        other = m.Routine(name="C routine", owner_email="c@example.test"); db.add(other); db.flush()
+        db.add(m.CalendarAssignment(day=date(2026, 3, 1), owner_email="c@example.test", routine_id=other.id,
+                                    workout_override=json.dumps({"exercises": [{"exercise_id": override_only}]})))
+        db.commit()
+    with engine.begin() as connection:
+        assert assign_custom_exercise_owners(connection) == 3
+    with Session(engine) as db:
+        owners = {item.name: item.owner_email for item in db.scalars(select(m.Exercise))}
+    assert owners == {"Catalogue": None, "Routine only": "a@example.test", "Workout only": "b@example.test",
+                      "Override only": "c@example.test", "Used by two": None, "Unused": None}
+    with engine.begin() as connection:
+        assert assign_custom_exercise_owners(connection) == 0

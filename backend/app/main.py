@@ -111,6 +111,9 @@ class Exercise(Base):
     secondary_muscles: Mapped[str] = mapped_column(String(300), default="")
     muscle_data_synced: Mapped[bool] = mapped_column(Boolean, default=False)
     search_aliases: Mapped[str] = mapped_column(String(1000), default="")
+    # NULL for the shared catalogue. A custom exercise belongs to one account,
+    # and only that account can see, change or delete it.
+    owner_email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True, index=True)
 
 
 class RoutineFolder(OwnedRecord, Base):
@@ -334,6 +337,9 @@ def _scope_tenant_queries(execute_state):
         statement = statement.options(
             with_loader_criteria(model, lambda cls: cls.owner_email == owner_email, include_aliases=True)
         )
+    # Exercises: the shared catalogue plus this account's custom exercises.
+    statement = statement.options(with_loader_criteria(
+        Exercise, lambda cls: or_(cls.owner_email.is_(None), cls.owner_email == owner_email), include_aliases=True))
     execute_state.statement = statement
 
 
@@ -348,9 +354,21 @@ def _stamp_tenant_rows(session, _flush_context, _instances):
             if item.owner_email and item.owner_email != owner_email:
                 raise PermissionError("Cross-account write rejected")
             item.owner_email = owner_email
+        elif isinstance(item, Exercise):
+            # Exercises created during a signed-in request are custom exercises.
+            # Only the background catalogue refresh, which has no account, adds
+            # shared catalogue rows.
+            if item.wger_id is not None or (item.owner_email and item.owner_email != owner_email):
+                raise PermissionError("Cross-account write rejected")
+            item.owner_email = owner_email
     for item in session.dirty:
         if isinstance(item, TENANT_MODELS) and item.owner_email != owner_email:
             raise PermissionError("Cross-account write rejected")
+        if isinstance(item, Exercise) and item.owner_email != owner_email:
+            raise PermissionError("Shared catalogue exercises cannot be changed")
+    for item in session.deleted:
+        if isinstance(item, Exercise) and item.owner_email != owner_email:
+            raise PermissionError("Shared catalogue exercises cannot be deleted")
 
 
 class Model(BaseModel):
@@ -773,7 +791,11 @@ def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle
     db.add(exercise); db.flush(); return exercise
 
 
-APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+# Fail closed: an unset APP_ENV means production. Development relaxes cookie,
+# origin and docs settings, so it must be requested explicitly.
+APP_ENV = os.getenv("APP_ENV", "").strip().lower() or "production"
+if APP_ENV not in {"development", "production"}:
+    raise RuntimeError(f"APP_ENV must be 'development' or 'production', not {APP_ENV!r}")
 DOCS_ENABLED = os.getenv("ENABLE_API_DOCS", "true" if APP_ENV == "development" else "false").strip().lower() == "true"
 app = FastAPI(
     title="Jern API",
@@ -913,6 +935,12 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN secondary_muscles VARCHAR(300) DEFAULT ''")
         if "muscle_data_synced" not in exercise_columns:
             connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN muscle_data_synced BOOLEAN DEFAULT 0")
+        # Give existing custom exercises an owner once, after the columns the
+        # assignment reads have been added below.
+        assign_exercise_owners = "owner_email" not in exercise_columns
+        if assign_exercise_owners:
+            connection.exec_driver_sql("ALTER TABLE exercises ADD COLUMN owner_email VARCHAR(320)")
+            connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_exercises_owner_email ON exercises (owner_email)")
         workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
         if "note" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN note VARCHAR(1000)")
@@ -942,6 +970,9 @@ def startup():
         proposal_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(ai_change_proposals)")}
         if "reasoning" not in proposal_columns:
             connection.exec_driver_sql("ALTER TABLE ai_change_proposals ADD COLUMN reasoning TEXT")
+        if assign_exercise_owners:
+            from .exercise_ownership import assign_custom_exercise_owners
+            assign_custom_exercise_owners(connection)
     with SessionLocal() as db:
         for exercise in db.scalars(select(Exercise)).all():
             correction = EXERCISE_OVERRIDES.get(exercise.name.strip().lower())
@@ -1347,9 +1378,20 @@ async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
 
 
 @app.post("/api/v1/exercises/custom", response_model=ExerciseOut)
-def create_custom_exercise(payload: CustomExerciseIn, db: Session = Depends(get_db)):
-    existing = db.scalar(select(Exercise).where(Exercise.name.ilike(payload.name.strip())))
-    exercise = existing or store_exercise(db, payload.name.strip(), payload.equipment, payload.primary_muscle)
+def create_custom_exercise(payload: CustomExerciseIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    # Exact, case-insensitive match. LIKE would treat % and _ in a name as wildcards.
+    matches = db.scalars(select(Exercise).where(func.lower(Exercise.name) == name.lower()).order_by(Exercise.id)).all()
+    exercise = next((item for item in matches if item.owner_email == actor.owner_email), None)
+    if exercise is None and matches:
+        # An exercise everyone shares already has this name. Use it unchanged.
+        return saved_response(exercise_out(matches[0]))
+    if exercise is None:
+        muscle = canonical_muscle(payload.primary_muscle)
+        primary, group = EXERCISE_OVERRIDES.get(name.lower(), (muscle, group_for(muscle)))
+        exercise = Exercise(name=name, equipment=payload.equipment or "Other", primary_muscle=primary,
+                            muscle_group=group, secondary_muscles="", muscle_data_synced=True)
+        db.add(exercise)
     if payload.primary_muscle in GROUPS:
         exercise.primary_muscle = payload.primary_muscle
         exercise.muscle_group = payload.primary_muscle
@@ -1358,9 +1400,9 @@ def create_custom_exercise(payload: CustomExerciseIn, db: Session = Depends(get_
 
 
 @app.delete("/api/v1/exercises/custom/{exercise_id}")
-def delete_custom_exercise(exercise_id: int, db: Session = Depends(get_db)):
+def delete_custom_exercise(exercise_id: int, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
     exercise = db.get(Exercise, exercise_id)
-    if not exercise or exercise.wger_id is not None:
+    if not exercise or exercise.wger_id is not None or exercise.owner_email != actor.owner_email:
         raise HTTPException(404, "Custom exercise not found")
     db.delete(exercise); db.commit()
     return {"deleted": True, "saved": True}

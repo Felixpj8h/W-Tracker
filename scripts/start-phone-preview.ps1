@@ -103,6 +103,8 @@ $frontendErr = Join-Path $logRoot 'frontend-error.log'
 $frontendTunnelOut = Join-Path $logRoot 'frontend-tunnel.log'
 $frontendTunnelErr = Join-Path $logRoot 'frontend-tunnel-error.log'
 
+# The API defaults to production settings. This preview is a development tool.
+if (-not $env:APP_ENV) { $env:APP_ENV = 'development' }
 Write-Host 'Starting backend...' -ForegroundColor Cyan
 $null = Start-Process -FilePath 'python' -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') -WorkingDirectory $backendRoot -WindowStyle Hidden -RedirectStandardOutput $backendOut -RedirectStandardError $backendErr -PassThru
 Wait-ForBackend

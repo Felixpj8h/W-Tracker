@@ -116,6 +116,6 @@ and installs the hash-pinned `requirements.lock`. At startup it runs
 The `uvicorn` command in the local quick start uses FastAPI's development
 startup to initialize the database. [Backend Dockerfile](Dockerfile)
 
-Docker Compose and the Render Blueprint both mount persistent storage at
+Docker Compose and the Railway volume both mount persistent storage at
 `/data` for `workout_tracker.db`. Nginx exposes `/healthz` as a proxy to the
-backend's `/api/v1/health` endpoint. [Docker Compose](../compose.yaml) · [Render deployment guide](../docs/render-deployment.md)
+backend's `/api/v1/health` endpoint. [Docker Compose](../compose.yaml) · [Railway deployment guide](../docs/railway-deployment.md)
