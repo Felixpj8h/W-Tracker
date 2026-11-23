@@ -5,6 +5,8 @@ import { HistoryAnalysis } from './HistoryAnalysis';
 
 afterEach(cleanup);
 
+const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
 const workouts = [
   { id: 1, performed_on: '2026-09-12', exercises: [{ exercise_id: 1, name: 'Back squat', sets: [{ weight: 10, reps: 10 }] }] },
   { id: 2, performed_on: '2026-09-22', exercises: [{ exercise_id: 1, name: 'Back squat', sets: [{ weight: 15, reps: 10 }] }, { exercise_id: 2, name: 'Cable crunch', sets: [{ weight: 3, reps: 10 }] }] },
@@ -33,6 +35,53 @@ describe('History analysis', () => {
     fireEvent.click(screen.getByText('1M'));
     expect(screen.getByText('No logged data for this period.')).toBeTruthy();
     expect(screen.getByText('＋ Add')).toBeTruthy();
+  });
+
+  it('leaves skipped sets out of points, counts and tooltips while keeping logged zero-load sets', async () => {
+    const { container } = render(<HistoryAnalysis completed={[
+      { id: 1, performed_on: '2026-09-12', exercises: [
+        { exercise_id: 1, name: 'Back squat', sets: [{ weight: 10, reps: 10, completed: false }] },
+        { exercise_id: 2, name: 'Cable crunch', sets: [{ weight: 0, reps: 10, completed: false }] },
+      ] },
+      { id: 2, performed_on: '2026-09-22', exercises: [
+        { exercise_id: 1, name: 'Back squat', sets: [{ weight: 15, reps: 10, completed: true }, { weight: 50, reps: 10, completed: false }] },
+        { exercise_id: 2, name: 'Cable crunch', sets: [{ weight: 30, reps: 10, completed: false }] },
+        { name: 'Empty exercise', sets: [] },
+        { name: 'Blank set', sets: [{ weight: 0, reps: 0 }] },
+      ] },
+      { id: 3, performed_on: '2026-09-22', exercises: [
+        { exercise_id: 2, name: 'Cable crunch', sets: [{ weight: 0, reps: 10, completed: true }] },
+      ] },
+    ]}/>);
+    const squat = await screen.findByRole('button', { name: `Back squat, ${dateLabel('2026-09-22')}, 150 kg` });
+    expect(screen.getByRole('button', { name: `Back squat, ${dateLabel('2026-09-12')}, 100 kg` })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Cable crunch, ${dateLabel('2026-09-22')}, 0 kg` })).toBeTruthy();
+    expect(container.querySelectorAll('.analysis-point')).toHaveLength(3);
+    fireEvent.click(squat);
+    expect(container.querySelector('.analysis-tooltip')?.textContent).toContain('Back squat150 kg');
+    expect(container.querySelector('.analysis-tooltip')?.textContent).not.toContain('Cable crunch');
+    fireEvent.click(screen.getByLabelText('Remove Cable crunch'));
+    fireEvent.click(screen.getByText('＋ Add'));
+    expect(screen.getByRole('button', { name: /Cable crunch.*1 sessions/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Empty exercise|Blank set/ })).toBeNull();
+  });
+
+  it('combines both pushdown names once per workout across linked and unlinked history', async () => {
+    const { container } = render(<HistoryAnalysis completed={[
+      { id: 1, performed_on: '2026-09-12', exercises: [{ name: ' Tricep  pushdown on cable ', sets: [{ weight: 10, reps: 10 }] }] },
+      { id: 2, performed_on: '2026-09-22', exercises: [
+        { cached_exercise_id: 7, name: 'Tricep Pushdown on Cable', sets: [{ weight: 15, reps: 10 }] },
+        { exercise_id: 8, name: 'Triceps Pushdown', sets: [{ weight: 20, reps: 10 }] },
+        { exercise_id: 9, name: 'Single-arm cable pushdown', sets: [{ weight: 5, reps: 10 }] },
+      ] },
+    ]}/>);
+    expect(await screen.findByRole('button', { name: `Tricep pushdown, ${dateLabel('2026-09-12')}, 100 kg` })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Tricep pushdown, ${dateLabel('2026-09-22')}, 350 kg` })).toBeTruthy();
+    expect(container.querySelectorAll('.analysis-chip')).toHaveLength(2);
+    expect(container.querySelectorAll('.analysis-point')).toHaveLength(3);
+    fireEvent.click(screen.getByLabelText('Remove Tricep pushdown'));
+    fireEvent.click(screen.getByText('＋ Add'));
+    expect(screen.getByRole('button', { name: /Tricep pushdown.*2 sessions/ })).toBeTruthy();
   });
 });
 

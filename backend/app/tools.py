@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 
 def _fn(name: str, description: str, properties: dict[str, Any], required: list[str] | None = None) -> dict:
@@ -61,10 +61,7 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
                 return {"plan": _jsonable(main.weekly_plan_out(item)) if item else None}
             if name == "search_exercises":
                 query = str(args.get("query", "")).strip(); limit = min(max(int(args.get("limit", 10)), 1), 20)
-                statement = select(main.Exercise)
-                if query:
-                    needle = f"%{query}%"; statement = statement.where(or_(main.Exercise.name.ilike(needle), main.Exercise.search_aliases.ilike(needle)))
-                return {"exercises": [main.exercise_out(item) for item in db.scalars(statement.order_by(main.Exercise.name).limit(limit)).all()]}
+                return {"exercises": main.search_exercise_catalogue(db, query, limit)}
             if name == "get_recent_workouts":
                 limit = min(max(int(args.get("limit", 8)), 1), 20); statement = select(main.Workout).where(main.Workout.completed == True)
                 if args.get("routine_id") is not None: statement = statement.where(main.Workout.routine_id == int(args["routine_id"]))
@@ -74,18 +71,15 @@ def execute_tool(name: str, args: dict[str, Any], conversation_id: int, message_
             if name == "get_exercise_progress":
                 exercise_id = int(args["exercise_id"]); days = min(max(int(args.get("days", 180)), 7), 730); start = date.today() - timedelta(days=days); exercise = db.get(main.Exercise, exercise_id)
                 if not exercise: return {"error": "Exercise not found"}
-                legacy_ids = main.legacy_exercise_ids(db, {exercise.name.strip().lower()})
                 workouts = select(main.Workout).where(
                     main.Workout.completed == True, main.Workout.performed_on >= start,
                 ).order_by(main.Workout.performed_on, main.Workout.completed_at, main.Workout.created_at, main.Workout.id)
-                sessions = []
-                for workout in db.scalars(workouts):
-                    for item in workout.exercises:
-                        matched_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
-                        if matched_id != exercise_id: continue
-                        sets = [{"weight": x.weight, "reps": x.reps, "exertion": x.exertion} for x in item.sets if not x.is_warmup]
-                        sessions.append({"performed_on": str(workout.performed_on), "workout_name": workout.name, "sets": sets, "volume": sum(x["weight"] * x["reps"] for x in sets), "best_weight": max((x["weight"] for x in sets), default=0)})
-                return {"exercise": main.exercise_out(exercise), "sessions": sessions[-30:]}
+                sessions = main.sessions_for_exercise(db, exercise, db.scalars(workouts))
+                return {"exercise": main.exercise_out(exercise), "sessions": [
+                    {"performed_on": str(row["performed_on"]), "workout_name": row["workout_name"],
+                     "sets": row["sets"], "volume": row["volume"], "best_weight": row["best_weight"]}
+                    for row in sessions[-30:]
+                ]}
             if name == "get_training_summary":
                 days = min(max(int(args.get("days", 56)), 7), 365); start = date.today() - timedelta(days=days)
                 workouts = db.scalars(select(main.Workout).where(main.Workout.completed == True, main.Workout.performed_on >= start).order_by(main.Workout.performed_on)).all(); muscle_sets: defaultdict[str, int] = defaultdict(int); volume = 0.0

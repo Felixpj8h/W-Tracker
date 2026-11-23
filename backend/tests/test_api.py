@@ -852,6 +852,46 @@ def test_ambiguous_unlinked_exercise_names_are_not_matched():
     assert result["sessions"] == []
 
 
+def test_cable_pushdown_aliases_share_search_and_progress_without_breaking_old_ids():
+    reset_db()
+    with Session(engine) as db:
+        cable = main_module.store_exercise(db, "Tricep Pushdown on Cable", "Cable machine", "Triceps", wger_id="cable-pushdown")
+        short = main_module.store_exercise(db, "Triceps Pushdown", "Cable machine", "Triceps", wger_id="short-pushdown")
+        single_arm = main_module.store_exercise(db, "Single-arm cable pushdown", "Cable machine", "Triceps", wger_id="single-arm-pushdown")
+        cable_id, short_id, single_arm_id = cable.id, short.id, single_arm.id
+        db.commit()
+
+    for query in ["tricep push", "pushdown", "Tricep Pushdown on Cable", "Triceps Pushdown"]:
+        exercises = client.get("/api/v1/exercises", params={"q": query}).json()
+        assert [(item["id"], item["name"]) for item in exercises if item["id"] != single_arm_id] == [(short_id, "Tricep pushdown")]
+    assert client.get("/api/v1/exercises", params={"q": "single-arm pushdown"}).json()[0]["id"] == single_arm_id
+    custom = client.post("/api/v1/exercises/custom", json={"name": "Tricep pushdown on cable", "equipment": "Cable machine"})
+    assert custom.json()["id"] == short_id
+
+    sets = [{"weight": 20, "reps": 10}]
+    logged = client.post("/api/v1/workouts", json={
+        "name": "Arms", "performed_on": "2026-11-22", "exercises": [
+            {"exercise_id": cable_id, "sets": sets},
+            {"exercise_id": short_id, "sets": sets},
+            {"name": "Tricep pushdown on cable", "sets": sets},
+            {"exercise_id": single_arm_id, "sets": sets},
+        ],
+    }).json()
+    assert [(item["cached_exercise_id"], item["name"]) for item in logged["exercises"]] == [
+        (cable_id, "Tricep pushdown"), (short_id, "Tricep pushdown"), (None, "Tricep pushdown"),
+        (single_arm_id, "Single-arm cable pushdown"),
+    ]
+    for exercise_id in [cable_id, short_id]:
+        progress = client.get(f"/api/v1/exercises/{exercise_id}/progress").json()
+        assert [(row["workout_id"], row["volume"]) for row in progress["sessions"]] == [(logged["id"], 600)]
+
+    draft = client.post("/api/v1/workouts/draft", json={"name": "More arms", "performed_on": "2026-11-23"}).json()
+    saved = client.patch(f"/api/v1/workouts/{draft['id']}", json={**draft, "exercises": [{"exercise_id": cable_id}]})
+    assert saved.status_code == 200
+    batch = client.get(f"/api/v1/workouts/{draft['id']}/exercise-progress").json()
+    assert [row["volume"] for row in batch[str(cable_id)]["sessions"]] == [600]
+
+
 def test_cancelling_a_workout_is_idempotent():
     reset_db()
     draft = client.post('/api/v1/workouts/draft', json={'name': 'Cancel retry'}).json()

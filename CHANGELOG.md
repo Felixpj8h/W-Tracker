@@ -2,6 +2,8 @@
 
 ## 23 November 2026
 
+- Skip exercises with no logged sets in the History volume chart and count each workout once per exercise. Completed bodyweight sets can still show 0 kg.
+- Show the two cable pushdown names as one Tricep pushdown in exercise search, including partial searches in the workout-day builder, and include both names' logged sets in progress.
 - Make custom exercises private to the account that created them. Other accounts could find them, delete them, or relabel a catalogue exercise's muscle. Migration `0011_private_custom_exercises` gives each existing custom exercise to the one account that uses it. Back up before deploying.
 - Add `scripts/backup-railway.ps1` to download a verified copy of the production database over `railway ssh`, since Railway's Hobby plan has no volume backups.
 - Replace the Render deployment files with `docs/railway-deployment.md`, since Jern is hosted on Railway.

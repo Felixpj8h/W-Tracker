@@ -7,7 +7,7 @@ type LoggedWorkout = {
     exercise_id?: number | null;
     cached_exercise_id?: number | null;
     name: string;
-    sets?: { weight: number; reps: number }[];
+    sets?: { weight: number; reps: number; completed?: boolean }[];
   }[];
 };
 
@@ -19,8 +19,10 @@ const dayTime = (date: string) => new Date(`${date}T12:00:00`).getTime();
 const shortDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const longDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const normalizedName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+const pushdownName = 'Tricep pushdown';
+const pushdownKey = 'alias:tricep pushdown';
+const isPushdown = (name: string) => /^triceps? pushdowns?(?: on cable)?$/.test(normalizedName(name));
 const linkedId = (exercise: LoggedWorkout['exercises'][number]) => exercise.exercise_id ?? exercise.cached_exercise_id;
-const volume = (sets: LoggedWorkout['exercises'][number]['sets']) => (sets ?? []).reduce((total, set) => total + set.weight * set.reps, 0);
 const formatVolume = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
 
 function niceStep(value: number) {
@@ -40,9 +42,11 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
   // Resolve legacy names against all loaded history, before applying date filters.
   // Multiple known IDs with one name are intentionally kept separate.
   const idsByName = new Map<string, Set<number>>();
+  const pushdownIds = new Set<number>();
   for (const workout of ordered) for (const exercise of workout.exercises) {
     const id = linkedId(exercise);
     if (id == null) continue;
+    if (isPushdown(exercise.name)) pushdownIds.add(id);
     const name = normalizedName(exercise.name);
     const ids = idsByName.get(name) ?? new Set<number>();
     ids.add(id); idsByName.set(name, ids);
@@ -51,26 +55,42 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
     const name = normalizedName(exercise.name);
     const candidates = idsByName.get(name);
     const id = linkedId(exercise) ?? (candidates?.size === 1 ? [...candidates][0] : undefined);
+    if (isPushdown(name) || (id != null && pushdownIds.has(id))) return pushdownKey;
     return id == null ? 'legacy:' + name : 'id:' + id;
   };
-  const exerciseCounts = new Map<string, { name: string; count: number }>();
-  for (const workout of ordered) for (const exercise of workout.exercises) {
-    const key = exerciseKey(exercise);
-    const current = exerciseCounts.get(key);
-    exerciseCounts.set(key, { name: exercise.name, count: (current?.count ?? 0) + 1 });
-  }
+  const loggedExercises = new Map<string, { name: string; points: Series['points'] }>();
+  ordered.forEach((workout, index) => {
+    const hasCheckedSets = workout.exercises.some(exercise => exercise.sets?.some(set => set.completed));
+    const volumes = new Map<string, { name: string; value: number }>();
+    for (const exercise of workout.exercises) {
+      // Older sessions can have logged weights but no checked sets because the
+      // completion flag defaulted to false. Keep those weighted sets.
+      const sets = (exercise.sets ?? []).filter(set => set.reps > 0 && (
+        set.completed !== false || (!hasCheckedSets && set.weight > 0)
+      ));
+      if (sets.length === 0) continue;
+      const key = exerciseKey(exercise);
+      const value = sets.reduce((total, set) => total + set.weight * set.reps, 0);
+      volumes.set(key, { name: key === pushdownKey ? pushdownName : exercise.name, value: (volumes.get(key)?.value ?? 0) + value });
+    }
+    for (const [key, { name, value }] of volumes) {
+      const points = loggedExercises.get(key)?.points ?? [];
+      points.push({ id: workout.id == null ? `index:${index}` : String(workout.id), date: workout.performed_on, value });
+      loggedExercises.set(key, { name, points });
+    }
+  });
   const keysByName = new Map<string, Set<string>>();
-  for (const [key, item] of exerciseCounts) {
+  for (const [key, item] of loggedExercises) {
     const name = normalizedName(item.name);
     const keys = keysByName.get(name) ?? new Set<string>();
     keys.add(key); keysByName.set(name, keys);
   }
-  for (const [key, item] of exerciseCounts) {
+  for (const [key, item] of loggedExercises) {
     if ((keysByName.get(normalizedName(item.name))?.size ?? 0) > 1) {
       item.name = item.name.trim() + (key.startsWith('legacy:') ? ' (Unlinked history)' : ' (Record ' + key.slice(3) + ')');
     }
   }
-  const options = [...exerciseCounts].map(([key, item]) => ({ key, ...item })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const options = [...loggedExercises].map(([key, item]) => ({ key, name: item.name, count: item.points.length })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   useEffect(() => {
     if (!initialized.current && options.length) {
       initialized.current = true;
@@ -83,12 +103,8 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
   const startTime = range === 'All' ? firstTime : latestTime - (rangeDays[range] - 1) * 86400000;
   const series: Series[] = selected.map(item => ({
     ...item,
-    name: exerciseCounts.get(item.key)?.name ?? 'Exercise',
-    points: ordered.flatMap((workout, index) => {
-      if (dayTime(workout.performed_on) < startTime) return [];
-      const matching = workout.exercises.filter(exercise => exerciseKey(exercise) === item.key);
-      return matching.length ? [{ id: String(workout.id ?? index), date: workout.performed_on, value: matching.reduce((total, exercise) => total + volume(exercise.sets), 0) }] : [];
-    }),
+    name: loggedExercises.get(item.key)?.name ?? 'Exercise',
+    points: loggedExercises.get(item.key)?.points.filter(point => dayTime(point.date) >= startTime) ?? [],
   }));
   const allPoints = series.flatMap(item => item.points);
   const values = allPoints.map(point => point.value);
@@ -104,7 +120,7 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
   const plotX = (date: string) => startTime === latestTime ? 50 : 2 + (dayTime(date) - startTime) / (latestTime - startTime) * 96;
   const plotY = (value: number) => 90 - (value - axisMin) / axisSpan * 78;
   const xTicks = Array.from({ length: 5 }, (_, index) => new Date(startTime + (latestTime - startTime) * index / 4).toISOString().slice(0, 10));
-  const hoveredRows = hovered ? series.flatMap(item => item.points.filter(point => point.date === hovered.date).map(point => ({ ...point, name: item.name, color: item.color }))) : [];
+  const hoveredRows = hovered ? series.flatMap(item => item.points.filter(point => point.id === hovered.id).map(point => ({ ...point, name: item.name, color: item.color }))) : [];
   const addExercise = (key: string) => {
     setSelected(current => {
       if (current.length >= 3 || current.some(item => item.key === key)) return current;
@@ -123,7 +139,7 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
     </div>
     <div className="analysis-compare">
       <span>Compare exercises</span>
-      <div className="analysis-chips">{selected.map(item => <div className="analysis-chip" key={item.key}><i style={{ backgroundColor: item.color }}/><span>{exerciseCounts.get(item.key)?.name ?? 'Exercise'}</span><button type="button" aria-label={`Remove ${exerciseCounts.get(item.key)?.name ?? 'exercise'}`} onClick={() => { setSelected(current => current.filter(value => value.key !== item.key)); setHovered(null); }}>×</button></div>)}
+      <div className="analysis-chips">{selected.map(item => <div className="analysis-chip" key={item.key}><i style={{ backgroundColor: item.color }}/><span>{loggedExercises.get(item.key)?.name ?? 'Exercise'}</span><button type="button" aria-label={`Remove ${loggedExercises.get(item.key)?.name ?? 'exercise'}`} onClick={() => { setSelected(current => current.filter(value => value.key !== item.key)); setHovered(null); }}>×</button></div>)}
         {selected.length < 3 && <div className="analysis-add-wrap"><button type="button" className="analysis-add" aria-expanded={pickerOpen} onClick={() => setPickerOpen(value => !value)}>＋ Add</button>{pickerOpen && <div className="analysis-options"><input autoFocus aria-label="Search exercises" placeholder="Search exercises" value={search} onChange={event => setSearch(event.target.value)}/><div>{options.filter(option => !selected.some(item => item.key === option.key) && option.name.toLowerCase().includes(search.toLowerCase())).map(option => <button type="button" key={option.key} onClick={() => addExercise(option.key)}>{option.name}<small>{option.count} sessions</small></button>)}</div></div>}</div>}
       </div>
       <small>{selected.length} / 3 selected</small>

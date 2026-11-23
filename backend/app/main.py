@@ -25,7 +25,7 @@ from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine, event, false, func, select, or_, update, delete
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, and_, create_engine, event, false, func, select, or_, update, delete
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -766,11 +766,29 @@ def dashboard_muscles(exercise: WorkoutExercise) -> list[str]:
     return list(dict.fromkeys(muscle for muscle in muscles if muscle))
 
 
+PUSHDOWN_NAME = "Tricep pushdown"
+_PUSHDOWN_SHORT_NAMES = {"tricep pushdown", "triceps pushdown", "tricep pushdowns", "triceps pushdowns"}
+PUSHDOWN_NAMES = _PUSHDOWN_SHORT_NAMES | {f"{name} on cable" for name in _PUSHDOWN_SHORT_NAMES}
+
+
+def exercise_display_name(name: str) -> str:
+    return PUSHDOWN_NAME if " ".join(name.lower().split()) in PUSHDOWN_NAMES else name
+
+
+def pushdown_exercises(db: Session) -> list[Exercise]:
+    # Keep both catalogue IDs valid for saved routines and workouts, and prefer
+    # the shared, short-name entry when offering a new selection.
+    matches = db.scalars(select(Exercise).where(func.lower(func.trim(Exercise.name)).in_(PUSHDOWN_NAMES)))
+    return sorted(matches, key=lambda item: (
+        item.owner_email is not None, item.name.strip().lower() not in _PUSHDOWN_SHORT_NAMES, item.id,
+    ))
+
+
 def exercise_out(exercise: Exercise) -> dict:
     primary = canonical_muscle(exercise.primary_muscle) or "Unmapped"
     secondary = [name for name in stored_secondary_muscles(exercise.secondary_muscles) if name != primary]
     display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-    return {"id": exercise.id, "name": exercise.name, "equipment": exercise.equipment, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": exercise.muscle_group}
+    return {"id": exercise.id, "name": exercise_display_name(exercise.name), "equipment": exercise.equipment, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": exercise.muscle_group}
 
 
 def routine_out(routine: Routine) -> dict:
@@ -1359,14 +1377,21 @@ def reject_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_actor
 
 @app.get("/api/v1/exercises", response_model=list[ExerciseOut])
 async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
-    query = q.strip()
-    words = [word for word in query.split() if word]
+    return search_exercise_catalogue(db, q, limit=12)
+
+
+def search_exercise_catalogue(db: Session, query: str, limit: int) -> list[dict]:
+    words = query.lower().split()
     statement = select(Exercise)
-    for word in words:
-        statement = statement.where(or_(Exercise.name.ilike(f"%{word}%"), Exercise.search_aliases.ilike(f"%{word}%")))
-    normalized = " ".join(words).lower()
+    if words:
+        word_matches = and_(*(or_(Exercise.name.ilike(f"%{word}%"), Exercise.search_aliases.ilike(f"%{word}%")) for word in words))
+        if any(all(word in name for word in words) for name in PUSHDOWN_NAMES):
+            word_matches = or_(word_matches, func.lower(func.trim(Exercise.name)).in_(PUSHDOWN_NAMES))
+        statement = statement.where(word_matches)
+    normalized = " ".join(words)
     def relevance(exercise: Exercise):
-        name = exercise.name.lower()
+        name = exercise_display_name(exercise.name).lower()
+        if name == PUSHDOWN_NAME.lower() and normalized in PUSHDOWN_NAMES: return (0, len(name))
         aliases = exercise.search_aliases.lower()
         if name == normalized: return (0, len(name))
         if name.startswith(normalized): return (1, len(name))
@@ -1374,14 +1399,21 @@ async def search_exercises(q: str = Query(""), db: Session = Depends(get_db)):
         if any(alias.strip().lower() == normalized for alias in aliases.split(" ")): return (3, len(name))
         return (4, len(name))
     matches = list(db.scalars(statement))
-    return [exercise_out(x) for x in sorted(matches, key=relevance)[:12]]
+    matched_pushdowns = [item for item in matches if exercise_display_name(item.name) == PUSHDOWN_NAME]
+    if matched_pushdowns:
+        representative = next(iter(pushdown_exercises(db)), matched_pushdowns[0])
+        matches = [item for item in matches if item not in matched_pushdowns] + [representative]
+    return [exercise_out(item) for item in sorted(matches, key=relevance)[:limit]]
 
 
 @app.post("/api/v1/exercises/custom", response_model=ExerciseOut)
 def create_custom_exercise(payload: CustomExerciseIn, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
-    name = payload.name.strip()
-    # Exact, case-insensitive match. LIKE would treat % and _ in a name as wildcards.
-    matches = db.scalars(select(Exercise).where(func.lower(Exercise.name) == name.lower()).order_by(Exercise.id)).all()
+    name = exercise_display_name(payload.name.strip())
+    if name == PUSHDOWN_NAME:
+        matches = pushdown_exercises(db)[:1]
+    else:
+        # Exact, case-insensitive match. LIKE would treat % and _ in a name as wildcards.
+        matches = db.scalars(select(Exercise).where(func.lower(Exercise.name) == name.lower()).order_by(Exercise.id)).all()
     exercise = next((item for item in matches if item.owner_email == actor.owner_email), None)
     if exercise is None and matches:
         # An exercise everyone shares already has this name. Use it unchanged.
@@ -1456,13 +1488,17 @@ def import_routine_copy(payload: SharedWorkoutImportIn, db: Session):
         db.flush()
     choices = []
     for item in payload.exercises:
-        exercise = db.scalar(select(Exercise).where(
-            func.lower(Exercise.name) == item.name.lower(), func.lower(Exercise.equipment) == item.equipment.lower()
-        ).order_by(Exercise.id))
+        name = exercise_display_name(item.name)
+        if name == PUSHDOWN_NAME:
+            exercise = next(iter(pushdown_exercises(db)), None)
+        else:
+            exercise = db.scalar(select(Exercise).where(
+                func.lower(Exercise.name) == name.lower(), func.lower(Exercise.equipment) == item.equipment.lower()
+            ).order_by(Exercise.id))
         if exercise is None:
             # Do not update existing catalogue metadata from a shared link.
             muscle = canonical_muscle(item.primary_muscle)
-            exercise = Exercise(name=item.name, equipment=item.equipment,
+            exercise = Exercise(name=name, equipment=item.equipment,
                                 primary_muscle=muscle, muscle_group=group_for(muscle))
             db.add(exercise)
             db.flush()
@@ -1550,7 +1586,7 @@ def workout_out(workout: Workout) -> dict:
         primary = canonical_muscle(e.primary_muscle) or "Unmapped"
         secondary = [name for name in stored_secondary_muscles(e.secondary_muscles) if name != primary]
         display = f"Primary: {primary}" + (f" · Secondary: {', '.join(secondary)}" if secondary else "")
-        payload = {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": e.name, "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
+        payload = {"id": e.id, "cached_exercise_id": e.cached_exercise_id, "name": exercise_display_name(e.name), "primary_muscle": display, "secondary_muscles": secondary, "muscle_group": e.muscle_group, "position": e.position, "note": e.note, "rest_seconds": e.rest_seconds, "superset_id": e.superset_id, "sets": [{"id": s.id, "weight": s.weight, "reps": s.reps, "exertion": s.exertion, "completed": s.completed, "is_warmup": s.is_warmup, "position": s.position} for s in e.sets]}
         if e.substituted_from is not None:
             payload["substituted_from"] = e.substituted_from
         return payload
@@ -1894,6 +1930,56 @@ def legacy_exercise_ids(db: Session, names: set[str]) -> dict[str, int]:
     return {name: ids[0] for name, ids in candidates.items() if len(ids) == 1}
 
 
+def progress_identity(item: WorkoutExercise, legacy_ids: dict[str, int], pushdown_ids: set[int]) -> int | str | None:
+    if item.cached_exercise_id is not None:
+        return PUSHDOWN_NAME if item.cached_exercise_id in pushdown_ids else item.cached_exercise_id
+    if pushdown_ids and exercise_display_name(item.name) == PUSHDOWN_NAME:
+        return PUSHDOWN_NAME
+    return legacy_ids.get(item.name.strip().lower())
+
+
+def exercise_progress_sessions(workouts, identities: set[int | str], legacy_ids: dict[str, int], pushdown_ids: set[int]) -> dict:
+    sessions = {identity: [] for identity in identities}
+    for workout in workouts:
+        rows = []
+        pushdown_sets = []
+        for item in workout.exercises:
+            identity = progress_identity(item, legacy_ids, pushdown_ids)
+            if identity not in sessions:
+                continue
+            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets if not s.is_warmup]
+            if identity == PUSHDOWN_NAME:
+                pushdown_sets.extend(sets)
+            else:
+                rows.append((identity, sets))
+        if pushdown_sets:
+            rows.append((PUSHDOWN_NAME, pushdown_sets))
+        for identity, sets in rows:
+            sessions[identity].append({
+                "workout_id": workout.id, "performed_on": workout.performed_on, "workout_name": workout.name,
+                "sets": sets, "volume": sum(s["weight"] * s["reps"] for s in sets),
+                "best_weight": max((s["weight"] for s in sets), default=0),
+                "estimated_1rm": max((s["weight"] * (1 + s["reps"] / 30) for s in sets if s["reps"] > 0), default=0),
+            })
+    return sessions
+
+
+def exercise_progress_out(exercise: Exercise, sessions: list[dict]) -> dict:
+    return {
+        "exercise": exercise_out(exercise), "sessions": sessions,
+        "personal_best_weight": max((row["best_weight"] for row in sessions), default=0),
+        "personal_best_1rm": max((row["estimated_1rm"] for row in sessions), default=0),
+    }
+
+
+def sessions_for_exercise(db: Session, exercise: Exercise, workouts) -> list[dict]:
+    legacy_ids = legacy_exercise_ids(db, {exercise.name.strip().lower()})
+    is_pushdown = exercise_display_name(exercise.name) == PUSHDOWN_NAME
+    pushdown_ids = {exercise.id, *(item.id for item in pushdown_exercises(db))} if is_pushdown else set()
+    identity = PUSHDOWN_NAME if is_pushdown else exercise.id
+    return exercise_progress_sessions(workouts, {identity}, legacy_ids, pushdown_ids)[identity]
+
+
 def progress_workouts(db: Session, exclude_workout_id: Optional[int] = None, limit: Optional[int] = None):
     query = select(Workout).where(Workout.completed == True)
     if exclude_workout_id is not None:
@@ -1905,19 +1991,7 @@ def progress_workouts(db: Session, exclude_workout_id: Optional[int] = None, lim
 def exercise_progress(exercise_id: int, exclude_workout_id: Optional[int] = None, db: Session = Depends(get_db)):
     exercise = db.get(Exercise, exercise_id)
     if not exercise: raise HTTPException(404, "Exercise not found")
-    rows = []
-    legacy_ids = legacy_exercise_ids(db, {exercise.name.strip().lower()})
-    workouts = progress_workouts(db, exclude_workout_id)
-    for workout in workouts:
-        for item in workout.exercises:
-            matched_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
-            if matched_id != exercise_id: continue
-            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets if not s.is_warmup]
-            volume = sum(s["weight"] * s["reps"] for s in sets)
-            best_weight = max((s["weight"] for s in sets), default=0)
-            estimated_1rm = max((s["weight"] * (1 + s["reps"] / 30) for s in sets if s["reps"] > 0), default=0)
-            rows.append({"workout_id": workout.id, "performed_on": workout.performed_on, "workout_name": workout.name, "sets": sets, "volume": volume, "best_weight": best_weight, "estimated_1rm": estimated_1rm})
-    return {"exercise": exercise_out(exercise), "sessions": rows, "personal_best_weight": max((x["best_weight"] for x in rows), default=0), "personal_best_1rm": max((x["estimated_1rm"] for x in rows), default=0)}
+    return exercise_progress_out(exercise, sessions_for_exercise(db, exercise, progress_workouts(db, exclude_workout_id)))
 
 
 @app.get("/api/v1/workouts/{workout_id}/exercise-progress")
@@ -1925,28 +1999,23 @@ def workout_exercise_progress(workout_id: int, db: Session = Depends(get_db)):
     """Return progress for every exercise in a workout with one history query."""
     current = db.get(Workout, workout_id)
     if not current: raise HTTPException(404, "Workout not found")
-    legacy_ids = legacy_exercise_ids(db, {item.name.strip().lower() for item in current.exercises})
+    legacy_ids = legacy_exercise_ids(db, {
+        item.name.strip().lower() for item in current.exercises if exercise_display_name(item.name) != PUSHDOWN_NAME
+    })
     exercise_ids = {item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower()) for item in current.exercises} - {None}
     exercises = {exercise.id: exercise for exercise in db.scalars(select(Exercise).where(Exercise.id.in_(exercise_ids))).all()}
-    sessions: dict[int, list[dict]] = {exercise_id: [] for exercise_id in exercise_ids}
-    workouts = progress_workouts(db, workout_id)
-    for workout in workouts:
-        for item in workout.exercises:
-            exercise_id = item.cached_exercise_id if item.cached_exercise_id is not None else legacy_ids.get(item.name.strip().lower())
-            if exercise_id not in sessions: continue
-            sets = [{"weight": entry.weight, "reps": entry.reps, "exertion": entry.exertion} for entry in item.sets if not entry.is_warmup]
-            volume = sum(entry["weight"] * entry["reps"] for entry in sets)
-            best_weight = max((entry["weight"] for entry in sets), default=0)
-            estimated_1rm = max((entry["weight"] * (1 + entry["reps"] / 30) for entry in sets if entry["reps"] > 0), default=0)
-            sessions[exercise_id].append({"workout_id": workout.id, "performed_on": workout.performed_on, "workout_name": workout.name, "sets": sets, "volume": volume, "best_weight": best_weight, "estimated_1rm": estimated_1rm})
+    pushdowns = pushdown_exercises(db) if any(
+        exercise_display_name(item.name) == PUSHDOWN_NAME for item in (*current.exercises, *exercises.values())
+    ) else []
+    pushdown_ids = {item.id for item in pushdowns}
+    unlinked_pushdown = any(item.cached_exercise_id is None and exercise_display_name(item.name) == PUSHDOWN_NAME for item in current.exercises)
+    if pushdowns and unlinked_pushdown and pushdown_ids.isdisjoint(exercises):
+        exercises[pushdowns[0].id] = pushdowns[0]
+    identities = {exercise_id: PUSHDOWN_NAME if exercise_id in pushdown_ids else exercise_id for exercise_id in exercises}
+    sessions = exercise_progress_sessions(progress_workouts(db, workout_id), set(identities.values()), legacy_ids, pushdown_ids)
     return {
-        str(exercise_id): {
-            "exercise": exercise_out(exercises[exercise_id]),
-            "sessions": rows,
-            "personal_best_weight": max((row["best_weight"] for row in rows), default=0),
-            "personal_best_1rm": max((row["estimated_1rm"] for row in rows), default=0),
-        }
-        for exercise_id, rows in sessions.items() if exercise_id in exercises
+        str(exercise_id): exercise_progress_out(exercise, sessions[identities[exercise_id]])
+        for exercise_id, exercise in exercises.items()
     }
 
 

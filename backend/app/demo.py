@@ -249,10 +249,10 @@ def public_routine(item):
 def public_workout(item):
     return Workout(id=item.id, name=item.name, performed_on=item.performed_on,
         duration_seconds=int((item.completed_at - item.started_at).total_seconds()) if item.completed_at and item.started_at else None,
-        exercises=[LoggedExercise(cached_exercise_id=e.cached_exercise_id, name=e.name,
+        exercises=[LoggedExercise(cached_exercise_id=e.cached_exercise_id, name=m.exercise_display_name(e.name),
             primary_muscle=m.canonical_muscle(e.primary_muscle), secondary_muscles=m.stored_secondary_muscles(e.secondary_muscles),
             muscle_group=e.muscle_group, rest_seconds=e.rest_seconds,
-            sets=[LoggedSet(weight=s.weight, reps=s.reps, exertion=s.exertion) for s in e.sets]) for e in item.exercises])
+            sets=[LoggedSet(weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed) for s in e.sets]) for e in item.exercises])
 
 
 @router.get("/folders", response_model=list[Folder])
