@@ -1,5 +1,6 @@
 import type { Routine, Folder } from './types';
 import { useState, useRef, useEffect } from 'react';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import type { Item, Exercise } from '../exercises/types';
 import { api } from '../../shared/api/client';
 import type { FormEvent } from 'react';
@@ -18,6 +19,7 @@ export function RoutineEditor({ routine, folders, close, done, readOnly = false 
         const dirty = name !== routine.name || folder !== String(routine.folder_id ?? folders[0]?.id ?? '') || JSON.stringify(items) !== JSON.stringify(routine.exercises);
         if (readOnly || !dirty || window.confirm('Discard unsaved workout day changes?')) close();
     };
+    useBackAction(true, dismiss);
     const exerciseName = (item: Item) => item.exercise?.name ?? item.name;
     const muscleName = (item: Item) => item.exercise?.primary_muscle ?? item.primary_muscle ?? 'Unmapped muscle';
     const moveExercise = (from: number, to: number) => { if (!readOnly) setItems(current => moveItem(current, from, to)); };

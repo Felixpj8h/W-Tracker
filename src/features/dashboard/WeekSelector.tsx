@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addDays, startOfWeek, compactWeekLabel } from './week';
 import { DashboardIcon } from './DashboardIcon';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import './week-selector.css';
 
 export function WeekSelector({ week, currentWeek, comparison, compareWeek, throughToday, onWeek, onComparison, onCompareWeek, onThroughToday }: {
@@ -9,6 +10,7 @@ export function WeekSelector({ week, currentWeek, comparison, compareWeek, throu
 }) {
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
+    useBackAction(open, () => setOpen(false));
     useEffect(() => {
         if (!open) return;
         const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };

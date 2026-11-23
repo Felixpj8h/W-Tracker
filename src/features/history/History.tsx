@@ -1,6 +1,7 @@
 import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
 import type { Workout } from '../workout/types';
 import { useState, useRef, useEffect } from 'react';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import { api } from '../../shared/api/client';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { HistoryAnalysis } from './HistoryAnalysis';
@@ -56,6 +57,9 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false, p
     const dismissNote = () => {
         if (!noteSaving && (noteDraft === (selected?.note ?? '') || window.confirm('Discard unsaved note changes?'))) setNoteOpen(false);
     };
+    useBackAction(detailOpen, () => setDetailOpen(false));
+    useBackAction(menuOpen, () => setMenuOpen(false));
+    useBackAction(noteOpen, dismissNote);
     const saveSelectedNote = async () => {
         if (readOnly || !selected) return;
         setNoteSaving(true);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import type { FormEvent } from 'react';
 import { api } from '../../shared/api/client';
 import type { Folder, Routine } from './types';
@@ -27,6 +28,7 @@ export function WorkoutTransfer({ routine, sharedFolder, initialLink = '', folde
     const linkInput = useRef<HTMLInputElement>(null);
     const dialog = useRef<HTMLElement>(null);
     const dismiss = () => { if (!busy) { if (initialLink) clearWorkoutLink(); close(); } };
+    useBackAction(true, dismiss);
 
     useEffect(() => {
         const previous = document.activeElement as HTMLElement | null;

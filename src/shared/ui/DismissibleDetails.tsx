@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useOutsideDismiss } from './useOutsideDismiss';
+import { useBackAction } from '../lib/backNavigation';
 
 export function DismissibleDetails({ children, className, closeOnAction = false }: { children: ReactNode; className?: string; closeOnAction?: boolean }) {
     const [open, setOpen] = useState(false);
     const root = useOutsideDismiss<HTMLDetailsElement>(open, () => setOpen(false));
+    useBackAction(open, () => setOpen(false));
     useEffect(() => {
         if (!open) return;
         const escape = (event: KeyboardEvent) => {

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import { CoachMarkdown } from './CoachMarkdown';
 import type { CoachController } from './useCoachController';
 import type { Proposal } from './types';
@@ -64,6 +65,7 @@ export function ProposalCard({ proposal, coach, id, folders, plan }: { proposal:
     setClosing(true);
     closeTimer.current = setTimeout(() => { setExpanded(false); setClosing(false); requestAnimationFrame(() => expandButton.current?.focus()); }, 200);
   };
+  useBackAction(expanded && !closing, closeExpanded);
   useEffect(() => {
     if (!expanded) return;
     const previousOverflow = document.body.style.overflow;
@@ -133,6 +135,7 @@ export function Coach({ coach, folders, plan }: Props) {
   const [drawer, setDrawer] = useState(false);
   const [input, setInput] = useState('');
   const [nearBottom, setNearBottom] = useState(true);
+  useBackAction(drawer, () => setDrawer(false));
   const timeline = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const id = coach.selectedId;

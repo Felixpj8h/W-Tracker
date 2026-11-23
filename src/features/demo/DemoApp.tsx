@@ -14,6 +14,7 @@ import type { Workout } from '../workout/types';
 import type { CalendarMonth } from '../calendar/types';
 import { demoApi } from './api';
 import './demo.css';
+import { useBackAction } from '../../shared/lib/backNavigation';
 
 type HistoryPage = { items: Workout[]; next_cursor: string | null; months: string[]; total_sessions: number; total_volume: number };
 
@@ -25,6 +26,8 @@ export function DemoApp({ exit }: { exit: () => void }) {
   const [page, setPage] = useState<Page>('dashboard');
   const { dark, selectMode: setDark } = useDefaultAppearance();
   const [dashboardPage, setDashboardPage] = useState(0);
+  // Back returns to the Dashboard before it leaves the demo.
+  useBackAction(page !== 'dashboard' || dashboardPage !== 0, () => { setDashboardPage(0); setPage('dashboard'); }, 'page');
   const [dash, setDash] = useState<Dash | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [overviewHistory, setOverviewHistory] = useState<Workout[]>([]);

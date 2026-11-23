@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import { api } from '../../shared/api/client';
 import type { CalendarLabel, CalendarMonth, LoadCalendarMonth } from './types';
 
@@ -11,6 +12,8 @@ export function DayLabels({ selected, label, months, loadMonth, readOnly, manage
     const [editingId, setEditingId] = useState<number | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    useBackAction(!readOnly && manageOpen, () => { if (!busy) closeManage(); });
+    useBackAction(!readOnly && pickerOpen, () => closePicker?.());
     useEffect(() => { if (!readOnly) void Promise.resolve(api<CalendarLabel[]>('/calendar/labels')).then(items => setLabels(Array.isArray(items) ? items : [])).catch(() => setError('Could not load labels.')); }, [readOnly]);
     const refreshDate = async () => { await loadMonth(Number(selected.slice(0, 4)), Number(selected.slice(5, 7)), true); };
     const refreshMonths = async () => { await Promise.all(Object.keys(months).map(key => loadMonth(Number(key.slice(0, 4)), Number(key.slice(5)), true))); };

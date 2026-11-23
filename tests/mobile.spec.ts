@@ -348,3 +348,70 @@ test('refreshes the overview when the app returns after a break', async ({ page 
   await setVisibility('visible', 6);
   await expect.poll(() => dashboardRequests.length).toBe(initial + 1);
 });
+
+// Android's system Back gesture is a history traversal; history.back() performs the same one.
+const pressBack = (page: Page) => page.evaluate(() => window.history.back());
+
+test('Back closes the More sheet, returns to the Dashboard, then leaves the app', async ({ page }) => {
+  await page.goto('about:blank');
+  await page.goto('/');
+  const dashboard = page.getByRole('button', { name: 'Dashboard', exact: true });
+  await expect(dashboard).toHaveClass(/active/);
+
+  await page.getByRole('button', { name: 'Routines', exact: true }).tap();
+  await expect(page.getByRole('button', { name: 'Routines', exact: true })).toHaveClass(/active/);
+  await page.getByRole('button', { name: 'More pages' }).tap();
+  const menu = page.getByRole('dialog', { name: 'More' });
+  await expect(menu).toBeVisible();
+
+  await pressBack(page);
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Routines', exact: true })).toHaveClass(/active/);
+
+  await pressBack(page);
+  await expect(dashboard).toHaveClass(/active/);
+
+  // Switching tabs and returning by tap must not leave an extra Back step behind.
+  await page.getByRole('button', { name: 'Coach', exact: true }).tap();
+  await dashboard.tap();
+  await expect(dashboard).toHaveClass(/active/);
+  await expect.poll(() => page.evaluate(() => (window.history.state as { jernBack?: number } | null)?.jernBack ?? 0)).toBe(0);
+
+  await pressBack(page);
+  await expect(page).toHaveURL('about:blank');
+});
+
+test('Back closes the workout search before leaving the workout', async ({ page }) => {
+  await page.route('**/api/v1/workouts/active', route => route.fulfill({ json: [workout] }));
+  await page.route('**/api/v1/workouts/42', route => route.fulfill({ json: { ...workout, revision: 2 } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Resume', exact: true }).tap();
+  await page.getByRole('button', { name: 'Substitute', exact: true }).tap();
+  const dialog = page.getByRole('dialog', { name: 'Replace exercise' });
+  await expect(dialog).toBeVisible();
+
+  await pressBack(page);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Substitute', exact: true })).toBeVisible();
+
+  await pressBack(page);
+  await expect(page.getByRole('button', { name: 'Dashboard', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+});
+
+test('Back closes the History workout details, then returns to the Dashboard', async ({ page }) => {
+  await page.route('**/api/v1/workouts', route => route.fulfill({ json: [{ ...workout, completed: true }] }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'More pages' }).tap();
+  await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: /History/ }).tap();
+  await page.getByRole('button', { name: /Leg day/ }).tap();
+  const close = page.getByRole('button', { name: 'Close workout details' });
+  await expect(close).toBeVisible();
+
+  await pressBack(page);
+  await expect(close).toBeHidden();
+  await expect(page.getByRole('button', { name: /Leg day/ })).toBeVisible();
+
+  await pressBack(page);
+  await expect(page.getByRole('button', { name: 'Dashboard', exact: true })).toHaveClass(/active/);
+});

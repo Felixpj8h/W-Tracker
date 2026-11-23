@@ -1,5 +1,6 @@
 import { activateAccount, accountKey, sessionGeneration, sessionIsCurrent } from '../features/auth/auth';
 import { useApplicationTheme } from '../shared/lib/theme';
+import { useBackAction } from '../shared/lib/backNavigation';
 import type { UserProfile } from '../features/auth/profile';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Workout } from '../features/workout/types';
@@ -68,6 +69,8 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     const loadCalendar = useCallback(async (year: number, month: number, force = false) => { const key = `${year}-${String(month).padStart(2, '0')}`; if (!force && calendarMonthsRef.current[key]) return calendarMonthsRef.current[key]; try { const result = await api<CalendarMonth>(`/calendar?year=${year}&month=${month}`); calendarMonthsRef.current = { ...calendarMonthsRef.current, [key]: result }; setCalendarMonths(calendarMonthsRef.current); setLoadErrors(current => { const next = { ...current }; delete next.calendar; return next; }); return result; } catch { setLoadErrors(current => ({ ...current, calendar: 'Could not load calendar' })); return undefined; } }, []);
 
     const [dashboardPage, setDashboardPage] = useState(0);
+    // Back returns to the Dashboard before it leaves the app.
+    useBackAction(page !== 'dashboard' || dashboardPage !== 0, () => { setDashboardPage(0); setPage('dashboard'); }, 'page');
     const accountSettings = useAccountSettings(page === 'settings');
     const coach = useCoachController(async operation => {
         if (operation === 'update_weekly_plan' || operation === 'create_training_program') {

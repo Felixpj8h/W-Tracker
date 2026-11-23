@@ -5,6 +5,7 @@ import type { Workout } from './types';
 import type { Exercise, ExerciseProgress } from '../exercises/types';
 import { formatClockTime, formatRestDuration } from '../../shared/lib/format';
 import { useScreenWakeLock } from '../../shared/lib/useScreenWakeLock';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import { WeightInput } from './WeightInput';
 import { ExerciseOrderControls } from '../../shared/ui/ExerciseOrderControls';
 import './workout-session.css';
@@ -33,6 +34,7 @@ export function WorkoutSessionView(p: Props) {
  const closeSearchRef = useRef(onCloseSearch);
  useEffect(() => { closeSearchRef.current = onCloseSearch; }, [onCloseSearch]);
  const modalOpen = overview || searchOpen;
+ useBackAction(modalOpen, () => { setOverview(false); onCloseSearch(); });
  useLayoutEffect(() => {
   if (!modalOpen) return;
   const trigger = dialogTrigger.current;

@@ -157,7 +157,7 @@ export function Health({ askCoach }: { askCoach: AskCoach }) {
     const outcome = params.get('health');
     if (outcome) {
       params.delete('health');
-      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? '?' + params : ''}#health`);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.size ? '?' + params : ''}#health`);
     }
     if (outcome === 'failed') return 'Connection failed. Use your Jern Google account, check API access and try again.';
     return outcome === 'cancelled' ? 'Connection cancelled.' : '';

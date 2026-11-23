@@ -1,5 +1,9 @@
 # Changelog
 
+## 23 November 2026
+
+- Make Back behave like a native app. Android's Back gesture (and the browser Back button) used to close Jern from any screen. It now closes the open sheet, dialog, or menu first, then returns to the Dashboard, and only leaves the app from the Dashboard. Closing a note or routine with unsaved changes still asks before discarding them. This uses one temporary history entry and does not change the URL.
+
 ## 22 November 2026
 
 - Keep the workout search field, close button, and scrollable results above the mobile keyboard. Closing search returns focus and keeps the workout at the same scroll position.

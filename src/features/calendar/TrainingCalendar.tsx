@@ -4,6 +4,7 @@ import type { Folder, Routine } from '../routines/types';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth, LoadCalendarMonth, CalendarDay, RefreshWorkoutData } from './types';
 import { useState, useEffect, useRef } from 'react';
+import { useBackAction } from '../../shared/lib/backNavigation';
 import { today, duration } from '../../shared/lib/format';
 import { api } from '../../shared/api/client';
 import { RoutineEditor } from '../routines/RoutineEditor';
@@ -31,6 +32,8 @@ export function TrainingCalendar({ folders, history, months, loadMonth, start, r
     const [labelPicker, setLabelPicker] = useState(false);
     useEffect(() => { setLabelPicker(false); }, [selected]);
     const menuRoot = useOutsideDismiss<HTMLDivElement>(menuOpen, () => setMenuOpen(false));
+    useBackAction(menuOpen, () => setMenuOpen(false));
+    useBackAction(editing, () => setEditing(false));
     const [chosenRoutine, setChosenRoutine] = useState('');
     const [name, setName] = useState('My training week');
     const [assignments, setAssignments] = useState<Record<number, string>>({});
