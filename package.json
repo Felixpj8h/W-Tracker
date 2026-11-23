@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:launch-images": "node scripts/generate-launch-images.mjs"
   },
   "dependencies": {
     "katex": "^0.16.47",

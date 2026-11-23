@@ -173,7 +173,9 @@ Requests from other devices still need Google sign-in.
 open the Share menu in Safari, choose **Add to Home Screen**, enable
 **Open as Web App** if shown, and tap **Add**. On Android, open the Chrome menu
 and choose **Install app** or **Add to Home screen**. Launch Jern from its Home
-Screen icon to open it without browser toolbars.
+Screen icon to open it without browser toolbars. iPhone launch screens live in
+`public/launch`; after changing the logo or adding a new iPhone size, run
+`npm run generate:launch-images` and re-add the app to the Home Screen.
 
 **Port 8000 already in use?** Find the process with
 `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`

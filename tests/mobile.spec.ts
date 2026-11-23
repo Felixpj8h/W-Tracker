@@ -415,3 +415,29 @@ test('Back closes the History workout details, then returns to the Dashboard', a
   await pressBack(page);
   await expect(page.getByRole('button', { name: 'Dashboard', exact: true })).toHaveClass(/active/);
 });
+
+test('provides an exact-size iPhone launch screen for every listed screen', async ({ page, request }) => {
+  await page.goto('/');
+  const links = await page.locator('link[rel="apple-touch-startup-image"]').evaluateAll(elements => elements.map(element => ({
+    href: element.getAttribute('href')!,
+    media: element.getAttribute('media')!,
+    matches: matchMedia(element.getAttribute('media')!).matches,
+  })));
+  expect(links.length).toBeGreaterThanOrEqual(26);
+  expect(new Set(links.map(link => link.media)).size).toBe(links.length);
+
+  for (const link of links) {
+    const [, width, height, ratio, orientation] = link.media.match(/device-width: (\d+)px\) and \(device-height: (\d+)px\) and \(-webkit-device-pixel-ratio: (\d)\) and \(orientation: (portrait|landscape)\)/)!;
+    const [cssWidth, cssHeight] = orientation === 'portrait' ? [+width, +height] : [+height, +width];
+    const response = await request.get(link.href);
+    expect(response.ok(), link.href).toBe(true);
+    expect(response.headers()['content-type'], link.href).toContain('image/png');
+    const png = await response.body();
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)], link.href).toEqual([cssWidth * +ratio, cssHeight * +ratio]);
+  }
+
+  // The emulated iPhone (portrait) picks exactly one launch screen.
+  if (/iPhone/.test(await page.evaluate(() => navigator.userAgent))) {
+    expect(links.filter(link => link.matches)).toHaveLength(1);
+  }
+});

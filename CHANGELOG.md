@@ -3,6 +3,7 @@
 ## 23 November 2026
 
 - Make Back behave like a native app. Android's Back gesture (and the browser Back button) used to close Jern from any screen. It now closes the open sheet, dialog, or menu first, then returns to the Dashboard, and only leaves the app from the Dashboard. Closing a note or routine with unsaved changes still asks before discarding them. This uses one temporary history entry and does not change the URL.
+- Show a dark launch screen with the Jern mark when the app opens from the iPhone Home Screen, so it starts like a native app. Without these images iOS shows a plain screen first. The 26 images cover iPhone screen sizes from the iPhone SE through the iPhone 17 Pro Max and Air, in portrait and landscape. Each device downloads only the one that matches it. Regenerate them with `npm run generate:launch-images`.
 
 ## 22 November 2026
 
