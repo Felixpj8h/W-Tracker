@@ -153,6 +153,9 @@ class Workout(OwnedRecord, Base):
     performed_on: Mapped[date] = mapped_column(Date, default=date.today)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # The device that made the latest save. A device whose save reached the
+    # server but whose response was lost may retry from its older revision.
+    last_writer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -450,6 +453,7 @@ class WorkoutExerciseIn(WorkoutExerciseDetailsIn):
 
 class WorkoutIn(BaseModel):
     revision: Optional[int] = Field(default=None, ge=1)
+    writer_id: Optional[str] = Field(default=None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     intent: Literal["draft", "edit"] = "draft"
     name: str = Field(min_length=1, max_length=120); performed_on: date; note: Optional[str] = Field(None, max_length=1000); exercises: list[WorkoutExerciseIn] = Field(max_length=100)
 
@@ -882,6 +886,8 @@ def startup():
         columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workouts)")}
         if "revision" not in columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+        if "last_writer_id" not in columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN last_writer_id VARCHAR(64)")
     from .database_security import install_folder_guards
     with engine.begin() as connection:
         install_folder_guards(connection)
@@ -1542,11 +1548,19 @@ def claim_workout(workout_id: int, payload: WorkoutIn, db: Session):
         raise HTTPException(404, "Workout not found")
     if payload.revision is None:
         raise HTTPException(409, "Reload this workout before saving. A revision is required.")
-    conditions = [Workout.id == workout_id, Workout.owner_email == workout.owner_email,
-                  Workout.revision == payload.revision]
+    current = Workout.revision == payload.revision
+    if payload.writer_id:
+        # Every save the server accepts either matches the latest revision or
+        # comes from the device that wrote the latest revision. So when this
+        # device made the latest save, the server holds nothing it has not
+        # seen. Its revision can still be older: Android may suspend or close
+        # the app after a save reaches the server but before the response is
+        # read. Accept that save instead of rejecting the device's own work.
+        current = or_(current, Workout.last_writer_id == payload.writer_id)
+    conditions = [Workout.id == workout_id, Workout.owner_email == workout.owner_email, current]
     if payload.intent == "draft":
         conditions.append(Workout.completed == False)
-    claimed = db.execute(update(Workout).where(*conditions).values(revision=Workout.revision + 1),
+    claimed = db.execute(update(Workout).where(*conditions).values(revision=Workout.revision + 1, last_writer_id=payload.writer_id),
                          execution_options={"synchronize_session": False}).rowcount
     if not claimed:
         db.rollback()
@@ -1590,6 +1604,14 @@ def list_workouts(db: Session = Depends(get_db)):
 @app.get("/api/v1/workouts/active")
 def list_active_workouts(db: Session = Depends(get_db)):
     return [workout_out(w) for w in db.scalars(select(Workout).where(Workout.completed == False).order_by(Workout.created_at.desc())).all()]
+
+
+@app.get("/api/v1/workouts/{workout_id}")
+def get_workout(workout_id: int, db: Session = Depends(get_db)):
+    workout = db.get(Workout, workout_id)
+    if workout is None:
+        raise HTTPException(404, "Workout not found")
+    return workout_out(workout)
 
 
 def weekly_plan_out(plan: WeeklyPlan) -> dict:
@@ -1728,7 +1750,7 @@ def move_calendar_workout(payload: CalendarMoveIn, db: Session = Depends(get_db)
         workout = completed[0]
         moved = db.execute(update(Workout).where(Workout.id == workout.id,
             Workout.owner_email == workout.owner_email, Workout.revision == workout.revision)
-            .values(performed_on=payload.target, revision=Workout.revision + 1),
+            .values(performed_on=payload.target, revision=Workout.revision + 1, last_writer_id=None),
             execution_options={"synchronize_session": False}).rowcount
         if not moved:
             db.rollback()

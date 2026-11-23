@@ -104,6 +104,43 @@ def test_workout_revision_and_completion_boundary(secure_app):
     assert edited.json()["exercises"][0]["sets"][0]["reps"] == 9
 
 
+def test_workout_save_with_lost_response_can_be_retried_by_the_same_device(secure_app):
+    client, _ = secure_app
+    phone, laptop = "a" * 32, "b" * 32
+    draft = client.post("/api/v1/workouts/draft", json={"name": "Draft"}).json()
+    path = f"/api/v1/workouts/{draft['id']}"
+    payload = {**draft, "writer_id": phone, "exercises": [{"name": "Bench", "sets": [{"weight": 50, "reps": 9}]}]}
+    # The server applied this save, but Android closed the app before the
+    # phone read the response, so the phone still holds the first revision.
+    assert client.patch(path, json=payload).json()["revision"] == draft["revision"] + 1
+    retried = client.patch(path, json={**payload, "name": "Kept"})
+    assert retried.status_code == 200
+    assert retried.json()["name"] == "Kept"
+    assert retried.json()["revision"] == draft["revision"] + 2
+    assert client.get(path).json() == {key: value for key, value in retried.json().items() if key != "saved"}
+    # Another device with an older revision must still reload first.
+    assert client.patch(path, json={**payload, "writer_id": laptop, "name": "Overwrite"}).status_code == 409
+    assert client.get(path).json()["name"] == "Kept"
+    # Once another device saves, the phone's older revision is stale again.
+    laptop_save = client.patch(path, json={**payload, "writer_id": laptop, "revision": retried.json()["revision"], "name": "Laptop"}).json()
+    assert client.patch(path, json={**payload, "name": "Phone"}).status_code == 409
+    assert client.patch(path, json={**payload, "revision": laptop_save["revision"], "name": "Phone"}).status_code == 200
+    # A save that names no device makes the latest revision required again.
+    unnamed = client.patch(path, json={key: value for key, value in {**payload, "revision": laptop_save["revision"] + 1}.items() if key != "writer_id"}).json()
+    assert client.patch(path, json={**payload, "name": "Stale"}).status_code == 409
+    finished = client.put(path, json={**payload, "revision": unnamed["revision"]}).json()
+    assert finished["completed"]
+    # The device bypass never reopens a finished session as a draft.
+    assert client.patch(path, json=payload).status_code == 409
+    # Moving the workout in the calendar is a change the phone has not seen.
+    assert client.post("/api/v1/calendar/move", json={"source": finished["performed_on"], "target": "2030-01-02"}).status_code == 200
+    assert client.patch(path, json={**payload, "intent": "edit", "revision": finished["revision"]}).status_code == 409
+    assert client.get(path).json()["performed_on"] == "2030-01-02"
+    assert client.patch(path, json={**payload, "writer_id": "not valid!"}).status_code == 422
+    assert client.get("/api/v1/workouts/999999").status_code == 404
+    assert client.get(path, headers={"Authorization": "Bearer b"}).status_code == 404
+
+
 def test_session_expiry_allowlist_and_missing_origins(secure_app, monkeypatch):
     client, engine = secure_app
     token = client.cookies.get(m.SESSION_COOKIE)

@@ -6,6 +6,35 @@ import type { Routine } from '../routines/types';
 import { today } from '../../shared/lib/format';
 
 export const ACTIVE_WORKOUT_KEY = 'workout-active-session';
+const WORKOUT_WRITER_KEY = 'workout-writer';
+let fallbackWriterId = '';
+
+const newWriterId = () => {
+    // crypto.getRandomValues also works on plain-HTTP phone previews, where
+    // crypto.randomUUID is unavailable.
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+};
+
+/*
+ * Identifies this device's workout saves. The server accepts a save from the
+ * device that made the latest save even when its revision is older, which
+ * happens when Android suspends or closes the app before a save response is
+ * read. It is stored so it survives the app being closed and reopened.
+ */
+export function workoutWriterId(): string {
+    try {
+        const key = accountKey(WORKOUT_WRITER_KEY);
+        const stored = localStorage.getItem(key);
+        if (stored && /^[0-9a-f]{32}$/.test(stored)) return stored;
+        const created = newWriterId();
+        localStorage.setItem(key, created);
+        return created;
+    } catch {
+        fallbackWriterId ||= newWriterId();
+        return fallbackWriterId;
+    }
+}
 
 const normalizedName = (name: string) => name.trim().toLowerCase();
 
@@ -33,15 +62,18 @@ export function rememberSubstituteFor(exercise: Item, substitute: Exercise) {
     } catch { /* The picker still works when browser storage is unavailable. */ }
 }
 
+export const withCleanMuscleLabels = (workout: Workout): Workout => ({
+    ...workout,
+    exercises: workout.exercises.map(item => ({ ...item, primary_muscle: cleanMuscleLabel(item.primary_muscle, item.secondary_muscles) })),
+});
+
 export const storedWorkout = (): Workout | null => {
     try {
         localStorage.removeItem(ACTIVE_WORKOUT_KEY);
         const value = localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY));
         if (!value) return null;
         const parsed = JSON.parse(value) as Workout;
-        return parsed && !parsed.completed && parsed.id && Array.isArray(parsed.exercises)
-            ? { ...parsed, exercises: parsed.exercises.map(item => ({ ...item, primary_muscle: cleanMuscleLabel(item.primary_muscle, item.secondary_muscles) })) }
-            : null;
+        return parsed && !parsed.completed && parsed.id && Array.isArray(parsed.exercises) ? withCleanMuscleLabels(parsed) : null;
     } catch {
         localStorage.removeItem(accountKey(ACTIVE_WORKOUT_KEY));
         return null;

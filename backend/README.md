@@ -47,7 +47,9 @@ flowchart LR
   folders. Starting a routine copies its exercises and target sets into a
   workout draft, using the calendar's saved override for that day when one
   exists. Workout saves check the draft or session revision. A stale client
-  gets a `409 Conflict` and must reload before saving. The calendar combines
+  gets a `409 Conflict` and must reload before saving, unless the save comes
+  from the device (`writer_id`) that made the latest save.
+  `GET /api/v1/workouts/{id}` returns the saved copy for that reload. The calendar combines
   planned and logged workouts, and the dashboard derives training metrics
   from completed sessions alongside separately logged bodyweight entries.
 - **Exercise search.** A background task refreshes the shared Wger catalogue

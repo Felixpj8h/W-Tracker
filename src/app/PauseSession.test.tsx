@@ -131,6 +131,65 @@ it('preserves local input at its original revision when the owned server draft c
     expect(JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY))!).revision).toBe(1);
 });
 
+it('keeps saving after Android closes the app before a save response is read', async () => {
+    const draft = { ...cancellationWorkout, revision: 1 };
+    const server = { revision: 1, writer: '' as string | undefined, name: draft.name };
+    let loseResponses = true;
+    localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(draft));
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (path === '/workouts/active') return [{ ...draft, name: server.name, revision: server.revision }];
+        if (path === '/workouts/42' && options?.method === 'PATCH') {
+            // Mirrors the server: the latest revision, or the device that wrote it.
+            const payload = JSON.parse(options.body as string);
+            if (payload.revision !== server.revision && !(payload.writer_id && payload.writer_id === server.writer)) throw Error('HTTP 409: This workout changed. Reload it before saving again.');
+            Object.assign(server, { revision: server.revision + 1, writer: payload.writer_id, name: payload.name });
+            if (loseResponses) throw TypeError('Failed to fetch');
+            return { ...payload, revision: server.revision };
+        }
+        return baseResponse(path);
+    });
+    const first = render(<WorkoutApp user={athlete}/>);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Workout name' }), { target: { value: 'Saved before closing' } });
+    await waitFor(() => expect(server.name).toBe('Saved before closing'));
+    first.unmount();
+    expect(JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY))!).revision).toBe(1);
+    loseResponses = false;
+    render(<WorkoutApp user={athlete}/>);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Workout name' }), { target: { value: 'After reopening' } });
+    await waitFor(() => expect(server.name).toBe('After reopening'));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY))!).revision).toBe(server.revision));
+    expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('reloads the saved workout from the server after a conflict', async () => {
+    const draft = { ...cancellationWorkout, revision: 1, name: 'Unsynced local input' };
+    const saved = { ...draft, name: 'Saved on another device', revision: 5 };
+    let serverRevision = 5;
+    localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(draft));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload });
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (path === '/workouts/active') return [saved];
+        if (path === '/workouts/42' && !options?.method) return saved;
+        if (path === '/workouts/42' && options?.method === 'PATCH') {
+            const payload = JSON.parse(options.body as string);
+            if (payload.revision !== serverRevision) throw Error('HTTP 409: This workout changed. Reload it before saving again.');
+            return { ...payload, revision: ++serverRevision };
+        }
+        return baseResponse(path);
+    });
+    render(<WorkoutApp user={athlete}/>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload saved workout' }));
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Workout name' }) as HTMLInputElement).value).toBe('Saved on another device'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(reload).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY))!)).toMatchObject({ name: 'Saved on another device', revision: 5 });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Workout name' }), { target: { value: 'Edited after reload' } });
+    await waitFor(() => expect(serverRevision).toBe(6));
+    expect(screen.queryByRole('alert')).toBeNull();
+});
+
 function baseResponse(path: string) {
     if (path.startsWith('/calendar')) return { plan: null, days: [] };
     if (path === '/dashboard') return { weight_series: [], latest_weight: null };

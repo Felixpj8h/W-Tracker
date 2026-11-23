@@ -13,6 +13,11 @@ coach proposal decisions with conditional database updates.
 - Workout PUT/PATCH requests require the revision returned by the API. Missing
   or stale revisions return 409. Draft saves cannot update completed workouts.
   Intentional edits send `intent: "edit"` with the current revision.
+- A save with an older revision is accepted only when its `writer_id` matches
+  the device that made the latest save. That device has seen everything the
+  server holds; its response was lost. Saves without a `writer_id` and calendar
+  moves clear the stored writer, so the latest revision is required again.
+  The owner check still applies to every save.
 - Logout and cookie-authenticated writes require an explicitly trusted Origin.
   Production requires PUBLIC_ORIGIN to be an HTTPS origin without a path.
 - Public history returns items, next_cursor, months, total_sessions and

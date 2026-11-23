@@ -3,7 +3,7 @@ import type { Folder, Routine } from '../routines/types';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Exercise, ExerciseProgress } from '../exercises/types';
 import { api, API } from '../../shared/api/client';
-import { ACTIVE_WORKOUT_KEY, isSameExercise, lastSubstituteFor, rememberSubstituteFor } from './session';
+import { ACTIVE_WORKOUT_KEY, isSameExercise, lastSubstituteFor, rememberSubstituteFor, withCleanMuscleLabels, workoutWriterId } from './session';
 import { WorkoutSessionView } from './WorkoutSessionView';
 import { authHeaders, accountKey, sessionGeneration, sessionIsCurrent } from '../auth/auth';
 import { routineMuscles } from '../routines/routineMuscles';
@@ -34,7 +34,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const latestWorkout = useRef(workout);
     const save = useCallback(async (entry: Workout) => {
         if (!sessionIsCurrent(generation.current)) return;
-        const result = await api<Workout>(`/workouts/${entry.id}`, { method: 'PATCH', body: JSON.stringify({ ...entry, revision: revision.current, intent: editing ? 'edit' : 'draft' }) });
+        const result = await api<Workout>(`/workouts/${entry.id}`, { method: 'PATCH', body: JSON.stringify({ ...entry, revision: revision.current, writer_id: workoutWriterId(), intent: editing ? 'edit' : 'draft' }) });
         if (result?.revision && sessionIsCurrent(generation.current)) {
             revision.current = result.revision;
             if (entry.id) onRevision?.(entry.id, result.revision);
@@ -46,6 +46,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const endingSession = useRef(false);
     const pendingSave = useRef<Promise<unknown> | null>(null);
     const [saveError, setSaveError] = useState('');
+    const [reloading, setReloading] = useState(false);
+    // The server copy loaded by "Reload saved workout" is already saved.
+    const reloadedWorkout = useRef<Workout | null>(null);
     useEffect(() => { latestWorkout.current = workout; }, [workout]);
     useEffect(() => { if (!restUntil) return; const tick = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(tick); }, [restUntil]);
     useEffect(() => { if (restUntil && now >= restUntil) setRestUntil(null); }, [now, restUntil]);
@@ -123,10 +126,11 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const namedHistory = Object.values(progressByExercise).filter(progress => progress.exercise?.name.trim().toLowerCase() === openItem?.name.trim().toLowerCase());
     const previous = (openExerciseId ? progressByExercise[openExerciseId] : namedHistory.length === 1 ? namedHistory[0] : null) ?? null;
     useEffect(() => {
-        if (!workout?.id || endingSession.current) return;
+        if (!workout?.id || endingSession.current || workout === reloadedWorkout.current) return;
         if (editing) pendingEdit.current = workout;
         const timer = setTimeout(() => {
-            if (endingSession.current || !sessionIsCurrent(generation.current)) return;
+            // A reload may have replaced this copy before the timer was cleared.
+            if (endingSession.current || latestWorkout.current !== workout || !sessionIsCurrent(generation.current)) return;
             pendingEdit.current = null;
             const previousSave = pendingSave.current;
             const request = (previousSave ? previousSave.catch(() => undefined) : Promise.resolve()).then(() => {
@@ -153,7 +157,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             if (!current?.id || endingSession.current || !sessionIsCurrent(generation.current)) return;
             if (!editing && !current.completed) localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify({ ...current, revision: revision.current }));
             if (pendingSave.current) return;
-            const request = fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...current, revision: revision.current, intent: editing ? "edit" : "draft" }), keepalive: true }).then(async response => {
+            const request = fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...current, revision: revision.current, writer_id: workoutWriterId(), intent: editing ? "edit" : "draft" }), keepalive: true }).then(async response => {
                 if (!response.ok) throw Error(`HTTP ${response.status}. Reload before saving again.`);
                 const result = await response.json() as Workout;
                 if (!sessionIsCurrent(generation.current)) return;
@@ -260,11 +264,43 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             setPauseError(`Could not ${editing ? 'save your changes' : 'finish your workout'}. Your changes are still here. ${error instanceof Error ? error.message : 'Please try again.'}`);
         } finally { endingSession.current = false; setPausing(false); }
     };
+    const reloadSavedWorkout = async () => {
+        const current = latestWorkout.current;
+        if (!current?.id || pausing) return;
+        if (!window.confirm('Discard unsaved changes and reload the saved workout?')) return;
+        endingSession.current = true;
+        setPausing(true); setReloading(true); setPauseError('');
+        try {
+            if (pendingSave.current) await pendingSave.current.catch(() => undefined);
+            let saved: Workout | null = null;
+            try { saved = await api<Workout>(`/workouts/${current.id}`); }
+            catch (error) { if (!(error instanceof Error && error.message.startsWith('HTTP 404'))) throw error; }
+            if (!sessionIsCurrent(generation.current)) return;
+            if (!editing && (!saved || saved.completed)) {
+                // The session was finished or cancelled on another device.
+                // Drop the local copy and reopen the app without it.
+                localStorage.removeItem(accountKey(ACTIVE_WORKOUT_KEY));
+                window.location.reload();
+                return;
+            }
+            if (!saved) throw Error('This workout no longer exists.');
+            const reloaded = withCleanMuscleLabels(saved);
+            revision.current = reloaded.revision;
+            if (reloaded.revision) onRevision?.(current.id, reloaded.revision);
+            reloadedWorkout.current = reloaded;
+            latestWorkout.current = reloaded;
+            pendingEdit.current = null;
+            setSaveError('');
+            setWorkout(reloaded);
+        } catch (error) {
+            setPauseError(`Could not reload the saved workout. ${error instanceof Error ? error.message : 'Please try again.'}`);
+        } finally { endingSession.current = false; setPausing(false); setReloading(false); }
+    };
     const remaining = restUntil ? Math.max(0, Math.ceil((restUntil - now) / 1000)) : 0;
     return <WorkoutSessionView workout={workout} editing={editing} onChange={setWorkout} open={selectedIndex} onOpen={selectExercise} onMoveExercise={moveExercise} onRemoveExercise={removeExercise} previous={previous}
         onPair={(index) => { const id = crypto.randomUUID(); setWorkout({...workout, exercises: workout.exercises.map((item, i) => i === selectedIndex || i === index ? {...item, superset_id:id} : item)}); }}
         onFinish={() => void finishSession()} onPause={!editing && pause ? () => void pauseSession() : undefined}
-        onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} error={pauseError || saveError}
+        onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} reloading={reloading} onReloadSaved={() => void reloadSavedWorkout()} error={pauseError || saveError}
         restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}
         searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} recentSubstitute={replaced ? recentSubstitute : null} onRevert={revertExercise} supersetSearch={supersetSource !== null} onOpenSearch={(index, forSuperset = false) => {
             setSubstituteIndex(index);

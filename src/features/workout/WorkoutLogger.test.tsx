@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { WorkoutLogger } from './WorkoutLogger';
 import { api } from '../../shared/api/client';
 import type { Workout } from './types';
+import { workoutWriterId } from './session';
 import { useState } from 'react';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn().mockResolvedValue({}), API: '/api/v1' }));
@@ -223,7 +224,7 @@ it('debounces edits to completed workouts and preserves completion', async () =>
     await act(() => vi.advanceTimersByTimeAsync(399));
     expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
     await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, intent: "edit" }) });
+    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, writer_id: workoutWriterId(), intent: "edit" }) });
     expect(props.saveEdit).not.toHaveBeenCalled();
 });
 
@@ -233,7 +234,7 @@ it('saves a pending completed-workout edit when leaving before the delay', () =>
     const latest = { ...original, note: 'Updated note' };
     view.rerender(<WorkoutLogger {...props} workout={latest}/>);
     view.unmount();
-    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, intent: "edit" }) });
+    expect(api).toHaveBeenCalledWith('/workouts/42', { method: 'PATCH', body: JSON.stringify({ ...latest, writer_id: workoutWriterId(), intent: "edit" }) });
 });
 
 it('looks past zero-weight and empty sessions for the latest recorded weight', async () => {
@@ -414,7 +415,7 @@ it('removes the only exercise, stops its timer and autosaves an empty workout', 
     expect(screen.getByRole('button', {name:'＋ Add exercise'})).toBeTruthy();
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(document.activeElement).toBe(screen.getByRole('button', {name:'＋ Add exercise'}));
-    expect(api).toHaveBeenCalledWith('/workouts/42', {method:'PATCH', body:JSON.stringify({...navigationWorkout,exercises:[], intent:"draft"})});
+    expect(api).toHaveBeenCalledWith('/workouts/42', {method:'PATCH', body:JSON.stringify({...navigationWorkout,exercises:[], writer_id: workoutWriterId(), intent:"draft"})});
 });
 
 it('shows cross-routine last weight for an older workout without exercise ID links', async () => {

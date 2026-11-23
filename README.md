@@ -206,7 +206,9 @@ flowchart TD
   the database. Sessions end when the browser closes or after 24 hours, and
   signing out revokes them. Every account's data is kept separate.
 - **Saving.** Workouts save as you log them. Each save carries a revision, so a
-  stale tab gets a conflict instead of overwriting newer data.
+  stale copy on another device gets a conflict instead of overwriting newer
+  data. A device can still save over its own latest save, so the phone keeps
+  saving when the app was closed before a save response arrived.
 - **One origin.** Locally, Vite forwards `/api` to port 8000. In production,
   Nginx serves the app and forwards `/api/v1` to the API, which is never
   exposed directly. `/healthz` checks that the API is up.

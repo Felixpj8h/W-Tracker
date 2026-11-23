@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
 import { activateAccount, accountKey, invalidateAccount, sessionGeneration, sessionIsCurrent } from '../auth/auth';
-import { ACTIVE_WORKOUT_KEY, lastSubstituteFor, rememberSubstituteFor, storedWorkout } from './session';
+import { ACTIVE_WORKOUT_KEY, lastSubstituteFor, rememberSubstituteFor, storedWorkout, workoutWriterId } from './session';
 
 const draft = { id: 71, revision: 1, name: 'Private A workout', completed: false, exercises: [] };
 
@@ -50,4 +50,15 @@ it('remembers only the latest substitute for each exercise and account', () => {
     expect(lastSubstituteFor(row)).toEqual(pulldown);
     activateAccount('b@example.test');
     expect(lastSubstituteFor(bench)).toBeNull();
+});
+
+it('keeps one workout writer id per account on this device', () => {
+    activateAccount('a@example.test');
+    const writer = workoutWriterId();
+    expect(writer).toMatch(/^[0-9a-f]{32}$/);
+    expect(workoutWriterId()).toBe(writer);
+    activateAccount('b@example.test');
+    expect(workoutWriterId()).not.toBe(writer);
+    activateAccount('a@example.test');
+    expect(workoutWriterId()).toBe(writer);
 });

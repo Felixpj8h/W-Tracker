@@ -2,6 +2,8 @@
 
 ## 23 November 2026
 
+- Fix live workouts failing to save with HTTP 409 after leaving and reopening the app on Android. Saves now carry a device id, so a device can retry its own save after a lost response; saves from other devices still conflict. Adds the `workouts.last_writer_id` column (migration `0010_workout_last_writer`).
+- Make "Reload saved workout" load the saved copy from the server instead of reloading the page, which restored the same conflicting copy.
 - Make Back behave like a native app. Android's Back gesture (and the browser Back button) used to close Jern from any screen. It now closes the open sheet, dialog, or menu first, then returns to the Dashboard, and only leaves the app from the Dashboard. Closing a note or routine with unsaved changes still asks before discarding them. This uses one temporary history entry and does not change the URL.
 - Show a dark launch screen with the Jern mark when the app opens from the iPhone Home Screen, so it starts like a native app. Without these images iOS shows a plain screen first. The 26 images cover iPhone screen sizes from the iPhone SE through the iPhone 17 Pro Max and Air, in portrait and landscape. Each device downloads only the one that matches it. Regenerate them with `npm run generate:launch-images`.
 

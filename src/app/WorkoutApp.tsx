@@ -4,7 +4,7 @@ import { useBackAction } from '../shared/lib/backNavigation';
 import type { UserProfile } from '../features/auth/profile';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Workout } from '../features/workout/types';
-import { storedWorkout, ACTIVE_WORKOUT_KEY, optimisticWorkoutFromRoutine } from '../features/workout/session';
+import { storedWorkout, ACTIVE_WORKOUT_KEY, optimisticWorkoutFromRoutine, workoutWriterId } from '../features/workout/session';
 import type { Page } from './types';
 import type { Dash, SavedWeight } from '../features/dashboard/types';
 import type { Folder, Routine } from '../features/routines/types';
@@ -132,7 +132,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         const persisted = started ? { ...entry, id: started.id, started_at: started.started_at } : entry;
         if (!persisted.id) throw new Error('The session has not started yet');
         localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(persisted));
-        const saved = await api<Workout>(`/workouts/${persisted.id}`, { method: 'PATCH', body: JSON.stringify(persisted) });
+        const saved = await api<Workout>(`/workouts/${persisted.id}`, { method: 'PATCH', body: JSON.stringify({ ...persisted, writer_id: workoutWriterId() }) });
         persisted.revision = saved?.revision ?? persisted.revision;
         localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(persisted));
         setActive(current => [persisted, ...current.filter(item => item.id !== persisted.id)]);
@@ -145,7 +145,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         const started = entry.id ? null : await pendingWorkoutStart.current;
         const persistedEntry = started ? { ...entry, id: started.id } : entry;
         if (!persistedEntry.id) throw new Error('The session has not started yet');
-        await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify({ ...persistedEntry, intent: wasEditing ? "edit" : "draft" }) });
+        await api(`/workouts/${persistedEntry.id}`, { method: wasEditing ? 'PATCH' : 'PUT', body: JSON.stringify({ ...persistedEntry, writer_id: workoutWriterId(), intent: wasEditing ? "edit" : "draft" }) });
         cancelledWorkoutIds.current.add(persistedEntry.id);
         setActive(current => current.filter(item => item.id !== persistedEntry.id));
         if (!wasEditing) localStorage.removeItem(accountKey(ACTIVE_WORKOUT_KEY));
@@ -173,7 +173,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         const matchingRoutine = folders.flatMap(folder => folder.routines).find(item => item.id === previous.routine_id);
         if (matchingRoutine) { await start(matchingRoutine); return; }
         const draft = await api<Workout>('/workouts/draft', { method: 'POST', body: JSON.stringify({ name: previous.name, performed_on: today() }) });
-        const copied = await api<Workout>(`/workouts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ revision: draft.revision, name: previous.name, performed_on: today(), exercises: previous.exercises.map(exercise => ({ ...exercise, sets: (exercise.sets ?? []).map(set => ({ ...set, completed: false })) })) }) });
+        const copied = await api<Workout>(`/workouts/${draft.id}`, { method: 'PATCH', body: JSON.stringify({ revision: draft.revision, writer_id: workoutWriterId(), name: previous.name, performed_on: today(), exercises: previous.exercises.map(exercise => ({ ...exercise, sets: (exercise.sets ?? []).map(set => ({ ...set, completed: false })) })) }) });
         setWorkout(copied);
         setEditing(false);
         setPage('workout');
