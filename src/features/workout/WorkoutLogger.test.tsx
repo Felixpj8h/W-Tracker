@@ -47,6 +47,38 @@ it('shares an in-flight background save with autosave and finish', async () => {
     expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
 });
 
+it('retries a background save quietly when Android cut the network', async () => {
+    vi.useFakeTimers();
+    let visibility: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    const active = { ...original, completed: false, revision: 3 };
+    const fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetch);
+    vi.mocked(api).mockResolvedValue({ ...active, revision: 4 });
+    render(<WorkoutLogger {...props} editing={false} workout={active}/>);
+    visibility = 'hidden';
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0);
+    visibility = 'visible';
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    const retries = vi.mocked(api).mock.calls.filter(([path, options]) => path === '/workouts/42' && options?.method === 'PATCH');
+    expect(retries).toHaveLength(1);
+    expect(JSON.parse(retries[0][1]!.body as string)).toMatchObject({ revision: 3, intent: 'draft' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    // Nothing is retried again once the save went through.
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(1);
+});
+
+it('still reports a background save the server rejected', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409 }));
+    render(<WorkoutLogger {...props} editing={false} workout={{ ...original, completed: false, revision: 1 }}/>);
+    await act(async () => window.dispatchEvent(new Event('pagehide')));
+    expect((await screen.findByRole('alert')).textContent).toContain('HTTP 409');
+});
+
 it('does not reuse another workout\'s acknowledged revision', async () => {
     vi.useFakeTimers();
     const view = render(<WorkoutLogger {...props} workout={{ ...original, revision: 1 }} acknowledgedRevision={9}/>);

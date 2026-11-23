@@ -10,6 +10,9 @@ import { routineMuscles } from '../routines/routineMuscles';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { moveItem } from '../../shared/lib/moveItem';
 
+// fetch rejects with a TypeError only when the request never got a response.
+const isNetworkError = (error: unknown) => error instanceof TypeError;
+
 export function WorkoutLogger({ workout, folders, active, start, startAdHoc, setWorkout, editing, finish, saveEdit, cancel, pause, onRevision, acknowledgedRevision }: { acknowledgedRevision?: number; onRevision?: (id: number, revision: number) => void; workout: Workout | null; folders: Folder[]; active: Workout[]; start: (r: Routine) => void; startAdHoc: () => Promise<void>; setWorkout: (x: Workout) => void; editing: boolean; finish: (x: Workout) => Promise<void>; saveEdit: (x: Workout) => Promise<void>; cancel?: (x: Workout) => Promise<void>; pause?: (x: Workout) => Promise<void> }) {
     const generation = useRef(sessionGeneration());
     const revision = useRef(Math.max(workout?.revision ?? 0, acknowledgedRevision ?? 0) || undefined);
@@ -49,6 +52,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const [reloading, setReloading] = useState(false);
     // The server copy loaded by "Reload saved workout" is already saved.
     const reloadedWorkout = useRef<Workout | null>(null);
+    // Android often cuts the network for a backgrounded app, so a save sent
+    // while hidden can fail with "Failed to fetch". Retry it on return.
+    const retryOnResume = useRef(false);
     useEffect(() => { latestWorkout.current = workout; }, [workout]);
     useEffect(() => { if (!restUntil) return; const tick = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(tick); }, [restUntil]);
     useEffect(() => { if (restUntil && now >= restUntil) setRestUntil(null); }, [now, restUntil]);
@@ -139,7 +145,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             });
             pendingSave.current = request;
             void request.then(() => setSaveError('')).catch(error => {
-                if (!endingSession.current) setSaveError(`Auto-save failed. ${error instanceof Error ? error.message : 'Please try again.'}`);
+                if (endingSession.current) return;
+                if (isNetworkError(error) && document.visibilityState === 'hidden') { retryOnResume.current = true; return; }
+                setSaveError(`Auto-save failed. ${error instanceof Error ? error.message : 'Please try again.'}`);
             }).finally(() => { if (pendingSave.current === request) pendingSave.current = null; });
         }, 400);
         return () => clearTimeout(timer);
@@ -157,7 +165,10 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             if (!current?.id || endingSession.current || !sessionIsCurrent(generation.current)) return;
             if (!editing && !current.completed) localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify({ ...current, revision: revision.current }));
             if (pendingSave.current) return;
-            const request = fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ...current, revision: revision.current, writer_id: workoutWriterId(), intent: editing ? "edit" : "draft" }), keepalive: true }).then(async response => {
+            const body = JSON.stringify({ ...current, revision: revision.current, writer_id: workoutWriterId(), intent: editing ? "edit" : "draft" });
+            // Browsers reject keepalive requests with bodies over 64 KB.
+            const keepalive = new TextEncoder().encode(body).length < 60_000;
+            const request = fetch(`${API}/workouts/${current.id}`, { method: 'PATCH', credentials: 'include', headers: authHeaders({ 'Content-Type': 'application/json' }), body, keepalive }).then(async response => {
                 if (!response.ok) throw Error(`HTTP ${response.status}. Reload before saving again.`);
                 const result = await response.json() as Workout;
                 if (!sessionIsCurrent(generation.current)) return;
@@ -171,14 +182,36 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             // visibilitychange and pagehide can fire together. Keepalive saves
             // share the same queue as autosave and finish/pause operations.
             pendingSave.current = request;
-            void request.catch(error => { if (sessionIsCurrent(generation.current)) setSaveError(String(error)); })
-                .finally(() => { if (pendingSave.current === request) pendingSave.current = null; });
+            void request.catch(error => {
+                if (!sessionIsCurrent(generation.current)) return;
+                if (isNetworkError(error)) { retryOnResume.current = true; return; }
+                setSaveError(error instanceof Error ? error.message : String(error));
+            }).finally(() => { if (pendingSave.current === request) pendingSave.current = null; });
         };
-        const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); };
+        const retryAfterResume = () => {
+            if (!retryOnResume.current || document.visibilityState === 'hidden') return;
+            retryOnResume.current = false;
+            const current = latestWorkout.current;
+            if (!current?.id || endingSession.current || !sessionIsCurrent(generation.current)) return;
+            const previousSave = pendingSave.current;
+            const request = (previousSave ? previousSave.catch(() => undefined) : Promise.resolve()).then(() => {
+                const latest = latestWorkout.current;
+                if (endingSession.current || !sessionIsCurrent(generation.current) || !latest || latest.id !== current.id) return;
+                return save(latest);
+            });
+            pendingSave.current = request;
+            void request.then(() => setSaveError('')).catch(error => {
+                if (endingSession.current) return;
+                if (isNetworkError(error) && (document.visibilityState === 'hidden' || !navigator.onLine)) { retryOnResume.current = true; return; }
+                setSaveError(`Auto-save failed. ${error instanceof Error ? error.message : 'Please try again.'}`);
+            }).finally(() => { if (pendingSave.current === request) pendingSave.current = null; });
+        };
+        const onVisibilityChange = () => { if (document.visibilityState === 'hidden') saveBeforeSuspend(); else retryAfterResume(); };
         document.addEventListener('visibilitychange', onVisibilityChange);
         window.addEventListener('pagehide', saveBeforeSuspend);
-        return () => { document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('pagehide', saveBeforeSuspend); };
-    }, [editing, onRevision]);
+        window.addEventListener('online', retryAfterResume);
+        return () => { document.removeEventListener('visibilitychange', onVisibilityChange); window.removeEventListener('pagehide', saveBeforeSuspend); window.removeEventListener('online', retryAfterResume); };
+    }, [editing, onRevision, save]);
     if (!workout) {
         const selectedFolder = folders.find(folder => folder.id === selectedFolderId) ?? folders[0];
         const muscleSummary = routineMuscles;
