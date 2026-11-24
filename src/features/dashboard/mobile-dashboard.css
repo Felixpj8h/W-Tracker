@@ -73,7 +73,7 @@
   .dashboard-workspace .dashboard-section-head>div:first-child{display:flex;align-items:center;justify-content:space-between}
   .dashboard-workspace .dashboard-section-head h2,.dashboard-workspace .muscle-card-head h2{font-size:22px}
   .dashboard-workspace .dashboard-section-head>div:first-child::after{content:'kg';color:var(--text-secondary);font-size:15px}
-  .dashboard-workspace .dashboard-section-head p,.dashboard-workspace .muscle-card-head p{display:none}
+  .dashboard-workspace .dashboard-section-head p,.dashboard-workspace .muscle-card-head p:not(.muscle-period){display:none}
   .dashboard-workspace .dashboard-weight-actions{display:flex;position:relative;align-items:center;gap:10px;margin-top:10px}
   .dashboard-workspace .weight-ranges{height:44px;min-width:0}
   .dashboard-workspace .weight-ranges button{min-width:0;padding:0 5px 0 5px;font-size:13px}

@@ -13,7 +13,14 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const current = startOfWeek(today());
 const previous = addDays(current, -7);
 const dash: Dash = { latest_weight: { weight: 80, recorded_on: today() }, weight_series: [], total_current_volume: 100, total_previous_volume: 50, current_sessions: 1, previous_sessions: 0,
-    volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 100, last_week_volume: 50 }], sets_by_muscle: [] };
+    volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 100, last_week_volume: 50 }],
+    sets_by_muscle: [{ name: 'Chest', current_week_sets: 2, last_week_sets: 1 }] };
+const rollingStats = {
+    sessions: 2,
+    volume: 350,
+    volume_by_muscle_group: [{ name: 'Chest', volume: 350 }],
+    sets_by_muscle: [{ name: 'Pectoralis major', sets: 5 }],
+};
 
 function setup({
     profilePicture,
@@ -69,7 +76,7 @@ it('shows rolling totals for an empty current week and keeps the latest complete
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 10, 24, 12));
     const { view } = setup({
-        summary: { ...dash, current_sessions: 0, total_current_volume: 0, last_seven_days: { sessions: 2, volume: 350 } },
+        summary: { ...dash, current_sessions: 0, total_current_volume: 0, last_seven_days: rollingStats },
         history: [
             { name: 'Earlier workout', performed_on: '2026-11-18', completed: true, exercises: [] },
             { name: 'Unfinished workout', performed_on: '2026-11-24', completed: false, exercises: [] },
@@ -80,25 +87,43 @@ it('shows rolling totals for an empty current week and keeps the latest complete
     expect(metrics.getByText('Volume last 7 days').closest('article')?.querySelector('strong')?.textContent).toBe('350 kg');
     expect(metrics.getByText('Sessions last 7 days').closest('article')?.querySelector('strong')?.textContent).toBe('2');
     expect(metrics.getByText('2 days ago')).toBeTruthy();
+    const musclePanel = within(screen.getByRole('heading', { name: 'Volume by muscle group' }).closest('article')!);
+    expect(musclePanel.getByText('Last 7 days')).toBeTruthy();
+    expect(musclePanel.getByText('350 kg')).toBeTruthy();
+    expect(musclePanel.queryByText('+100%')).toBeNull();
+    fireEvent.click(musclePanel.getByRole('button', { name: 'Sets' }));
+    expect(musclePanel.getByText('Last 7 days')).toBeTruthy();
+    expect(musclePanel.getByText('Chest').closest('.muscle-row')?.textContent).toContain('5 sets');
+    expect(musclePanel.queryByText('+100%')).toBeNull();
     await within(view.container.querySelector('.week-overview')!).findByText('0 of 7 workouts completed');
 
     fireEvent.change(screen.getByLabelText('Select week'), { target: { value: '2026-11-09' } });
     await metrics.findByText('250 kg');
     expect(metrics.getByText('Selected week volume')).toBeTruthy();
     expect(metrics.getByText('2 days ago')).toBeTruthy();
+    expect(musclePanel.queryByText('Last 7 days')).toBeNull();
+    expect(musclePanel.getByText('2 sets')).toBeTruthy();
+    expect(musclePanel.getByText('+100%')).toBeTruthy();
+    fireEvent.click(musclePanel.getByRole('button', { name: 'Volume' }));
+    expect(musclePanel.getByText('100 kg')).toBeTruthy();
 });
 
 it('counts yesterday as one calendar day and keeps weekly stats for zero-volume workouts', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 10, 24, 12));
     setup({
-        summary: { ...dash, total_current_volume: 0, last_seven_days: { sessions: 2, volume: 350 } },
+        summary: { ...dash, total_current_volume: 0, last_seven_days: rollingStats },
         history: [{ name: 'Bodyweight workout', performed_on: '2026-11-23', completed: true, exercises: [] }],
     });
     const metrics = within(screen.getByRole('region', { name: 'Training summary' }));
     expect(metrics.getByText('Weekly volume')).toBeTruthy();
     expect(metrics.getByText('Sessions this week')).toBeTruthy();
     expect(metrics.getByText('Yesterday')).toBeTruthy();
+    const musclePanel = within(screen.getByRole('heading', { name: 'Volume by muscle group' }).closest('article')!);
+    expect(musclePanel.queryByText('Last 7 days')).toBeNull();
+    expect(musclePanel.getByText('100 kg')).toBeTruthy();
+    fireEvent.click(musclePanel.getByRole('button', { name: 'Sets' }));
+    expect(musclePanel.getByText('2 sets')).toBeTruthy();
     await waitFor(() => expect(fetch).toHaveBeenCalled());
 });
 

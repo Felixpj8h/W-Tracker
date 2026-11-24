@@ -60,12 +60,22 @@ def test_last_seven_days_crosses_week_boundary_and_counts_zero_volume_sessions(m
 
     result = client.get('/api/v1/dashboard').json()
     assert result['current_sessions'] == 0
-    assert result['last_seven_days'] == {'sessions': 2, 'volume': 200}
+    recent = result['last_seven_days']
+    assert recent['sessions'] == 2
+    assert recent['volume'] == 200
+    assert {row['name']: row['volume'] for row in recent['volume_by_muscle_group'] if row['volume']} == {'Chest': 200}
+    assert {'name': 'Pectoralis major', 'sets': 1} in recent['sets_by_muscle']
+    assert all(row['sets'] == 1 for row in recent['sets_by_muscle'])
+    assert client.get('/api/v1/dashboard?through_today=true').json()['last_seven_days'] == recent
 
     log(date(2026, 11, 24), 30)
     log(date(2026, 11, 25), 80)
     custom = client.get('/api/v1/dashboard?comparison=custom&compare_week=2026-11-23').json()
-    assert custom['last_seven_days'] == {'sessions': 3, 'volume': 500}
+    recent = custom['last_seven_days']
+    assert recent['sessions'] == 3
+    assert recent['volume'] == 500
+    assert {row['name']: row['volume'] for row in recent['volume_by_muscle_group'] if row['volume']} == {'Chest': 500}
+    assert {'name': 'Pectoralis major', 'sets': 2} in recent['sets_by_muscle']
     assert client.get('/api/v1/dashboard?selected_week=2026-11-16').json()['last_seven_days'] is None
 
 

@@ -88,6 +88,10 @@ def test_public_bodyweight_is_scoped_live_and_read_only(public_demo):
         {"recorded_on": str(date.today()), "weight": 80},
     ]
     assert data["latest_weight"] == data["weight_series"][-1]
+    recent = data["last_seven_days"]
+    assert recent["sessions"] == 1
+    assert {"name": "Chest", "volume": 480} in recent["volume_by_muscle_group"]
+    assert recent["sets_by_muscle"] == [{"name": "Pectoralis major", "sets": 1}]
     with Session(engine) as db:
         entry = db.scalar(select(m.BodyweightEntry).where(m.BodyweightEntry.owner_email == OWNER,
             m.BodyweightEntry.recorded_on == date.today()))

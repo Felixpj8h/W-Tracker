@@ -16,6 +16,8 @@ import { WeekSelector } from './WeekSelector';
 import { useWeekData } from './useWeekData';
 import { addDays, dateKey, startOfWeek } from './week';
 
+const muscleDisplayName = (name: string) => /pectoralis|^chest$/i.test(name) ? 'Chest' : name;
+
 export function DashboardPanels({ dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
     dash: Dash | null;
     history: Workout[];
@@ -87,17 +89,13 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const apiMuscleSets = selectedDash?.sets_by_muscle ?? [];
     const muscleSets = (selectedDash?.sets_by_muscle ? apiMuscleSets : selectedWeek === currentWeek && comparison === 'previous' && !throughToday ? derivedMuscleSets : [])
         .filter(muscle => muscle.current_week_sets > 0 || muscle.last_week_sets > 0)
-        .map(muscle => ({ ...muscle, name: /pectoralis|^chest$/i.test(muscle.name) ? 'Chest' : muscle.name }))
+        .map(muscle => ({ ...muscle, name: muscleDisplayName(muscle.name) }))
         .reduce<{ name: string; current_week_sets: number; last_week_sets: number }[]>((groups, muscle) => {
             const existing = groups.find(group => group.name === muscle.name);
             if (existing) { existing.current_week_sets += muscle.current_week_sets; existing.last_week_sets += muscle.last_week_sets; }
             else groups.push({ name: muscle.name, current_week_sets: muscle.current_week_sets, last_week_sets: muscle.last_week_sets });
             return groups;
         }, []);
-    const rows = muscleMetric === 'volume'
-        ? volumeGroups.map(group => ({ name: group.name, current: group.current_week_volume, previous: group.last_week_volume }))
-        : muscleSets.map(muscle => ({ name: muscle.name, current: muscle.current_week_sets, previous: muscle.last_week_sets }));
-    const max = Math.max(1, ...rows.flatMap(row => [row.current, row.previous]));
     const completedByDate = (workouts: Workout[]) => workouts.filter(workout => workout.completed).sort((a, b) => b.performed_on.localeCompare(a.performed_on));
     const completedHistory = completedByDate(history);
     const completed = readOnly ? completedByDate(weekData.workouts) : completedHistory;
@@ -108,6 +106,14 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const previousWeekSessions = selectedDash?.previous_sessions ?? completed.filter(workout => { const date = new Date(`${workout.performed_on}T12:00:00`); return date >= previousWeekStart && date < weekStart; }).length;
     const sessionCount = selectedDash?.current_sessions ?? thisWeek.length;
     const lastSevenDays = selectedWeek === currentWeek && sessionCount === 0 ? selectedDash?.last_seven_days : null;
+    const recentRows = muscleMetric === 'volume'
+        ? lastSevenDays?.volume_by_muscle_group?.map(group => ({ name: group.name, current: group.volume, previous: null }))
+        : lastSevenDays?.sets_by_muscle?.map(muscle => ({ name: muscleDisplayName(muscle.name), current: muscle.sets, previous: null }));
+    const weeklyRows = muscleMetric === 'volume'
+        ? volumeGroups.map(group => ({ name: group.name, current: group.current_week_volume, previous: group.last_week_volume }))
+        : muscleSets.map(muscle => ({ name: muscle.name, current: muscle.current_week_sets, previous: muscle.last_week_sets }));
+    const rows = recentRows ?? weeklyRows;
+    const max = Math.max(1, ...rows.flatMap(row => [row.current, row.previous ?? 0]));
     const sessionChange = sessionCount - previousWeekSessions;
     const previousVolume = selectedDash?.total_previous_volume ?? 0, currentVolume = selectedDash?.total_current_volume ?? 0;
     const volumeChange = previousVolume ? Math.round((currentVolume - previousVolume) / previousVolume * 100) : null;
@@ -149,7 +155,35 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
         </section>
         <section className="dashboard-analytics">
             <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/>
-            <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}><div className="muscle-card-head"><div><h2>{muscleMetric === 'heatmap' ? 'Muscle activity' : muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}</h2></div><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} aria-pressed={muscleMetric === 'volume'} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} aria-pressed={muscleMetric === 'sets'} onClick={() => setMuscleMetric('sets')}>Sets</button><button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button></div></div>{muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek}/> : rows.length ? <div className="muscle-rows" tabIndex={muscleMetric === 'sets' ? 0 : undefined} role={muscleMetric === 'sets' ? 'region' : undefined} aria-label={muscleMetric === 'sets' ? 'Sets by muscle' : undefined}>{(muscleMetric === 'volume' ? rows.slice(0, 7) : rows).map(row => { const change = row.previous ? Math.round((row.current - row.previous) / row.previous * 100) : null; return <div className="muscle-row" key={`${muscleMetric}-${row.name}`}><b>{row.name}</b><div><i style={{ width: `${row.current / max * 100}%` }}/></div><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${Number(row.current.toFixed(2))} sets`}</span><small className={change !== null && change < 0 ? 'negative' : ''}>{change === null ? '—' : `${change >= 0 ? '+' : ''}${change}%`}</small></div>; })}</div> : <div className="dashboard-empty"><b>{weekData.loading ? "Loading selected week…" : weekData.error ? "Week unavailable" : "No workouts logged in this period"}</b><span>{readOnly ? "No training volume available." : "Log a workout to start tracking volume by muscle group."}</span>{!readOnly && <button onClick={log}>Log workout</button>}</div>}</article>
+            <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}>
+                <div className="muscle-card-head">
+                    <div>
+                        <h2>{muscleMetric === 'heatmap' ? 'Muscle activity' : muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}</h2>
+                        {muscleMetric !== 'heatmap' && recentRows && <p className="muscle-period">Last 7 days</p>}
+                    </div>
+                    <div className="metric-toggle" role="group" aria-label="Muscle metric">
+                        <button className={muscleMetric === 'volume' ? 'active' : ''} aria-pressed={muscleMetric === 'volume'} onClick={() => setMuscleMetric('volume')}>Volume</button>
+                        <button className={muscleMetric === 'sets' ? 'active' : ''} aria-pressed={muscleMetric === 'sets'} onClick={() => setMuscleMetric('sets')}>Sets</button>
+                        <button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button>
+                    </div>
+                </div>
+                {muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek}/>
+                    : rows.length ? <div className="muscle-rows" tabIndex={muscleMetric === 'sets' ? 0 : undefined} role={muscleMetric === 'sets' ? 'region' : undefined} aria-label={muscleMetric === 'sets' ? 'Sets by muscle' : undefined}>
+                        {(muscleMetric === 'volume' ? rows.slice(0, 7) : rows).map(row => {
+                            const change = row.previous ? Math.round((row.current - row.previous) / row.previous * 100) : null;
+                            return <div className="muscle-row" key={`${muscleMetric}-${row.name}`}>
+                                <b>{row.name}</b>
+                                <div><i style={{ width: `${row.current / max * 100}%` }}/></div>
+                                <span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${Number(row.current.toFixed(2))} sets`}</span>
+                                {row.previous !== null && <small className={change !== null && change < 0 ? 'negative' : ''}>{change === null ? '—' : `${change >= 0 ? '+' : ''}${change}%`}</small>}
+                            </div>;
+                        })}
+                    </div> : <div className="dashboard-empty">
+                        <b>{weekData.loading ? "Loading selected week…" : weekData.error ? "Week unavailable" : "No workouts logged in this period"}</b>
+                        <span>{readOnly ? "No training volume available." : "Log a workout to start tracking volume by muscle group."}</span>
+                        {!readOnly && <button onClick={log}>Log workout</button>}
+                    </div>}
+            </article>
         </section>
         <section className="dashboard-lower"><h1 className="mobile-swipe-title">Activity</h1>
             <article className="recent-workouts"><div className="section-heading"><h2>Workouts in selected week</h2>{completed.length ? <button type="button" onClick={openHistory}>View all →</button> : null}</div>{thisWeek.length ? thisWeek.slice(0, 3).map(workout => { const date = dateParts(workout.performed_on); return <button type="button" className="recent-row" onClick={() => openWorkout(workout)} key={workout.id ?? `${workout.performed_on}-${workout.name}`}><time><small>{date.month}</small><strong>{date.day}</strong></time><span className="recent-row-copy"><b>{workout.name}</b><small>{[...new Set(workout.exercises.map(exercise => (exercise.primary_muscle ?? exercise.muscle_group ?? '').replace(/^Primary:\s*/i, '').split(' · ')[0]).filter(Boolean))].slice(0, 3).join(' · ') || 'Workout session'}</small></span><span>{workoutSets(workout)} sets · {duration(workout.duration_seconds)} · {vol(workoutVolume(workout))} kg</span><i aria-hidden="true">›</i></button>; }) : <div className="lower-empty">{readOnly && weekData.error ? <>Could not load workouts. <button onClick={weekData.retry}>Retry workouts</button></> : 'No completed workouts in this period.'}</div>}</article>

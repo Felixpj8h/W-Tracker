@@ -189,9 +189,21 @@ class Bodyweight(PublicModel):
     weight: float
 
 
+class RecentMuscleVolume(PublicModel):
+    name: str
+    volume: float
+
+
+class RecentMuscleSets(PublicModel):
+    name: str
+    sets: int
+
+
 class SevenDayTotals(PublicModel):
     sessions: int
     volume: float
+    volume_by_muscle_group: list[RecentMuscleVolume]
+    sets_by_muscle: list[RecentMuscleSets]
 
 
 class Dashboard(PublicModel):

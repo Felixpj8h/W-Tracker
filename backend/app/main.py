@@ -2095,7 +2095,8 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
     divisor = len(comparison_starts)
     current_sessions = previous_sessions = 0
     recent_sessions = 0
-    recent_volume = 0.0
+    recent_volume = dict.fromkeys(GROUPS, 0.0)
+    recent_muscle_sets = dict.fromkeys(INDIVIDUAL_MUSCLES, 0)
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
     current_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}; previous_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}
@@ -2121,15 +2122,19 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
         for exercise in workout.exercises:
             working_sets = [s for s in exercise.sets if not s.is_warmup]
             volume = sum(s.weight * s.reps for s in working_sets) if exercise.muscle_group in current else None
-            if in_recent and volume is not None:
-                recent_volume += volume
+            muscles = dashboard_muscles(exercise)
+            if in_recent:
+                if volume is not None:
+                    recent_volume[exercise.muscle_group] += volume
+                for muscle in muscles:
+                    recent_muscle_sets[muscle] += len(working_sets)
             for included, bucket, set_bucket, muscle_set_bucket, scale in buckets:
                 if not included:
                     continue
                 if volume is not None:
                     bucket[exercise.muscle_group] += volume / scale
                     set_bucket[exercise.muscle_group] += len(working_sets) / scale
-                for muscle in dashboard_muscles(exercise):
+                for muscle in muscles:
                     muscle_set_bucket[muscle] += len(working_sets) / scale
     weights = list_weights(db) if include_bodyweight else []
     # Demo mode deliberately uses a fixed 14-point window so older real or
@@ -2137,7 +2142,14 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
     if has_demo:
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
-    last_seven_days = {"sessions": recent_sessions, "volume": recent_volume} if last_seven_days_start is not None else None
+    last_seven_days = None
+    if last_seven_days_start is not None:
+        last_seven_days = {
+            "sessions": recent_sessions,
+            "volume": sum(recent_volume.values()),
+            "volume_by_muscle_group": [{"name": name, "volume": volume} for name, volume in recent_volume.items()],
+            "sets_by_muscle": [{"name": name, "sets": sets} for name, sets in recent_muscle_sets.items() if sets > 0],
+        }
     return {"current_sessions": current_sessions, "previous_sessions": previous_sessions / divisor, "current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "last_seven_days": last_seven_days, "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
 
 

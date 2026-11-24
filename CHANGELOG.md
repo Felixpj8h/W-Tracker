@@ -2,6 +2,7 @@
 
 ## 24 November 2026
 
+- Show the last seven days in Volume by muscle group and Sets by muscle when the current week has no completed workouts.
 - Show muscle activity for the last seven days when the current week has no completed workouts, and label the heatmap with that date range.
 - Show volume and sessions for the last seven days when the current week has no completed workouts. Last workout now shows how many calendar days have passed since the latest completed session, regardless of the week selected.
 - Fix the Nuclear theme looking washed out in the deployed app, with blank swatches in Settings → Themes. Browsers kept an old copy of `/theme-palettes.css` from before Nuclear existed, because public files keep the same URL across releases and nginx sent no caching headers. Builds now add a content hash to `/theme-palettes.css` and `/theme-init.js` in `index.html`, so each release loads its own copy. nginx now tells browsers to revalidate HTML and public files on each load, and to cache the hashed files under `/assets/` for a year. API caching headers are unchanged. A new test fails if a theme in `theme.ts` has no palette block. These changes have not been deployed yet.
