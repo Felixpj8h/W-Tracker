@@ -19,7 +19,7 @@ For the API, database, and backend build, see the [Backend README](backend/READM
 | **Bodyweight** | Log weigh-ins and follow the trend on a chart from the dashboard. |
 | **Coach** | Chat with an AI coach that reads your training data. It answers training, recovery, and nutrition questions. You approve any change it suggests to routines or the weekly plan before it is applied. See [The coach's AI pipeline](#the-coachs-ai-pipeline). |
 | **Health** | Optional read-only Google Health connection for steps, active minutes, sleep stages, heart rate variability (HRV), and resting heart rate. Includes 7-day trends and an editable step goal. [Google Health setup](docs/google-health.md) |
-| **Settings** | Colour theme, coach response length, and sign out. |
+| **Settings** | Colour theme, coach response length, weight goal, Sets by muscle chart style (radar or bars), and sign out. |
 | **Demo** | Optional public, read-only view of one account's training. Disabled by default. |
 
 Exercise search uses the open [Wger](https://wger.de/) catalogue, which is cached

@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BodyMap } from './BodyMap';
 import { DashboardPanels } from './DashboardPanels';
+import { clearBodyMapCache } from './bodyMapData';
 
 const muscles = [
     { id: 1, name: 'Chest', volume: 896, intensity: .5, is_front: true, image_url: 'https://wger.de/chest.svg' },
     { id: 2, name: 'Lats', volume: 1800, intensity: 1, is_front: false, image_url: 'https://wger.de/lats.svg' },
 ];
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); clearBodyMapCache(); });
 
 function mockMap() {
     const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => ({ ok: true, json: async () => url.includes('/calendar') ? { plan: null, days: [] } : { muscles } }));
@@ -31,7 +32,7 @@ describe('Dashboard muscle heatmap', () => {
         expect(screen.getByText('Sets by muscle')).toBeTruthy();
         expect(screen.queryByRole('img', { name: /muscle heatmap/ })).toBeNull();
         fireEvent.click(controls.getByRole('button', { name: 'Volume' }));
-        expect(screen.getByText('Volume by muscle group')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Volume by muscle group' })).toBeTruthy();
     });
 
     it('uses only the public read-only route in the demo', async () => {
@@ -59,6 +60,31 @@ describe('Dashboard muscle heatmap', () => {
         expect(await screen.findByText('Last 7 days')).toBeTruthy();
         expect(screen.getByRole('img', { name: /Front muscle heatmap: Chest, 896 kg/ })).toBeTruthy();
         expect(screen.getByRole('img', { name: /Back muscle heatmap: No muscles trained in the last 7 days/ })).toBeTruthy();
+    });
+
+    it('puts the rolling label in the dashboard card header so it does not shrink the figures', async () => {
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/calendar') ? { plan: null, days: [] } : { muscles, showing_last_seven_days: true } })));
+        const view = render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        fireEvent.click(within(screen.getByRole('group', { name: 'Muscle metric' })).getByRole('button', { name: 'Heatmap' }));
+        await screen.findByRole('img', { name: /Front muscle heatmap/ });
+        await waitFor(() => expect(view.container.querySelector('.muscle-card-head .muscle-period')?.textContent).toBe('Last 7 days'));
+        expect(view.container.querySelector('.heatmap-period')).toBeNull();
+    });
+
+    it('starts loading on hover and shows the cached map at once when switching back', async () => {
+        const fetchMock = mockMap();
+        render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        const controls = within(screen.getByRole('group', { name: 'Muscle metric' }));
+        const mapCalls = () => fetchMock.mock.calls.filter(([url]) => url.includes('/body-map')).length;
+        fireEvent.pointerEnter(controls.getByRole('button', { name: 'Heatmap' }));
+        expect(mapCalls()).toBe(1);
+        fireEvent.click(controls.getByRole('button', { name: 'Heatmap' }));
+        await screen.findByRole('img', { name: /Front muscle heatmap: Chest/ });
+        fireEvent.click(controls.getByRole('button', { name: 'Volume' }));
+        fireEvent.click(controls.getByRole('button', { name: 'Heatmap' }));
+        expect(screen.queryByText('Loading your muscle heatmap…')).toBeNull();
+        expect(screen.getByRole('img', { name: /Front muscle heatmap: Chest/ })).toBeTruthy();
+        expect(mapCalls()).toBe(1);
     });
 
     it('recovers from an unavailable map on retry', async () => {

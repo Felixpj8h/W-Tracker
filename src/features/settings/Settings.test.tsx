@@ -172,3 +172,14 @@ it('does not highlight a goal or allow a target while settings failed to load', 
     expect(radio('No goal').closest('label')!.className).not.toContain('active');
     expect((screen.getByLabelText('Target weight') as HTMLInputElement).disabled).toBe(true);
 });
+
+it('switches the Sets by muscle chart between radar and bars on this device', async () => {
+    vi.mocked(api).mockResolvedValue({ ai_output_length: 'normal' });
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Dashboard' }));
+    expect(radio('Radar').checked).toBe(true);
+    fireEvent.click(radio('Bars'));
+    expect(radio('Bars').checked).toBe(true);
+    expect(localStorage.getItem('workout-sets-chart')).toBe('bars');
+    expect(vi.mocked(api).mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false);
+});

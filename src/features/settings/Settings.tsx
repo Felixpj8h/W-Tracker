@@ -4,10 +4,11 @@ import { THEMES, type ApplicationTheme } from '../../shared/lib/theme';
 import { requestSignOut } from '../auth/auth';
 import { AI_OUTPUT_LENGTHS, type AccountSettingsController } from './useAccountSettings';
 import { WeightGoalSettings } from './WeightGoalSettings';
+import { SETS_CHART_STYLES, setSetsChartStyle, useSetsChartStyle } from '../dashboard/setsChartPreference';
 import './settings.css';
 
-type Tab = 'ai' | 'goals' | 'themes';
-const TABS: { id: Tab; label: string }[] = [{ id: 'ai', label: 'AI preferences' }, { id: 'goals', label: 'Goals' }, { id: 'themes', label: 'Themes' }];
+type Tab = 'ai' | 'goals' | 'dashboard' | 'themes';
+const TABS: { id: Tab; label: string }[] = [{ id: 'ai', label: 'AI preferences' }, { id: 'goals', label: 'Goals' }, { id: 'dashboard', label: 'Dashboard' }, { id: 'themes', label: 'Themes' }];
 
 function SunIcon() {
     return <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>;
@@ -28,6 +29,7 @@ export function Settings({ settings, theme }: { settings: AccountSettingsControl
         setTab(next.id);
         tabRefs.current[next.id]?.focus();
     };
+    const setsChart = useSetsChartStyle();
     const { aiOutputLength, loadState, saveError } = settings;
     const aiReady = loadState === 'loaded' && aiOutputLength !== null;
     const aiLoading = loadState === 'idle' || loadState === 'loading';
@@ -53,6 +55,14 @@ export function Settings({ settings, theme }: { settings: AccountSettingsControl
         {tab === 'goals' && <div className="settings-panel" role="tabpanel" id="settings-panel-goals" aria-labelledby="settings-tab-goals">
             <WeightGoalSettings settings={settings}/>
             {status('goals')}
+        </div>}
+        {tab === 'dashboard' && <div className="settings-panel" role="tabpanel" id="settings-panel-dashboard" aria-labelledby="settings-tab-dashboard">
+            <div className="settings-row">
+                <div><h2 id="settings-sets-chart">Sets by muscle chart</h2><p>Radar shows every muscle's sets as one shape. Bars lists each muscle with its own bar. Saved on this device.</p></div>
+                <div className="metric-toggle settings-segmented" role="radiogroup" aria-labelledby="settings-sets-chart">
+                    {SETS_CHART_STYLES.map(option => <label key={option.value} className={setsChart === option.value ? 'active' : ''}><input type="radio" name="sets-chart-style" value={option.value} checked={setsChart === option.value} onChange={() => setSetsChartStyle(option.value)}/>{option.label}</label>)}
+                </div>
+            </div>
         </div>}
         {tab === 'themes' && <div className="settings-panel" role="tabpanel" id="settings-panel-themes" aria-labelledby="settings-tab-themes">
             <div className="settings-theme-picker" role="radiogroup" aria-label="Color theme">

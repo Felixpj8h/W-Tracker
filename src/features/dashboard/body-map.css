@@ -39,3 +39,19 @@
     .dashboard-volume.heatmap-mode .heatmap-status { flex:1; min-height:0; }
 }
 @media(prefers-reduced-motion:reduce) { .heatmap-layer { transition:none; } }
+
+/* Heatmap "Last 7 days" label sits under the card title without making the header taller,
+   so the body figures stay the same size whether or not the label is shown. */
+@media (min-width:761px){
+  .dashboard-volume.heatmap-mode .muscle-card-head>div{position:relative}
+  .dashboard-volume.heatmap-mode .muscle-card-head .muscle-period{position:absolute;top:100%;left:0;white-space:nowrap}
+}
+
+/* The map appears in one step: data and every image are loaded before it renders. */
+.muscle-heatmap .heatmap-bodies { animation:heatmap-in .22s ease-out; }
+.muscle-heatmap.is-updating .heatmap-bodies { opacity:.55; transition:opacity .15s ease; }
+@keyframes heatmap-in { from { opacity:0; } to { opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .muscle-heatmap .heatmap-bodies { animation:none; } }
+/* Quick loads show only empty space before the map; the loading text appears if it takes longer. */
+.heatmap-status:not(:has(button)) { animation:heatmap-in .2s ease-out .4s both; }
+@media (prefers-reduced-motion:reduce) { .heatmap-status:not(:has(button)) { animation:none; } }

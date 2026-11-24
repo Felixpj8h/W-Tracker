@@ -204,3 +204,26 @@
   .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) .muscle-row>div{height:8px}
   .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode):not(.heatmap-mode) :is(.muscle-row>span,.muscle-row>small){font-size:12px}
 }
+
+/* Mobile muscle card: Volume / Sets / Heatmap become three slim bars beside the title (like the workout
+   exercise bars), so the chart gets the row the labelled buttons used. The card title names the active
+   view, and each bar keeps its label for screen readers. Each bar keeps a 44px tap target. */
+@media(max-width:760px){
+  .dashboard-workspace{--muscle-panel-height:clamp(212px,calc(25dvh + 44px),256px)}
+  .dashboard-workspace .dashboard-analytics .muscle-card-head{flex-direction:row;align-items:flex-start;justify-content:space-between;gap:14px}
+  .dashboard-workspace .dashboard-analytics .muscle-card-head>div:first-child{flex:1;min-width:0}
+  /* !important: palette themes give the toggle a field-coloured box, which would frame the bars. */
+  .dashboard-workspace .dashboard-analytics .metric-toggle{flex:0 0 104px;gap:5px;margin-top:-10px;padding:0 4px;border:0!important;border-radius:0;background:transparent!important;box-shadow:none!important}
+  .dashboard-workspace .dashboard-analytics .metric-toggle button{flex:1;min-width:0;min-height:44px;padding:0 1px;border-radius:5px;background:transparent!important;box-shadow:none!important;color:transparent!important;font-size:0}
+  .dashboard-workspace .dashboard-analytics .metric-toggle button::before{content:'';display:block;height:4px;border-radius:4px;background:color-mix(in srgb,var(--text-primary,var(--text)) 16%,transparent);transition:background-color .2s ease,box-shadow .2s ease}
+  .dashboard-workspace .dashboard-analytics .metric-toggle button.active::before{background:var(--chart-accent,var(--accent));box-shadow:0 0 0 2px var(--bg-surface,var(--surface)),0 0 0 3.5px color-mix(in srgb,var(--chart-accent,var(--accent)) 70%,transparent)}
+  .dashboard-workspace .dashboard-analytics .metric-toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:0}
+}
+
+/* Mobile muscle card: every view keeps a one-line title, so switching views never changes the card's
+   height or squeezes the bodyweight chart. "Volume by muscle group" drops "group" to fit. */
+@media(max-width:760px){
+  .dashboard-workspace .dashboard-analytics .muscle-card-head h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dashboard-workspace .dashboard-analytics .muscle-title-extra{display:none}
+  .dashboard-workspace .dashboard-analytics .dashboard-volume:not(.sets-mode) .muscle-rows.no-change .muscle-row{grid-template-columns:76px minmax(0,1fr) minmax(62px,auto);gap:12px}
+}

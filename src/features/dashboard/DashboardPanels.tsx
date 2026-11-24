@@ -12,6 +12,9 @@ import { BodyweightCard } from './BodyweightCard';
 import { effectiveWeightGoal, weightChangeTone } from './weightGoal';
 import type { WeightGoal } from '../settings/useAccountSettings';
 import { BodyMap } from './BodyMap';
+import { loadBodyMap } from './bodyMapData';
+import { SetsRadar } from './SetsRadar';
+import { useSetsChartStyle } from './setsChartPreference';
 import { WeekSelector } from './WeekSelector';
 import { useWeekData } from './useWeekData';
 import { addDays, dateKey, startOfWeek } from './week';
@@ -35,6 +38,8 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     targetWeight?: number | null;
 }) {
     const [muscleMetric, setMuscleMetric] = useState<'volume' | 'sets' | 'heatmap'>('volume');
+    const [heatmapLastSevenDays, setHeatmapLastSevenDays] = useState(false);
+    const setsChart = useSetsChartStyle();
     const todayDate = today();
     const currentWeek = startOfWeek(todayDate);
     const [selectedWeek, setSelectedWeek] = useState(currentWeek);
@@ -131,6 +136,8 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const completedPlanned = weekDays.filter(day => day.plan?.routine_id && day.workout).length;
     const upcoming = (calendar?.days ?? []).filter(day => day.date >= todayDate && day.status !== 'completed').slice(0, 4);
     const nextWorkout = (calendar?.days ?? []).find(day => day.date >= todayDate && day.status !== 'completed' && Boolean(day.routine_name ?? day.workout_name));
+    // Start loading the heatmap as soon as the pointer or finger reaches its control, before the tap lands.
+    const prefetchHeatmap = () => { void loadBodyMap(readOnly, selectedWeek, throughToday && selectedWeek === currentWeek).catch(() => undefined); };
     const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
     return <>
         <section className="dashboard-overview-page">
@@ -158,17 +165,21 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
             <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}>
                 <div className="muscle-card-head">
                     <div>
-                        <h2>{muscleMetric === 'heatmap' ? 'Muscle activity' : muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}</h2>
-                        {muscleMetric !== 'heatmap' && recentRows && <p className="muscle-period">Last 7 days</p>}
+                        <h2>{muscleMetric === 'heatmap' ? 'Muscle activity' : muscleMetric === 'volume' ? <>Volume by muscle{' '}<span className="muscle-title-extra">group</span></> : 'Sets by muscle'}</h2>
+                        {(muscleMetric === 'heatmap' ? heatmapLastSevenDays : Boolean(recentRows)) && <p className="muscle-period">Last 7 days</p>}
                     </div>
                     <div className="metric-toggle" role="group" aria-label="Muscle metric">
                         <button className={muscleMetric === 'volume' ? 'active' : ''} aria-pressed={muscleMetric === 'volume'} onClick={() => setMuscleMetric('volume')}>Volume</button>
                         <button className={muscleMetric === 'sets' ? 'active' : ''} aria-pressed={muscleMetric === 'sets'} onClick={() => setMuscleMetric('sets')}>Sets</button>
-                        <button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button>
+                        <button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onPointerEnter={prefetchHeatmap} onFocus={prefetchHeatmap} onTouchStart={prefetchHeatmap} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button>
                     </div>
                 </div>
-                {muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek}/>
-                    : rows.length ? <div className="muscle-rows" tabIndex={muscleMetric === 'sets' ? 0 : undefined} role={muscleMetric === 'sets' ? 'region' : undefined} aria-label={muscleMetric === 'sets' ? 'Sets by muscle' : undefined}>
+                {muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek} onPeriodChange={setHeatmapLastSevenDays}/>
+                    : muscleMetric === 'sets' && setsChart === 'radar' && rows.length >= 3 ? <SetsRadar
+                        rows={rows}
+                        currentLabel={recentRows ? 'Last 7 days' : selectedWeek === currentWeek ? 'This week' : 'Selected week'}
+                        comparisonLabel={recentRows ? null : comparison === 'previous' ? 'Previous week' : comparison === 'average' ? 'Four-week average' : 'Comparison week'}/>
+                    : rows.length ? <div className={`muscle-rows ${rows.every(row => row.previous === null) ? 'no-change' : ''}`} tabIndex={muscleMetric === 'sets' ? 0 : undefined} role={muscleMetric === 'sets' ? 'region' : undefined} aria-label={muscleMetric === 'sets' ? 'Sets by muscle' : undefined}>
                         {(muscleMetric === 'volume' ? rows.slice(0, 7) : rows).map(row => {
                             const change = row.previous ? Math.round((row.current - row.previous) / row.previous * 100) : null;
                             return <div className="muscle-row" key={`${muscleMetric}-${row.name}`}>

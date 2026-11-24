@@ -385,3 +385,6 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .dashboard-weight .chart .weight-target{stroke:var(--text-muted,var(--muted));stroke-width:1.2;stroke-dasharray:5 4;vector-effect:non-scaling-stroke;opacity:.8}
 .dashboard-weight .chart .weight-target-label{position:absolute;left:var(--chart-axis-width);transform:translateY(calc(-100% - 3px));padding:0 4px;color:var(--text-muted,var(--muted));font-size:10px;font-weight:700;pointer-events:none;white-space:nowrap}
 .dashboard-weight .dashboard-weight-goal.positive{color:var(--accent-bright,var(--accent))}
+
+/* No comparison (for example "Last 7 days"): drop the empty change column so the bars use the width. */
+.dashboard-volume:not(.sets-mode) .muscle-rows.no-change .muscle-row{grid-template-columns:86px minmax(70px,1fr) 78px}

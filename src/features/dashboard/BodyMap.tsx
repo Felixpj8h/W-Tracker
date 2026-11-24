@@ -1,44 +1,47 @@
 import { useState, useEffect, useId } from 'react';
-import type { BodyMapMuscle } from './types';
-import { api } from '../../shared/api/client';
-import { demoApi } from '../demo/api';
+import { bodyMapKey, cachedBodyMap, loadBodyMap, type BodyMapResult } from './bodyMapData';
 import './body-map.css';
 
-type BodyMapResult = { muscles: BodyMapMuscle[]; showing_last_seven_days?: boolean };
-
-export function BodyMap({ readOnly = false, selectedWeek, throughToday = false }: { readOnly?: boolean; selectedWeek?: string; throughToday?: boolean }) {
-    const [result, setResult] = useState<BodyMapResult | null>(null);
+/** Pass `onPeriodChange` to show the "Last 7 days" label elsewhere (the dashboard puts it in the card
+ *  header) so the label does not take height from the body figures. */
+export function BodyMap({ readOnly = false, selectedWeek, throughToday = false, onPeriodChange }: { readOnly?: boolean; selectedWeek?: string; throughToday?: boolean; onPeriodChange?: (showingLastSevenDays: boolean) => void }) {
+    const key = bodyMapKey(readOnly, selectedWeek, throughToday);
+    // The map on screen and the view it belongs to. While another week loads, the previous map stays
+    // (dimmed) instead of collapsing to a loading message, so the card does not jump.
+    const [shown, setShown] = useState<{ key: string; result: BodyMapResult } | null>(() => { const cached = cachedBodyMap(key); return cached ? { key, result: cached } : null; });
     const [unavailable, setUnavailable] = useState(false);
     const [retry, setRetry] = useState(0);
     const filterId = `heatmap-color-${useId().replace(/:/g, '')}`;
 
     useEffect(() => {
-        const controller = new AbortController();
-        const load = readOnly ? demoApi : api;
-        setResult(null);
+        let active = true;
+        const cached = cachedBodyMap(key);
+        if (cached) setShown({ key, result: cached });
         setUnavailable(false);
-        const query = selectedWeek ? `?selected_week=${selectedWeek}&through_today=${throughToday}` : '';
-        void load<BodyMapResult>(`/dashboard/body-map${query}`, { signal: controller.signal })
-            .then(data => {
-                if (!controller.signal.aborted) { setResult(data); setUnavailable(false); }
-            })
-            .catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
-        return () => controller.abort();
-    }, [readOnly, retry, selectedWeek, throughToday]);
+        loadBodyMap(readOnly, selectedWeek, throughToday, { force: retry > 0 })
+            .then(data => { if (active) setShown({ key, result: data }); })
+            .catch(() => { if (active && !cached) setUnavailable(true); });
+        return () => { active = false; };
+    }, [key, readOnly, retry, selectedWeek, throughToday]);
 
-    if (unavailable) return <div className="heatmap-status" role="status"><span>Could not load your muscle heatmap.</span><button type="button" onClick={() => { setUnavailable(false); setResult(null); setRetry(value => value + 1); }}>Retry heatmap</button></div>;
+    const result = shown?.result ?? null;
+    const updating = shown !== null && shown.key !== key;
+
+    useEffect(() => { onPeriodChange?.(Boolean(result?.showing_last_seven_days)); }, [onPeriodChange, result]);
+
+    if (unavailable) return <div className="heatmap-status" role="status"><span>Could not load your muscle heatmap.</span><button type="button" onClick={() => { setUnavailable(false); setShown(null); setRetry(value => value + 1); }}>Retry heatmap</button></div>;
     if (result === null) return <div className="heatmap-status" role="status">Loading your muscle heatmap…</div>;
     const trained = result.muscles.filter(muscle => muscle.volume > 0);
     const emptyMessage = result.showing_last_seven_days ? 'No muscles trained in the last 7 days' : 'No muscles trained in the selected week';
 
-    return <div className="muscle-heatmap">
+    return <div className={`muscle-heatmap ${updating ? 'is-updating' : ''}`} aria-busy={updating}>
         <svg className="heatmap-filters" aria-hidden="true" width="0" height="0">
             <defs><filter id={filterId} colorInterpolationFilters="sRGB">
                 <feFlood style={{ floodColor: 'var(--heatmap-color, #315b40)' }} />
                 <feComposite in2="SourceAlpha" operator="in" />
             </filter></defs>
         </svg>
-        {result.showing_last_seven_days && <p className="heatmap-period">Last 7 days</p>}
+        {result.showing_last_seven_days && !onPeriodChange && <p className="heatmap-period">Last 7 days</p>}
         <div className="heatmap-bodies">
             {(['front', 'back'] as const).map(view => <figure key={view}>
                 <div className="heatmap-figure" role="img" aria-label={`${view === 'front' ? 'Front' : 'Back'} muscle heatmap: ${trained.filter(muscle => muscle.is_front === (view === 'front')).map(muscle => `${muscle.name}, ${Math.round(muscle.volume).toLocaleString()} kg`).join('; ') || emptyMessage}`}>
