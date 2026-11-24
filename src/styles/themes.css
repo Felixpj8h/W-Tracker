@@ -89,3 +89,4 @@
 :root[data-palette="iron-copper"] .app { --palette-health-below-threshold: #76838e; }
 :root[data-palette="blackberry"] .app { --palette-health-below-threshold: #668793; }
 :root[data-palette="chalk-ink"] .app { --palette-health-below-threshold: #618179; }
+:root[data-palette="nuclear"] .app { --palette-health-below-threshold: #858a72; }

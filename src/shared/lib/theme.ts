@@ -10,6 +10,7 @@ export const THEMES = [
     { id: 'iron-copper', name: 'Iron & Copper', dark: true },
     { id: 'blackberry', name: 'Blackberry', dark: true },
     { id: 'chalk-ink', name: 'Chalk & Ink', dark: false },
+    { id: 'nuclear', name: 'Nuclear', dark: true },
 ] as const;
 
 type ThemeId = (typeof THEMES)[number]['id'];

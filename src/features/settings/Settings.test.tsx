@@ -127,7 +127,7 @@ it('applies the fixed appearance of every custom theme', async () => {
     const palettes = [
         ['Pastel Pink', 'pastel-pink', 'light'], ['Carbon Black', 'carbon-black', 'dark'],
         ['Batman', 'batman', 'dark'], ['Arcade', 'arcade', 'dark'], ['Midnight Blue', 'midnight-blue', 'dark'],
-        ['Iron & Copper', 'iron-copper', 'dark'], ['Blackberry', 'blackberry', 'dark'], ['Chalk & Ink', 'chalk-ink', 'light'],
+        ['Iron & Copper', 'iron-copper', 'dark'], ['Blackberry', 'blackberry', 'dark'], ['Chalk & Ink', 'chalk-ink', 'light'], ['Nuclear', 'nuclear', 'dark'],
     ];
     for (const [name, id, mode] of palettes) {
         fireEvent.click(radio(name));

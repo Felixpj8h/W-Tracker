@@ -83,3 +83,13 @@
   --palette-ink: #24272d;
   --palette-on-accent: #ffffff;
 }
+
+[data-palette="nuclear"] {
+  --palette-mode: dark;
+  --palette-background: #2a2c2e;
+  --palette-sidebar: #34373a;
+  --palette-surface: #383b3e;
+  --palette-accent: #b8ff1f;
+  --palette-ink: #eef1ec;
+  --palette-on-accent: #161c05;
+}

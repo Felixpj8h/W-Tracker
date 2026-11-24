@@ -58,3 +58,8 @@
 .jern-logo--auth .jern-logo__wordmark {
     font-size: 40px;
 }
+
+/* The Nuclear theme swaps the Jern mark for a radiation trefoil. */
+[data-palette="nuclear"] .jern-logo__mark {
+    mask-image: url('/favicon/radiation-mark.svg');
+}

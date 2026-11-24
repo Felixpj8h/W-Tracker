@@ -1,5 +1,9 @@
 # Changelog
 
+## 24 November 2026
+
+- Add a Nuclear theme: dark gray backgrounds with a yellow-green (#b8ff1f) as the accent color. The logo mark becomes a radiation trefoil while the theme is active. Choose it under Settings → Themes.
+
 ## 23 November 2026
 
 - Skip exercises with no logged sets in the History volume chart and count each workout once per exercise. Completed bodyweight sets can still show 0 kg.
