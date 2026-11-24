@@ -203,8 +203,9 @@ flowchart TD
   SQLAlchemy. Alembic manages schema migrations. [Backend README](backend/README.md)
 - **Sign-in.** The browser sends a Google ID token once. The API checks it
   against `ALLOWED_EMAILS` and sets an HttpOnly cookie linked to a session in
-  the database. Sessions end when the browser closes or after 24 hours, and
-  signing out revokes them. Every account's data is kept separate.
+  the database. The cookie persists when the browser closes, and sessions expire
+  seven days after sign-in. Signing out revokes the session. Every account's
+  data is kept separate.
 - **Saving.** Workouts save as you log them. Each save carries a revision, so a
   stale copy on another device gets a conflict instead of overwriting newer
   data. A device can still save over its own latest save, so the phone keeps

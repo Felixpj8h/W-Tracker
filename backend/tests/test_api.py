@@ -3,10 +3,12 @@ import json
 import threading
 import tempfile
 from datetime import date, datetime, timedelta
+from http.cookies import SimpleCookie
 from pathlib import Path
+from time import time
 import pytest
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.main as main_module
@@ -648,13 +650,22 @@ def test_browser_session_survives_google_token_expiry_and_logout(monkeypatch):
     monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", verify)
     try:
         with TestClient(app) as browser:
+            before = int(time())
             response = browser.get("/api/v1/session", headers={"Authorization": "Bearer google-token"})
+            after = int(time())
             assert response.status_code == 200
-            assert "httponly" in response.headers["set-cookie"].lower()
-            assert "max-age" not in response.headers["set-cookie"].lower()
+            cookie = SimpleCookie(response.headers["set-cookie"])[main_module.SESSION_COOKIE]
+            seven_days = 7 * 24 * 60 * 60
+            assert cookie["httponly"] and cookie["samesite"] == "lax"
+            assert int(cookie["max-age"]) == seven_days
 
             monkeypatch.setattr(main_module.id_token, "verify_oauth2_token", lambda *_args: (_ for _ in ()).throw(ValueError("expired")))
-            assert browser.get("/api/v1/session").status_code == 200
+            restored = browser.get("/api/v1/session")
+            assert restored.status_code == 200
+            assert "set-cookie" not in restored.headers
+            with main_module.SessionLocal() as db:
+                expires = db.scalars(select(main_module.BrowserSession.expires)).one()
+                assert before + seven_days <= expires <= after + seven_days
             assert browser.get("/api/v1/dashboard").status_code == 200
             entry = {"recorded_on": "2026-09-28", "weight": 80}
             assert browser.post("/api/v1/bodyweight", json=entry, headers={"Origin": "https://attacker.example"}).status_code == 403

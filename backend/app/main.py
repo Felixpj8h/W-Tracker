@@ -47,7 +47,7 @@ GOOGLE_REQUEST = google_requests.Request()
 RATE_LIMIT_LOCK = threading.Lock()
 RATE_LIMIT_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 SESSION_COOKIE = "w_tracker_session"
-SESSION_LIFETIME_SECONDS = 24 * 60 * 60
+SESSION_LIFETIME_SECONDS = 7 * 24 * 60 * 60
 HEALTH_COACH_CONTEXT_SEPARATOR = (
     "\n\nGive advice only. Do not create, change or apply a plan, diagnose, or invent readings. "
     "Use my own history for comparisons.\nMy Google Health summary (null means unavailable):\n"
@@ -907,7 +907,15 @@ async def require_google_auth(request: Request, call_next):
             )
     response = await call_next(request)
     if is_api and request.url.path == "/api/v1/session" and request.headers.get("Authorization", "").startswith("Bearer ") and not getattr(request.app.state, "disable_auth", False):
-        response.set_cookie(SESSION_COOKIE, _session_value(identity), httponly=True, secure=APP_ENV == "production", samesite="lax", path="/api/v1")
+        response.set_cookie(
+            SESSION_COOKIE,
+            _session_value(identity),
+            max_age=SESSION_LIFETIME_SECONDS,
+            httponly=True,
+            secure=APP_ENV == "production",
+            samesite="lax",
+            path="/api/v1",
+        )
     return response
 
 
