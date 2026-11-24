@@ -43,6 +43,21 @@
 .health-snapshot .lower-empty button{padding:0;background:transparent;color:var(--accent-bright,var(--accent));font-size:12px;font-weight:700}
 .health-snapshot .lower-empty button:hover{color:var(--text-primary,var(--text))}
 
+/* Desktop: the snapshot fills its row, whose height the This week list sets, so Recovery ends level with the
+   last week row. Spare height goes two parts to the tiles and one to Recovery. In each tile the chart takes it,
+   so bars grow and the steps meter stays just above its caption. */
+@media(min-width:761px){
+  .health-snapshot{display:flex;flex-direction:column}
+  .health-snapshot>.health-snapshot-tiles{flex:2 1 auto}
+  /* The 2px matches the margin under each week row, so the visible bottom edges line up exactly. */
+  .health-snapshot>.health-snapshot-recovery{flex:1 1 auto;margin-bottom:2px}
+  /* Only in the three-tile layout; narrower columns use the row layout below, with its fixed chart height. */
+  @container health-snapshot (min-width:300px){
+    .health-snapshot-tile .health-snapshot-visual{flex:1 1 auto;align-items:flex-end;min-height:18px;height:auto}
+    .health-snapshot-tile .health-snapshot-bars{align-self:stretch;height:auto}
+  }
+}
+
 /* Very narrow columns and phones: each tile becomes a row (label and note, then the chart, then the value),
    like the upcoming rows, so captions never truncate. Desktop columns stay wider than this, so the snapshot
    keeps its three tiles and fits the fixed-height dashboard. The two blocks below must stay identical. */

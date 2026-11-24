@@ -330,6 +330,14 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .upcoming-row{grid-template-columns:48px 18px minmax(0,1fr) 14px;min-height:45px;margin-bottom:5px;padding-inline:10px;border:1px solid var(--border-subtle);border-radius:8px;background:color-mix(in srgb,var(--bg-surface) 76%,transparent)}
 .upcoming-row .upcoming-status{display:block;width:11px;height:11px;border:1px solid var(--text-muted);border-radius:50%;font-size:0}
 .upcoming-row>i:last-child{color:var(--text-muted);font-size:17px;font-style:normal;line-height:1}
+/* Desktop: with four sessions listed, Upcoming fills its row like the health snapshot, so its last card ends level
+   with the last week row. The 2px matches the margin under each week row. With fewer sessions the cards keep their
+   normal size instead of stretching. */
+@media(min-width:761px){
+  .dashboard-lower>.upcoming-workouts:has(.upcoming-row+.upcoming-row+.upcoming-row+.upcoming-row){display:flex;flex-direction:column}
+  .dashboard-lower>.upcoming-workouts:has(.upcoming-row+.upcoming-row+.upcoming-row+.upcoming-row)>.upcoming-row{flex:1 1 auto}
+  .dashboard-lower>.upcoming-workouts>.upcoming-row:last-child{margin-bottom:2px}
+}
 .dashboard-volume.sets-mode{display:flex!important;flex-direction:column;min-height:0!important;overflow:hidden!important}
 .dashboard-volume.sets-mode .muscle-rows{grid-column:1/-1;width:100%;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:10px;row-gap:7px;margin-top:clamp(12px,1.6vh,17px)}
 .dashboard-volume.sets-mode .muscle-row{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;min-width:0;min-height:39px;column-gap:9px;row-gap:5px;padding:6px 8px;border:1px solid var(--border-subtle);border-radius:7px;background:color-mix(in srgb,var(--bg-surface) 76%,transparent);font-size:10px}
