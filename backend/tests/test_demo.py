@@ -360,6 +360,26 @@ def test_bundled_body_map_only_exposes_trusted_https_images(public_demo, monkeyp
     assert [item["id"] for item in response.json()["muscles"]] == [1]
 
 
+def test_demo_heatmap_exposes_the_rolling_period_for_the_public_account(public_demo, monkeypatch):
+    class Tuesday(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 24)
+
+    client, engine, ids = public_demo
+    monkeypatch.setattr(m, 'date', Tuesday)
+    with Session(engine) as db:
+        db.get(m.Workout, ids[OWNER]['workout']).performed_on = date(2026, 11, 22)
+        db.get(m.Workout, ids[OTHER]['workout']).performed_on = date(2026, 11, 23)
+        db.commit()
+
+    response = client.get('/api/v1/demo/dashboard/body-map')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['showing_last_seven_days'] is True
+    assert next(muscle for muscle in data['muscles'] if muscle['name'] == 'Chest')['volume'] == 480
+
+
 @pytest.mark.parametrize("cached_catalogue", [None, []])
 def test_demo_heatmap_works_on_cold_start_for_selected_previous_week(public_demo, monkeypatch, cached_catalogue):
     client, engine, ids = public_demo

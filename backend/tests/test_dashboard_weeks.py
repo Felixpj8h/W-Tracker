@@ -69,6 +69,39 @@ def test_last_seven_days_crosses_week_boundary_and_counts_zero_volume_sessions(m
     assert client.get('/api/v1/dashboard?selected_week=2026-11-16').json()['last_seven_days'] is None
 
 
+def test_heatmap_uses_the_last_seven_days_only_when_the_current_week_is_empty(monkeypatch):
+    class Tuesday(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 24)
+
+    monkeypatch.setattr(main_module, 'date', Tuesday)
+    monkeypatch.setattr(main_module, 'WGER_MUSCLES', [
+        {'id': 1, 'name_en': 'Chest', 'is_front': True, 'image_url_main': 'https://wger.de/chest.svg'},
+    ])
+    reset_db()
+    log(date(2026, 11, 17), 90)
+    log(date(2026, 11, 18), 20)
+    log(date(2026, 11, 22), 30)
+    url = '/api/v1/dashboard/body-map'
+
+    current = client.get(f'{url}?selected_week=2026-11-23').json()
+    assert current['showing_last_seven_days'] is True
+    assert current['muscles'][0]['volume'] == 500
+    through_today = client.get(f'{url}?through_today=true').json()
+    assert through_today['showing_last_seven_days'] is True
+    assert through_today['muscles'] == current['muscles']
+
+    previous = client.get(f'{url}?selected_week=2026-11-16').json()
+    assert previous['showing_last_seven_days'] is False
+    assert previous['muscles'][0]['volume'] == 1400
+
+    log(date(2026, 11, 24), 0)
+    current = client.get(url).json()
+    assert current['showing_last_seven_days'] is False
+    assert current['muscles'][0]['volume'] == 10
+
+
 def test_through_today_matches_weekdays_and_body_map_bounds(monkeypatch):
     class Wednesday(date):
         @classmethod

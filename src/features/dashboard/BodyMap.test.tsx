@@ -50,6 +50,17 @@ describe('Dashboard muscle heatmap', () => {
         expect(await screen.findAllByRole('img', { name: /No muscles trained in the selected week/ })).toHaveLength(2);
     });
 
+    it('labels rolling overlays and describes a side with no activity in that period', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ muscles: [muscles[0]], showing_last_seven_days: true }),
+        }));
+        render(<BodyMap/>);
+        expect(await screen.findByText('Last 7 days')).toBeTruthy();
+        expect(screen.getByRole('img', { name: /Front muscle heatmap: Chest, 896 kg/ })).toBeTruthy();
+        expect(screen.getByRole('img', { name: /Back muscle heatmap: No muscles trained in the last 7 days/ })).toBeTruthy();
+    });
+
     it('recovers from an unavailable map on retry', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValueOnce({ ok: true, json: async () => ({ muscles }) }));
         render(<BodyMap/>);
@@ -68,7 +79,8 @@ it('replaces current-week muscle values with the selected historical week and ig
     view.rerender(<BodyMap selectedWeek="2026-10-12"/>);
     await screen.findByRole('img',{name:/Front muscle heatmap: Chest, 2,500 kg/});
     expect(fetchMock.mock.calls.some(([url]) => url.includes('selected_week=2026-10-12&through_today=false'))).toBe(true);
-    await act(async () => resolveCurrent({ok:true,json:async () => ({muscles})}));
+    await act(async () => resolveCurrent({ok:true,json:async () => ({muscles, showing_last_seven_days: true})}));
+    expect(screen.queryByText('Last 7 days')).toBeNull();
     expect(screen.getByRole('img',{name:/Front muscle heatmap: Chest, 2,500 kg/})).toBeTruthy();
     expect(screen.queryByRole('img',{name:/Lats, 1,800 kg/})).toBeNull();
 });

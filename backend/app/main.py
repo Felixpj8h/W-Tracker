@@ -2147,12 +2147,13 @@ def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool
 
 
 def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None):
-    """Return the selected week's overlays from saved exercise involvement."""
+    """Build overlays for the selected week or the last seven days."""
     global WGER_MUSCLES
     today = date.today()
     anchor = selected_week or today
     week_start = anchor - timedelta(days=anchor.weekday())
-    week_end = week_start + timedelta(days=today.weekday() + 1 if through_today and week_start == today - timedelta(days=today.weekday()) else 7)
+    current_week = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=today.weekday() + 1 if through_today and week_start == current_week else 7)
     involvement: dict[str, defaultdict[str, float]] = {
         "primary": defaultdict(float),
         "secondary": defaultdict(float),
@@ -2161,7 +2162,11 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
     # Some older/demo rows only know a broad group (for example "Legs"). Keep
     # that data useful by spreading it across the Wger regions for that group.
     broad_group_volume: defaultdict[str, float] = defaultdict(float)
-    workouts = db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
+    completed_workouts = select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True)
+    workouts = db.scalars(completed_workouts.where(Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
+    showing_last_seven_days = week_start == current_week and not workouts
+    if showing_last_seven_days:
+        workouts = db.scalars(completed_workouts.where(Workout.performed_on >= today - timedelta(days=6), Workout.performed_on <= today)).all()
     for workout in workouts:
         for exercise in workout.exercises:
             volume = sum(entry.weight * entry.reps for entry in exercise.sets if not entry.is_warmup)
@@ -2231,7 +2236,11 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
             muscles.append({"id": muscle.get("id"), "name": name, "volume": volume, "is_front": muscle.get("is_front", True), "image_url": image, "role": role, "is_primary": role == "primary"})
     peak = max((muscle["volume"] for muscle in muscles), default=0)
     test_mode = db.scalar(select(Workout.id).where(Workout.name.like("Map test · Full body%")).limit(1)) is not None
-    return {"muscles": [{**muscle, "intensity": round(muscle["volume"] / peak, 3) if peak else 0} for muscle in muscles], "test_mode": test_mode}
+    return {
+        "muscles": [{**muscle, "intensity": round(muscle["volume"] / peak, 3) if peak else 0} for muscle in muscles],
+        "test_mode": test_mode,
+        "showing_last_seven_days": showing_last_seven_days,
+    }
 
 
 @app.post("/api/v1/dashboard/body-map/test-data")
