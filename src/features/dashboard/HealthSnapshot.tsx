@@ -110,11 +110,12 @@ function SnapshotBody({ overview }: { overview: HealthOverview }) {
     </>;
 }
 
-export function HealthSnapshot({ health, openHealth }: { health: HealthSnapshotState; openHealth: () => void }) {
+/** `sample` marks made-up readings, such as the public demo's, so they are never mistaken for someone's real health data. */
+export function HealthSnapshot({ health, openHealth, sample = false }: { health: HealthSnapshotState; openHealth: () => void; sample?: boolean }) {
     const { overview, loading, error, retry } = health;
     const ready = Boolean(overview?.connected && overview.data);
     return <article className="health-snapshot">
-        <div className="section-heading"><h2>Health snapshot</h2>{ready && <span>Last 7 days</span>}</div>
+        <div className="section-heading"><h2>Health snapshot</h2>{ready && <span>{sample ? 'Sample data · Last 7 days' : 'Last 7 days'}</span>}</div>
         {ready ? <SnapshotBody overview={overview!}/>
             : loading ? <div className="lower-empty" role="status">Loading health…</div>
             : error ? <div className="lower-empty">Could not load health data. <button type="button" onClick={retry}>Retry</button></div>

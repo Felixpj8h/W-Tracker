@@ -20,7 +20,7 @@ function mockMap() {
 describe('Dashboard muscle heatmap', () => {
     it('switches between volume, sets, and the real front/back muscle map', async () => {
         const fetchMock = mockMap();
-        render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
         const controls = within(screen.getByRole('group', { name: 'Muscle metric' }));
         expect(controls.getByRole('button', { name: 'Volume' }).getAttribute('aria-pressed')).toBe('true');
         expect(fetchMock.mock.calls.some(([url]) => url.includes('/body-map'))).toBe(false);
@@ -64,7 +64,7 @@ describe('Dashboard muscle heatmap', () => {
 
     it('puts the rolling label in the dashboard card header so it does not shrink the figures', async () => {
         vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('/calendar') ? { plan: null, days: [] } : { muscles, showing_last_seven_days: true } })));
-        const view = render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        const view = render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
         fireEvent.click(within(screen.getByRole('group', { name: 'Muscle metric' })).getByRole('button', { name: 'Heatmap' }));
         await screen.findByRole('img', { name: /Front muscle heatmap/ });
         await waitFor(() => expect(view.container.querySelector('.muscle-card-head .muscle-period')?.textContent).toBe('Last 7 days'));
@@ -73,7 +73,7 @@ describe('Dashboard muscle heatmap', () => {
 
     it('starts loading on hover and shows the cached map at once when switching back', async () => {
         const fetchMock = mockMap();
-        render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        render(<DashboardPanels dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
         const controls = within(screen.getByRole('group', { name: 'Muscle metric' }));
         const mapCalls = () => fetchMock.mock.calls.filter(([url]) => url.includes('/body-map')).length;
         fireEvent.pointerEnter(controls.getByRole('button', { name: 'Heatmap' }));

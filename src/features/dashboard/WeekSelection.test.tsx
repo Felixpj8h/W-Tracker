@@ -39,7 +39,7 @@ function setup({
         return { ok: true, json: async () => data };
     });
     vi.stubGlobal('fetch', fetchMock);
-    const view = render(<DashboardPanels dash={summary} history={history} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+    const view = render(<DashboardPanels dash={summary} history={history} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
     fireEvent.click(screen.getByRole('button', { name: /^(This week|Last 7 days)/ }));
     return { fetchMock, view };
 }

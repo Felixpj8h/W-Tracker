@@ -53,7 +53,7 @@ describe('Sets by muscle chart setting', () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ plan: null, days: [] }) })));
         const dash = { latest_weight: null, weight_series: [], total_current_volume: 0, total_previous_volume: 0, volume_by_muscle_group: [],
             sets_by_muscle: rows.map(row => ({ name: row.name, current_week_sets: row.current, last_week_sets: row.previous ?? 0 })) };
-        const view = render(<DashboardPanels dash={dash} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+        const view = render(<DashboardPanels dash={dash} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
         fireEvent.click(within(screen.getByRole('group', { name: 'Muscle metric' })).getByRole('button', { name: 'Sets' }));
         expect(view.container.querySelector('.sets-radar')).toBeTruthy();
         act(() => setSetsChartStyle('bars'));

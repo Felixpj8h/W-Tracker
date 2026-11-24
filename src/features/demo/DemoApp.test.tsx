@@ -63,7 +63,8 @@ describe('Public demo workspace', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Search workouts or exercises' }), { target: { value: 'Unmatched' } });
     await screen.findByText(/0 matching sessions/);
     await clickPage('Dashboard');
-    expect(await screen.findByRole('button', { name: /Public workout/ })).toBeTruthy();
+    // The week list names the logged workout, not the planned routine, so the demo's week workouts are still loaded.
+    expect(await within(document.querySelector('.week-overview') as HTMLElement).findByText('Public workout')).toBeTruthy();
   });
 
   it('uses only credential-free public GETs and keeps every page read only', async () => {
@@ -80,6 +81,9 @@ describe('Public demo workspace', () => {
       expect(screen.queryByText('Test full map')).toBeNull();
     }
     expect(localStorage.getItem('workout-active-session')).toBe(before);
+    // The health snapshot shows labelled sample readings and never asks for the owner's health data.
+    expect(screen.getByText('Sample data · Last 7 days')).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/health'))).toBe(false);
     for (const [url, options] of vi.mocked(fetch).mock.calls) {
       expect(String(url)).toContain('/api/v1/demo/');
       expect(options?.method).toBe('GET');

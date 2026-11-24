@@ -8,7 +8,9 @@
   container:health-snapshot/inline-size;
   min-width:0;
 }
-.health-snapshot .section-heading{gap:12px}
+/* When the period label does not fit beside the title (phones, the demo's longer label), it moves below it on one line. */
+.health-snapshot .section-heading{flex-wrap:wrap;column-gap:12px;row-gap:4px}
+.health-snapshot .section-heading>*{white-space:nowrap}
 
 .health-snapshot-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .health-snapshot-tile,.health-snapshot-recovery{min-width:0;border:1px solid var(--border-subtle,var(--border));border-radius:8px;background:var(--hs-surface)}

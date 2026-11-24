@@ -105,10 +105,22 @@ describe('Dashboard health snapshot', () => {
         await screen.findByText('8,281');
     });
 
-    it('keeps the workout list in the read-only demo, which has no health data', () => {
-        render(<DashboardPanels readOnly dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
-        expect(screen.getByRole('heading', { name: 'Workouts in selected week' })).toBeTruthy();
-        expect(screen.queryByRole('heading', { name: 'Health snapshot' })).toBeNull();
-        expect(api).not.toHaveBeenCalledWith('/health/overview', expect.anything());
+    it('shows labelled sample readings in the public demo without loading health data', async () => {
+        render(<DashboardPanels readOnly dash={null} history={[]} historyLoaded firstName="Athlete" log={vi.fn()} openCalendar={vi.fn()} saveWeight={async () => undefined}/>);
+        const heading = screen.getByRole('heading', { name: 'Health snapshot' });
+        expect(heading.parentElement?.textContent).toContain('Sample data · Last 7 days');
+        expect(screen.queryByRole('heading', { name: 'Workouts in selected week' })).toBeNull();
+        expect(tile('Avg steps').getByText('8,041')).toBeTruthy();
+        expect(tile('Avg steps').getByText('4/7 days at goal')).toBeTruthy();
+        expect(tile('Avg sleep').getByText('7h 23m')).toBeTruthy();
+        expect(tile('Avg activity').getByText('39')).toBeTruthy();
+        expect(tile('Avg activity').getByText('4h 31m total')).toBeTruthy();
+        expect(tile('Recovery').getByText('50')).toBeTruthy();
+        expect(tile('Recovery').getByText('56')).toBeTruthy();
+        // No link to the Health page, which the demo does not have.
+        expect(screen.queryByRole('button', { name: /Health/ })).toBeNull();
+        // The live loader stays off. DemoApp.test checks that no request at all mentions health.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(api).not.toHaveBeenCalled();
     });
 });
