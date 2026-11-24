@@ -10,11 +10,11 @@ def close_connections():
     engine.dispose()
 
 
-def log(day, weight):
+def log(day, weight, *, warmup=False):
     exercise = next(item for item in client.get('/api/v1/exercises').json() if item['muscle_group'] == 'Chest')
     response = client.post('/api/v1/workouts', json={
         'name': 'Training', 'performed_on': str(day),
-        'exercises': [{'exercise_id': exercise['id'], 'sets': [{'weight': weight, 'reps': 10}]}],
+        'exercises': [{'exercise_id': exercise['id'], 'sets': [{'weight': weight, 'reps': 10, 'is_warmup': warmup}]}],
     })
     assert response.status_code == 200
 
@@ -45,6 +45,28 @@ def test_four_week_average_includes_empty_weeks():
     assert result['total_previous_volume'] == 150
     assert result['previous_sessions'] == .5
     assert sum(row['last_week_sets'] for row in result['volume_by_muscle_group']) == .5
+
+
+def test_last_seven_days_crosses_week_boundary_and_counts_zero_volume_sessions(monkeypatch):
+    class Tuesday(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 24)
+    monkeypatch.setattr(main_module, 'date', Tuesday)
+    reset_db()
+    log(date(2026, 11, 17), 90)  # Eight calendar dates including today.
+    log(date(2026, 11, 18), 20)
+    log(date(2026, 11, 22), 50, warmup=True)
+
+    result = client.get('/api/v1/dashboard').json()
+    assert result['current_sessions'] == 0
+    assert result['last_seven_days'] == {'sessions': 2, 'volume': 200}
+
+    log(date(2026, 11, 24), 30)
+    log(date(2026, 11, 25), 80)
+    custom = client.get('/api/v1/dashboard?comparison=custom&compare_week=2026-11-23').json()
+    assert custom['last_seven_days'] == {'sessions': 3, 'volume': 500}
+    assert client.get('/api/v1/dashboard?selected_week=2026-11-16').json()['last_seven_days'] is None
 
 
 def test_through_today_matches_weekdays_and_body_map_bounds(monkeypatch):

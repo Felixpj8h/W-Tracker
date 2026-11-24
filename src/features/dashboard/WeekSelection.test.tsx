@@ -5,16 +5,21 @@ import { DashboardPanels } from './DashboardPanels';
 import { addDays, startOfWeek } from './week';
 import { today } from '../../shared/lib/format';
 import type { Dash } from './types';
+import type { Workout } from '../workout/types';
 
 vi.mock('../../shared/ui/AnimatedValue', () => ({ AnimatedValue: ({ value }: { value: string }) => <span>{value}</span> }));
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const current = startOfWeek(today());
 const previous = addDays(current, -7);
 const dash: Dash = { latest_weight: { weight: 80, recorded_on: today() }, weight_series: [], total_current_volume: 100, total_previous_volume: 50, current_sessions: 1, previous_sessions: 0,
     volume_by_muscle_group: [{ name: 'Chest', current_week_volume: 100, last_week_volume: 50 }], sets_by_muscle: [] };
 
-function setup(profilePicture?: string) {
+function setup({
+    profilePicture,
+    summary = dash,
+    history = [{ id: 1, name: 'Past workout', routine_id: 1, performed_on: previous, completed: true, exercises: [] }],
+}: { profilePicture?: string; summary?: Dash; history?: Workout[] } = {}) {
     const fetchMock = vi.fn(async (url: string) => {
         let data: unknown;
         if (url.includes('/body-map')) data = { muscles: [] };
@@ -26,14 +31,14 @@ function setup(profilePicture?: string) {
         return { ok: true, json: async () => data };
     });
     vi.stubGlobal('fetch', fetchMock);
-    const view = render(<DashboardPanels dash={dash} history={[{ id: 1, name: 'Past workout', routine_id: 1, performed_on: previous, completed: true, exercises: [] }]} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
+    const view = render(<DashboardPanels dash={summary} history={history} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
     fireEvent.click(screen.getByRole('button', { name: /This week/ }));
     return { fetchMock, view };
 }
 
 it('shows the Google photo in the mobile header and falls back on an image error', async () => {
     const picture = 'https://lh3.googleusercontent.com/profile-photo';
-    const { view } = setup(picture);
+    const { view } = setup({ profilePicture: picture });
     const avatar = view.container.querySelector('.mobile-dashboard-topbar .profile-avatar')!;
     const image = avatar.querySelector('img')!;
     expect(image.getAttribute('src')).toBe(picture);
@@ -58,6 +63,43 @@ it('browses weeks, updates stats and heatmap, and returns to the current week', 
     fireEvent.click(screen.getByRole('button', { name: 'Back to this week' }));
     expect(screen.getByText('Weekly volume')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Next week' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('shows rolling totals for an empty current week and keeps the latest completed workout across week selections', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 24, 12));
+    const { view } = setup({
+        summary: { ...dash, current_sessions: 0, total_current_volume: 0, last_seven_days: { sessions: 2, volume: 350 } },
+        history: [
+            { name: 'Earlier workout', performed_on: '2026-11-18', completed: true, exercises: [] },
+            { name: 'Unfinished workout', performed_on: '2026-11-24', completed: false, exercises: [] },
+            { name: 'Latest workout', performed_on: '2026-11-22', completed: true, exercises: [] },
+        ],
+    });
+    const metrics = within(screen.getByRole('region', { name: 'Training summary' }));
+    expect(metrics.getByText('Volume last 7 days').closest('article')?.querySelector('strong')?.textContent).toBe('350 kg');
+    expect(metrics.getByText('Sessions last 7 days').closest('article')?.querySelector('strong')?.textContent).toBe('2');
+    expect(metrics.getByText('2 days ago')).toBeTruthy();
+    await within(view.container.querySelector('.week-overview')!).findByText('0 of 7 workouts completed');
+
+    fireEvent.change(screen.getByLabelText('Select week'), { target: { value: '2026-11-09' } });
+    await metrics.findByText('250 kg');
+    expect(metrics.getByText('Selected week volume')).toBeTruthy();
+    expect(metrics.getByText('2 days ago')).toBeTruthy();
+});
+
+it('counts yesterday as one calendar day and keeps weekly stats for zero-volume workouts', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 24, 12));
+    setup({
+        summary: { ...dash, total_current_volume: 0, last_seven_days: { sessions: 2, volume: 350 } },
+        history: [{ name: 'Bodyweight workout', performed_on: '2026-11-23', completed: true, exercises: [] }],
+    });
+    const metrics = within(screen.getByRole('region', { name: 'Training summary' }));
+    expect(metrics.getByText('Weekly volume')).toBeTruthy();
+    expect(metrics.getByText('Sessions this week')).toBeTruthy();
+    expect(metrics.getByText('Yesterday')).toBeTruthy();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
 });
 
 it('sends fair-comparison, average and custom-week choices to the dashboard', async () => {

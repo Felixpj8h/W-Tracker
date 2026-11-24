@@ -2086,6 +2086,7 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
     current_week = today - timedelta(days=today.weekday())
     days = today.weekday() + 1 if through_today and week_start == current_week else 7
     week_end = week_start + timedelta(days=days)
+    last_seven_days_start = today - timedelta(days=6) if week_start == current_week else None
     if comparison == 'custom' and compare_week is None:
         raise HTTPException(422, 'Choose a comparison week')
     baseline = compare_week if comparison == 'custom' else week_start - timedelta(days=7)
@@ -2093,34 +2094,51 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
     comparison_starts = [week_start - timedelta(weeks=n) for n in range(1, 5)] if comparison == 'average' else [previous_start]
     divisor = len(comparison_starts)
     current_sessions = previous_sessions = 0
+    recent_sessions = 0
+    recent_volume = 0.0
     current = {x: 0.0 for x in GROUPS}; previous = {x: 0.0 for x in GROUPS}
     current_sets = {x: 0 for x in GROUPS}; previous_sets = {x: 0 for x in GROUPS}
     current_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}; previous_muscle_sets = {x: 0 for x in INDIVIDUAL_MUSCLES}
     has_demo = db.scalar(select(Workout.id).where(Workout.name.like("Demo · %")).limit(1)) is not None
-    workouts = db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= min(week_start, *comparison_starts), Workout.performed_on < max(week_end, *(start + timedelta(days=days) for start in comparison_starts)))).all()
+    first_day = min(last_seven_days_start or week_start, week_start, *comparison_starts)
+    last_day = max(week_end, *(start + timedelta(days=days) for start in comparison_starts))
+    workouts = db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(
+        Workout.completed == True, Workout.performed_on >= first_day, Workout.performed_on < last_day
+    )).all()
     for workout in workouts:
         in_current = week_start <= workout.performed_on < week_end
         in_previous = any(start <= workout.performed_on < start + timedelta(days=days) for start in comparison_starts)
+        in_recent = last_seven_days_start is not None and last_seven_days_start <= workout.performed_on <= today
+        if not (in_current or in_previous or in_recent):
+            continue
         current_sessions += int(in_current)
         previous_sessions += int(in_previous)
-        for included, bucket, set_bucket, muscle_set_bucket, scale in [
+        recent_sessions += int(in_recent)
+        buckets = [
             (in_current, current, current_sets, current_muscle_sets, 1),
             (in_previous, previous, previous_sets, previous_muscle_sets, divisor),
-        ]:
-            if not included: continue
-            for exercise in workout.exercises:
-                if exercise.muscle_group in bucket:
-                    bucket[exercise.muscle_group] += sum(s.weight * s.reps for s in exercise.sets if not s.is_warmup) / scale
-                    set_bucket[exercise.muscle_group] += sum(not s.is_warmup for s in exercise.sets) / scale
+        ]
+        for exercise in workout.exercises:
+            working_sets = [s for s in exercise.sets if not s.is_warmup]
+            volume = sum(s.weight * s.reps for s in working_sets) if exercise.muscle_group in current else None
+            if in_recent and volume is not None:
+                recent_volume += volume
+            for included, bucket, set_bucket, muscle_set_bucket, scale in buckets:
+                if not included:
+                    continue
+                if volume is not None:
+                    bucket[exercise.muscle_group] += volume / scale
+                    set_bucket[exercise.muscle_group] += len(working_sets) / scale
                 for muscle in dashboard_muscles(exercise):
-                    muscle_set_bucket[muscle] += sum(not s.is_warmup for s in exercise.sets) / scale
+                    muscle_set_bucket[muscle] += len(working_sets) / scale
     weights = list_weights(db) if include_bodyweight else []
     # Demo mode deliberately uses a fixed 14-point window so older real or
     # earlier demo entries cannot distort the sample trend line.
     if has_demo:
         demo_start = today - timedelta(days=13)
         weights = [entry for entry in weights if entry["recorded_on"] >= demo_start]
-    return {"current_sessions": current_sessions, "previous_sessions": previous_sessions / divisor, "current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
+    last_seven_days = {"sessions": recent_sessions, "volume": recent_volume} if last_seven_days_start is not None else None
+    return {"current_sessions": current_sessions, "previous_sessions": previous_sessions / divisor, "current_week_start": week_start, "previous_week_start": previous_start, "latest_weight": weights[-1] if weights else None, "weight_series": weights, "total_current_volume": sum(current.values()), "total_previous_volume": sum(previous.values()), "last_seven_days": last_seven_days, "volume_by_muscle_group": [{"name": group, "current_week_volume": current[group], "last_week_volume": previous[group], "current_week_sets": current_sets[group], "last_week_sets": previous_sets[group]} for group in GROUPS], "sets_by_muscle": [{"name": muscle, "current_week_sets": current_muscle_sets[muscle], "last_week_sets": previous_muscle_sets[muscle]} for muscle in INDIVIDUAL_MUSCLES]}
 
 
 @app.get("/api/v1/dashboard/body-map")

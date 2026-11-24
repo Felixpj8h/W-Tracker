@@ -13,6 +13,7 @@ export type Dash = {
     }[];
     total_current_volume: number;
     total_previous_volume: number;
+    last_seven_days?: { sessions: number; volume: number } | null;
     volume_by_muscle_group: {
         name: string;
         current_week_volume: number;

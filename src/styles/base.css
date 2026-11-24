@@ -247,7 +247,7 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 .today-control>.dashboard-icon:last-child{width:16px;height:16px;color:var(--text-muted)}
 .dashboard-metrics article{display:grid;grid-template-columns:30px minmax(0,1fr);align-items:center;gap:14px}
 .dashboard-metrics article>.dashboard-icon{width:25px;height:25px;color:#b7c1b9;stroke-width:1.65}
-.dashboard-metrics article>div{min-width:0}
+.dashboard-metrics article>div{min-width:0;align-self:start}
 .dashboard-metrics article>div>span,.dashboard-metrics article>div>small{display:block}
 .dashboard-weight-actions{display:flex;align-items:center;gap:10px}
 .weight-ranges{display:flex;height:38px;padding:3px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--field)}

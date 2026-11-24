@@ -189,6 +189,11 @@ class Bodyweight(PublicModel):
     weight: float
 
 
+class SevenDayTotals(PublicModel):
+    sessions: int
+    volume: float
+
+
 class Dashboard(PublicModel):
     latest_weight: Bodyweight | None
     weight_series: list[Bodyweight]
@@ -198,6 +203,7 @@ class Dashboard(PublicModel):
     previous_week_start: date
     total_current_volume: float
     total_previous_volume: float
+    last_seven_days: SevenDayTotals | None
     volume_by_muscle_group: list[MuscleVolume]
     sets_by_muscle: list[MuscleSets]
 
@@ -327,6 +333,7 @@ def dashboard(selected_week: date | None = None, comparison: Literal['previous',
         weight_series=[Bodyweight(**entry) for entry in data["weight_series"]],
         current_week_start=data["current_week_start"], previous_week_start=data["previous_week_start"],
         total_current_volume=data["total_current_volume"], total_previous_volume=data["total_previous_volume"],
+        last_seven_days=SevenDayTotals(**data["last_seven_days"]) if data["last_seven_days"] is not None else None,
         volume_by_muscle_group=[MuscleVolume(**v) for v in data["volume_by_muscle_group"]],
         sets_by_muscle=[MuscleSets(**v) for v in data["sets_by_muscle"]])
 
