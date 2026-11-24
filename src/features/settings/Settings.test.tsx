@@ -138,3 +138,37 @@ it('applies the fixed appearance of every custom theme', async () => {
     }
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalled());
 });
+
+it('saves the weight goal and target weight as separate partial updates', async () => {
+    vi.mocked(api).mockImplementation(async (_path, options) => options?.method === 'PUT' ? JSON.parse(options.body as string) : { ai_output_length: 'normal', weight_goal: null, target_weight: null });
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Goals' }));
+    await waitFor(() => expect(radio('No goal').checked).toBe(true));
+    expect((screen.getByLabelText('Target weight') as HTMLInputElement).disabled).toBe(false);
+
+    fireEvent.click(radio('Lose'));
+    expect(screen.getByText(/going down is shown as progress/)).toBeTruthy();
+    const target = screen.getByLabelText('Target weight') as HTMLInputElement;
+    fireEvent.change(target, { target: { value: '5' } });
+    fireEvent.blur(target);
+    expect((await screen.findByRole('alert')).textContent).toContain('between 20 and 400 kg');
+    fireEvent.change(target, { target: { value: '78,46' } });
+    fireEvent.blur(target);
+    const bodies = () => vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PUT').map(([, options]) => JSON.parse(options!.body as string));
+    await waitFor(() => expect(bodies()).toEqual([{ weight_goal: 'lose' }, { target_weight: 78.5 }]));
+    expect(target.value).toBe('78.5');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(bodies().at(-1)).toEqual({ target_weight: null }));
+    fireEvent.click(radio('No goal'));
+    await waitFor(() => expect(bodies().at(-1)).toEqual({ weight_goal: null }));
+});
+
+it('does not highlight a goal or allow a target while settings failed to load', async () => {
+    vi.mocked(api).mockRejectedValue(new Error('HTTP 500'));
+    render(<Harness/>);
+    fireEvent.click(screen.getByRole('tab', { name: 'Goals' }));
+    expect(await screen.findByText(/Could not load your goals/)).toBeTruthy();
+    expect(radio('No goal').closest('label')!.className).not.toContain('active');
+    expect((screen.getByLabelText('Target weight') as HTMLInputElement).disabled).toBe(true);
+});

@@ -1,10 +1,11 @@
 import type { Dash } from './types';
+import type { WeightGoal } from '../settings/useAccountSettings';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth } from '../calendar/types';
 import { useRef, useState, useEffect } from 'react';
 import { DashboardPanels } from './DashboardPanels';
 
-export function Dashboard({ dash, history, historyLoaded = false, calendar, firstName = 'Athlete', profilePicture, log, openCalendar = () => undefined, openHistory = () => undefined, openWorkout = () => undefined, targetPage = 0, onPageChange = () => undefined, saveWeight, readOnly = false }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; firstName?: string; profilePicture?: string; log: () => void; openCalendar?: () => void; openHistory?: () => void; openWorkout?: (workout: Workout) => void; targetPage?: number; onPageChange?: (page: number) => void; saveWeight: (n: number, recordedOn?: string) => Promise<void>; readOnly?: boolean }) {
+export function Dashboard({ dash, history, historyLoaded = false, calendar, firstName = 'Athlete', profilePicture, log, openCalendar = () => undefined, openHistory = () => undefined, openWorkout = () => undefined, targetPage = 0, onPageChange = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: { dash: Dash | null; history: Workout[]; historyLoaded?: boolean; calendar?: CalendarMonth; firstName?: string; profilePicture?: string; log: () => void; openCalendar?: () => void; openHistory?: () => void; openWorkout?: (workout: Workout) => void; targetPage?: number; onPageChange?: (page: number) => void; saveWeight: (n: number, recordedOn?: string) => Promise<void>; readOnly?: boolean; weightGoal?: WeightGoal | null; targetWeight?: number | null }) {
     const dashboardRef = useRef<HTMLDivElement>(null);
     const [visiblePage, setVisiblePage] = useState(targetPage);
     const gesture = useRef<{ x: number; y: number; vertical: boolean } | null>(null);
@@ -42,5 +43,5 @@ export function Dashboard({ dash, history, historyLoaded = false, calendar, firs
             if (!start || !touch || start.vertical) return;
             const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
             if (Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.5) goToPage(visiblePage + (dx < 0 ? 1 : -1));
-        }}><DashboardPanels dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName} profilePicture={profilePicture} log={log} openCalendar={openCalendar} openHistory={openHistory} openWorkout={openWorkout} saveWeight={saveWeight} readOnly={readOnly}/></div><div className="dashboard-page-indicator" aria-label={`Dashboard page ${visiblePage + 1} of 3`}>{[0, 1, 2].map(index => <button type="button" aria-label={`Go to ${['Overview', 'Progress', 'Activity'][index]}`} aria-current={visiblePage === index ? 'page' : undefined} key={index} onClick={() => goToPage(index)}>{visiblePage === index ? '●' : '○'}</button>)}</div></>;
+        }}><DashboardPanels dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName} profilePicture={profilePicture} log={log} openCalendar={openCalendar} openHistory={openHistory} openWorkout={openWorkout} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/></div><div className="dashboard-page-indicator" aria-label={`Dashboard page ${visiblePage + 1} of 3`}>{[0, 1, 2].map(index => <button type="button" aria-label={`Go to ${['Overview', 'Progress', 'Activity'][index]}`} aria-current={visiblePage === index ? 'page' : undefined} key={index} onClick={() => goToPage(index)}>{visiblePage === index ? '●' : '○'}</button>)}</div></>;
 }

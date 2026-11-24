@@ -381,3 +381,7 @@ main.dashboard-workspace{width:calc(100% - 224px);max-width:none}
 }
 
 .person i{flex-shrink:0;overflow:hidden}.person i img{width:100%;height:100%;object-fit:cover;display:block}
+/* Weight goal: target line on the bodyweight chart and the goal line under the card title. */
+.dashboard-weight .chart .weight-target{stroke:var(--text-muted,var(--muted));stroke-width:1.2;stroke-dasharray:5 4;vector-effect:non-scaling-stroke;opacity:.8}
+.dashboard-weight .chart .weight-target-label{position:absolute;left:var(--chart-axis-width);transform:translateY(calc(-100% - 3px));padding:0 4px;color:var(--text-muted,var(--muted));font-size:10px;font-weight:700;pointer-events:none;white-space:nowrap}
+.dashboard-weight .dashboard-weight-goal.positive{color:var(--accent-bright,var(--accent))}

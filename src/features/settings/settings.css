@@ -44,3 +44,15 @@
     .settings-sign-out{display:block;width:100%;min-height:44px;margin-top:18px;padding:8px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px;font-weight:800}
 }
 .sidebar footer .settings-link{width:calc(100% + 20px)!important;margin-inline:-10px}
+.settings-target-weight{margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
+.settings-target-weight label{cursor:pointer}
+.settings-target-field{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.settings-target-field input{width:92px;min-height:38px;padding:8px 11px;border:1px solid var(--border);border-radius:9px;background:var(--field);color:var(--text);font-size:16px;font-weight:700;outline:none}
+.settings-target-field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.settings-target-field input[aria-invalid="true"]{border-color:#c46f7e}
+.settings-target-field span{color:var(--muted);font-size:13px;font-weight:800}
+.settings-target-field button{min-height:38px;padding:8px 12px;border-radius:9px;background:var(--soft);color:var(--muted);font-size:12px;font-weight:800}
+.settings-target-field button:hover{color:var(--text)}
+@media(max-width:760px){
+    .settings-target-field input{flex:1;width:auto}
+}

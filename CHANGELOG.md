@@ -2,6 +2,8 @@
 
 ## 24 November 2026
 
+- Add a weight goal under Settings → Goals: No goal, Lose, Maintain, or Gain, with an optional target weight. The goal decides which way the dashboard's monthly weight change is coloured as progress. Maintain counts a change of up to 1 kg a month as progress. With no goal, the change is no longer coloured, where before any gain showed green and any loss red. A target weight can be set with or without a goal. It appears under the Bodyweight title with how much is left, and as a dashed line on the chart when it is close to the logged weights. Without a goal, moving toward the target counts as progress. Migration `0012_weight_goal` adds `weight_goal` and `target_weight` to `account_settings`; local SQLite databases get the columns at startup.
+- `PUT /api/v1/settings` now changes only the fields sent, so saving one setting cannot overwrite another. Settings also load when the Dashboard opens, not just Settings.
 - Add a Nuclear theme: dark gray backgrounds with a yellow-green (#b8ff1f) as the accent color. The logo mark becomes a radiation trefoil while the theme is active. Choose it under Settings → Themes.
 
 ## 23 November 2026

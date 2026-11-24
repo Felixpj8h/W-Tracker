@@ -520,17 +520,33 @@ def test_ai_retry_reuses_latest_user_message(monkeypatch):
 def test_account_settings_validate_and_keep_preferences_private(monkeypatch):
     reset_db()
     path = "/api/v1/settings"
-    assert client.get(path).json() == {"ai_output_length": "normal"}
+    defaults = {"ai_output_length": "normal", "weight_goal": None, "target_weight": None}
+    assert client.get(path).json() == defaults
     assert client.put(path, json={"ai_output_length": "long"}).status_code == 422
+    assert client.put(path, json={"ai_output_length": None}).status_code == 422
     for length in ("brief", "normal", "comprehensive"):
-        preference = {"ai_output_length": length}
-        assert client.put(path, json=preference).json() == preference
+        preference = {**defaults, "ai_output_length": length}
+        assert client.put(path, json={"ai_output_length": length}).json() == preference
         assert client.get(path).json() == preference
     monkeypatch.setattr(app.state, "test_user_email", "other-settings@example.com", raising=False)
-    assert client.get(path).json() == {"ai_output_length": "normal"}
-    assert client.put(path, json={"ai_output_length": "brief"}).status_code == 200
+    assert client.get(path).json() == defaults
+    assert client.put(path, json={"ai_output_length": "brief", "weight_goal": "gain"}).status_code == 200
     monkeypatch.setattr(app.state, "test_user_email", "test@example.com")
-    assert client.get(path).json() == {"ai_output_length": "comprehensive"}
+    assert client.get(path).json() == {**defaults, "ai_output_length": "comprehensive"}
+
+
+def test_weight_goal_updates_only_the_fields_sent():
+    reset_db()
+    path = "/api/v1/settings"
+    assert client.put(path, json={"weight_goal": "shred"}).status_code == 422
+    assert client.put(path, json={"target_weight": 5}).status_code == 422
+    assert client.put(path, json={"target_weight": 500}).status_code == 422
+    saved = client.put(path, json={"weight_goal": "lose", "target_weight": 78.5}).json()
+    assert saved == {"ai_output_length": "normal", "weight_goal": "lose", "target_weight": 78.5}
+    assert client.put(path, json={"ai_output_length": "brief"}).json() == {**saved, "ai_output_length": "brief"}
+    cleared = client.put(path, json={"weight_goal": None, "target_weight": None}).json()
+    assert cleared == {"ai_output_length": "brief", "weight_goal": None, "target_weight": None}
+    assert client.get(path).json() == cleared
 
 
 def test_health_coach_shows_question_and_reuses_readings_on_retry(monkeypatch):

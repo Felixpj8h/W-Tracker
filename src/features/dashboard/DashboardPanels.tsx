@@ -9,12 +9,14 @@ import { PageHeader } from '../../shared/ui/PageHeader';
 import { DashboardGreeting } from './DashboardGreeting';
 import { Stat } from './Stat';
 import { BodyweightCard } from './BodyweightCard';
+import { effectiveWeightGoal, weightChangeTone } from './weightGoal';
+import type { WeightGoal } from '../settings/useAccountSettings';
 import { BodyMap } from './BodyMap';
 import { WeekSelector } from './WeekSelector';
 import { useWeekData } from './useWeekData';
 import { addDays, startOfWeek } from './week';
 
-export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false }: {
+export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
@@ -27,6 +29,8 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
     openWorkout: (workout: Workout) => void;
     saveWeight: (n: number, recordedOn?: string) => Promise<void>;
     readOnly?: boolean;
+    weightGoal?: WeightGoal | null;
+    targetWeight?: number | null;
 }) {
     const [muscleMetric, setMuscleMetric] = useState<'volume' | 'sets' | 'heatmap'>('volume');
     const currentWeek = startOfWeek(today());
@@ -125,7 +129,7 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
         <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={_historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
         <section className="dashboard-metrics" aria-label="Training summary">
-            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`}/>}
+            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`} tone={weightChangeTone(effectiveWeightGoal(weightGoal, targetWeight, dash?.latest_weight?.weight ?? null), weightChange)}/>}
             <Stat icon="volume" label={selectedWeek === currentWeek ? "Weekly volume" : "Selected week volume"} value={weekData.loading ? "—" : `${vol(currentVolume)} kg`} sub={volumeChange === null ? 'No comparison yet' : volumeChange === 0 ? 'Same as comparison' : `${volumeChange > 0 ? '↑' : '↓'} ${Math.abs(volumeChange)}% vs comparison`}/>
             <Stat icon="session" label={selectedWeek === currentWeek ? "Sessions this week" : "Sessions in selected week"} value={weekData.loading ? "—" : String(sessionCount)} sub={previousWeekSessions || sessionCount ? (sessionChange === 0 ? 'Same as comparison' : `${sessionChange > 0 ? '↑' : '↓'} ${Number(Math.abs(sessionChange).toFixed(2))} vs comparison`) : 'No sessions logged yet'}/>
             <Stat icon="clock" label="Last workout" value={lastWorkoutLabel} sub={lastWorkout ? lastWorkout.duration_seconds ? `${workoutSets(lastWorkout)} sets · ${duration(lastWorkout.duration_seconds)}` : `${workoutSets(lastWorkout)} sets` : 'Log your first workout'}/>
@@ -136,7 +140,7 @@ export function DashboardPanels({ dash, history, historyLoaded: _historyLoaded, 
         </section>
         </section>
         <section className="dashboard-analytics">
-            <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly}/>
+            <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/>
             <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}><div className="muscle-card-head"><div><h2>{muscleMetric === 'heatmap' ? 'Muscle activity' : muscleMetric === 'volume' ? 'Volume by muscle group' : 'Sets by muscle'}</h2></div><div className="metric-toggle" role="group" aria-label="Muscle metric"><button className={muscleMetric === 'volume' ? 'active' : ''} aria-pressed={muscleMetric === 'volume'} onClick={() => setMuscleMetric('volume')}>Volume</button><button className={muscleMetric === 'sets' ? 'active' : ''} aria-pressed={muscleMetric === 'sets'} onClick={() => setMuscleMetric('sets')}>Sets</button><button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button></div></div>{muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek}/> : rows.length ? <div className="muscle-rows" tabIndex={muscleMetric === 'sets' ? 0 : undefined} role={muscleMetric === 'sets' ? 'region' : undefined} aria-label={muscleMetric === 'sets' ? 'Sets by muscle' : undefined}>{(muscleMetric === 'volume' ? rows.slice(0, 7) : rows).map(row => { const change = row.previous ? Math.round((row.current - row.previous) / row.previous * 100) : null; return <div className="muscle-row" key={`${muscleMetric}-${row.name}`}><b>{row.name}</b><div><i style={{ width: `${row.current / max * 100}%` }}/></div><span>{muscleMetric === 'volume' ? `${vol(row.current)} kg` : `${Number(row.current.toFixed(2))} sets`}</span><small className={change !== null && change < 0 ? 'negative' : ''}>{change === null ? '—' : `${change >= 0 ? '+' : ''}${change}%`}</small></div>; })}</div> : <div className="dashboard-empty"><b>{weekData.loading ? "Loading selected week…" : weekData.error ? "Week unavailable" : "No workouts logged in this period"}</b><span>{readOnly ? "No training volume available." : "Log a workout to start tracking volume by muscle group."}</span>{!readOnly && <button onClick={log}>Log workout</button>}</div>}</article>
         </section>
         <section className="dashboard-lower"><h1 className="mobile-swipe-title">Activity</h1>

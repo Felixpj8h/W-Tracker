@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, and_, create_engine, event, false, func, select, or_, update, delete
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -53,6 +53,7 @@ HEALTH_COACH_CONTEXT_SEPARATOR = (
     "Use my own history for comparisons.\nMy Google Health summary (null means unavailable):\n"
 )
 AIOutputLength = Literal["brief", "normal", "comprehensive"]
+WeightGoal = Literal["lose", "maintain", "gain"]
 
 
 def _session_value(identity: dict[str, str]) -> str:
@@ -321,6 +322,8 @@ class AccountSettings(OwnedRecord, Base):
     )
     owner_email: Mapped[str] = mapped_column(String(320), primary_key=True)
     ai_output_length: Mapped[AIOutputLength] = mapped_column(String(13))
+    weight_goal: Mapped[Optional[WeightGoal]] = mapped_column(String(8), nullable=True)
+    target_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
 TENANT_MODELS = (RoutineFolder, Routine, Workout, BodyweightEntry, WeeklyPlan, CalendarAssignment, CalendarLabel, CalendarDayLabel, AIConversation, HealthConnection, HealthOAuthAttempt, AccountSettings)
@@ -524,7 +527,23 @@ class ActorContext(BaseModel):
 
 
 class AccountSettingsPayload(BaseModel):
-    ai_output_length: AIOutputLength
+    ai_output_length: AIOutputLength = "normal"
+    weight_goal: Optional[WeightGoal] = None
+    target_weight: Optional[float] = Field(default=None, ge=20, le=400)
+
+
+class AccountSettingsUpdate(BaseModel):
+    """Partial update: only the fields present in the request change."""
+    ai_output_length: Optional[AIOutputLength] = None
+    weight_goal: Optional[WeightGoal] = None
+    target_weight: Optional[float] = Field(default=None, ge=20, le=400)
+
+    @field_validator("ai_output_length")
+    @classmethod
+    def _output_length_required(cls, value):
+        if value is None:
+            raise ValueError("ai_output_length cannot be null")
+        return value
 
 
 def get_actor_context(request: Request) -> ActorContext:
@@ -928,6 +947,11 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
         if "last_writer_id" not in columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN last_writer_id VARCHAR(64)")
+        settings_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(account_settings)")}
+        if "weight_goal" not in settings_columns:
+            connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN weight_goal VARCHAR(8)")
+        if "target_weight" not in settings_columns:
+            connection.exec_driver_sql("ALTER TABLE account_settings ADD COLUMN target_weight FLOAT")
     from .database_security import install_folder_guards
     with engine.begin() as connection:
         install_folder_guards(connection)
@@ -1087,21 +1111,31 @@ def _account_output_length(db: Session, owner_email: str) -> AIOutputLength:
     return settings.ai_output_length if settings else "normal"
 
 
+def _account_settings(db: Session, owner_email: str) -> AccountSettingsPayload:
+    settings = db.get(AccountSettings, owner_email)
+    if not settings:
+        return AccountSettingsPayload()
+    return AccountSettingsPayload(ai_output_length=settings.ai_output_length, weight_goal=settings.weight_goal, target_weight=settings.target_weight)
+
+
 @app.get("/api/v1/settings", response_model=AccountSettingsPayload)
 def get_account_settings(actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
-    return AccountSettingsPayload(ai_output_length=_account_output_length(db, actor.owner_email))
+    return _account_settings(db, actor.owner_email)
 
 
 @app.put("/api/v1/settings", response_model=AccountSettingsPayload)
-def save_account_settings(payload: AccountSettingsPayload, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+def save_account_settings(payload: AccountSettingsUpdate, actor: ActorContext = Depends(get_actor_context), db: Session = Depends(get_db)):
+    changes = payload.model_dump(exclude_unset=True)
+    saved = _account_settings(db, actor.owner_email).model_copy(update=changes)
+    values = saved.model_dump()
     insert = postgresql_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
-    statement = insert(AccountSettings).values(owner_email=actor.owner_email, ai_output_length=payload.ai_output_length)
+    statement = insert(AccountSettings).values(owner_email=actor.owner_email, **values)
     db.execute(statement.on_conflict_do_update(
         index_elements=[AccountSettings.owner_email],
-        set_={"ai_output_length": statement.excluded.ai_output_length},
+        set_={name: getattr(statement.excluded, name) for name in changes} or {"ai_output_length": statement.excluded.ai_output_length},
     ))
     db.commit()
-    return payload
+    return _account_settings(db, actor.owner_email)
 
 
 @app.post("/api/v1/session/logout")

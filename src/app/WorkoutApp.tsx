@@ -71,7 +71,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
     const [dashboardPage, setDashboardPage] = useState(0);
     // Back returns to the Dashboard before it leaves the app.
     useBackAction(page !== 'dashboard' || dashboardPage !== 0, () => { setDashboardPage(0); setPage('dashboard'); }, 'page');
-    const accountSettings = useAccountSettings(page === 'settings');
+    const accountSettings = useAccountSettings(page === 'settings' || page === 'dashboard');
     const coach = useCoachController(async operation => {
         if (operation === 'update_weekly_plan' || operation === 'create_training_program') {
             calendarMonthsRef.current = {};
@@ -179,7 +179,7 @@ export function WorkoutApp({ user }: { user: UserProfile }) {
         setPage('workout');
     };
     const pageError = page === 'coach' || page === 'health' || page === 'settings' ? undefined : page === 'dashboard' ? loadErrors.dashboard : page === 'routines' ? loadErrors.folders : page === 'history' ? loadErrors.history : page === 'calendar' ? loadErrors.calendar : loadErrors.active || loadErrors.folders;
-    return <div className={`app ${theme.dark ? 'dark' : ''}`}><SavingIndicator/><Sidebar page={page} setPage={setPage} dark={theme.dark} setDark={theme.selectDefaultMode} coachActive={Object.values(coach.streaming).some(Boolean)} user={user} hasActiveSession={page !== 'workout' && Boolean(resumableWorkout)} resumeSession={() => { if (resumableWorkout) resumeWorkout(resumableWorkout); }}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} profilePicture={user.picture} log={() => void logFromDashboard()} openCalendar={() => setPage('calendar')} openHistory={() => setPage('history')} openWorkout={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} targetPage={dashboardPage} onPageChange={setDashboardPage} saveWeight={async (weight, recordedOn) => {
+    return <div className={`app ${theme.dark ? 'dark' : ''}`}><SavingIndicator/><Sidebar page={page} setPage={setPage} dark={theme.dark} setDark={theme.selectDefaultMode} coachActive={Object.values(coach.streaming).some(Boolean)} user={user} hasActiveSession={page !== 'workout' && Boolean(resumableWorkout)} resumeSession={() => { if (resumableWorkout) resumeWorkout(resumableWorkout); }}/><main className="workspace">{pageError && <div className="error">{pageError}. Check that the tracker server is running.</div>}{page === 'dashboard' && <Dashboard dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendarMonths[currentCalendarKey]} firstName={user.firstName} profilePicture={user.picture} log={() => void logFromDashboard()} openCalendar={() => setPage('calendar')} openHistory={() => setPage('history')} openWorkout={entry => { setEditing(Boolean(entry.completed)); setWorkout(entry); setPage('workout'); }} targetPage={dashboardPage} onPageChange={setDashboardPage} weightGoal={accountSettings.weightGoal} targetWeight={accountSettings.targetWeight} saveWeight={async (weight, recordedOn) => {
         const date = recordedOn ?? today();
         const previousWeight = dash?.weight_series.find(entry => entry.recorded_on === date)?.weight;
         optimisticWeights.current.set(date, weight);
