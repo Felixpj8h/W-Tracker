@@ -236,7 +236,7 @@ class CalendarLabel(OwnedRecord, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(40))
     color: Mapped[str] = mapped_column(String(20))
-    dates: Mapped[list["CalendarDayLabel"]] = relationship(cascade="all, delete-orphan")
+    dates: Mapped[list["CalendarDayLabel"]] = relationship(back_populates="label", cascade="all, delete-orphan")
 
 
 class CalendarDayLabel(OwnedRecord, Base):
@@ -244,7 +244,7 @@ class CalendarDayLabel(OwnedRecord, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     day: Mapped[date] = mapped_column(Date)
     label_id: Mapped[int] = mapped_column(ForeignKey("calendar_labels.id"))
-    label: Mapped[CalendarLabel] = relationship()
+    label: Mapped[CalendarLabel] = relationship(back_populates="dates")
     __table_args__ = (UniqueConstraint("owner_email", "day", name="uq_calendar_day_label_owner_day"),)
 
 
