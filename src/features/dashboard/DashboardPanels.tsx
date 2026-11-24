@@ -15,13 +15,15 @@ import { BodyMap } from './BodyMap';
 import { loadBodyMap } from './bodyMapData';
 import { SetsRadar } from './SetsRadar';
 import { useSetsChartStyle } from './setsChartPreference';
-import { WeekSelector } from './WeekSelector';
+import { WeekSelector, type DashboardPeriod } from './WeekSelector';
 import { useWeekData } from './useWeekData';
 import { addDays, dateKey, startOfWeek } from './week';
+import { HealthSnapshot } from './HealthSnapshot';
+import { useHealthSnapshot } from './useHealthSnapshot';
 
 const muscleDisplayName = (name: string) => /pectoralis|^chest$/i.test(name) ? 'Chest' : name;
 
-export function DashboardPanels({ dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
+export function DashboardPanels({ dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHistory, openWorkout, openHealth = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
@@ -32,6 +34,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     openCalendar: () => void;
     openHistory: () => void;
     openWorkout: (workout: Workout) => void;
+    openHealth?: () => void;
     saveWeight: (n: number, recordedOn?: string) => Promise<void>;
     readOnly?: boolean;
     weightGoal?: WeightGoal | null;
@@ -40,12 +43,16 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const [muscleMetric, setMuscleMetric] = useState<'volume' | 'sets' | 'heatmap'>('volume');
     const [heatmapLastSevenDays, setHeatmapLastSevenDays] = useState(false);
     const setsChart = useSetsChartStyle();
+    // The read-only demo has no health data, so it keeps the workout list in this slot.
+    const health = useHealthSnapshot(!readOnly);
     const todayDate = today();
     const currentWeek = startOfWeek(todayDate);
     const [selectedWeek, setSelectedWeek] = useState(currentWeek);
     const [comparison, setComparison] = useState<'previous' | 'average' | 'custom'>('previous');
     const [compareWeek, setCompareWeek] = useState(addDays(currentWeek, -7));
     const [throughToday, setThroughToday] = useState(false);
+    // 'auto' shows the current week, or the last seven days while the current week has no completed workouts.
+    const [periodChoice, setPeriodChoice] = useState<'auto' | DashboardPeriod>('auto');
     const weekData = useWeekData(dash, calendar, selectedWeek, currentWeek, comparison, compareWeek, throughToday, readOnly);
     const selectedDash = weekData.data;
     const selectedCalendar = weekData.calendar;
@@ -110,7 +117,11 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const previousWeekStart = new Date(weekStart); previousWeekStart.setDate(previousWeekStart.getDate() - 7);
     const previousWeekSessions = selectedDash?.previous_sessions ?? completed.filter(workout => { const date = new Date(`${workout.performed_on}T12:00:00`); return date >= previousWeekStart && date < weekStart; }).length;
     const sessionCount = selectedDash?.current_sessions ?? thisWeek.length;
-    const lastSevenDays = selectedWeek === currentWeek && sessionCount === 0 ? selectedDash?.last_seven_days : null;
+    // The automatic fallback waits for the loaded week, so the view does not flip to the last seven days while a week loads.
+    const autoLastSevenDays = Boolean(selectedDash?.last_seven_days) && sessionCount === 0;
+    const showLastSevenDays = selectedWeek === currentWeek && (periodChoice === 'last_seven_days' || (periodChoice === 'auto' && autoLastSevenDays));
+    const period: DashboardPeriod = showLastSevenDays ? 'last_seven_days' : 'week';
+    const lastSevenDays = showLastSevenDays ? selectedDash?.last_seven_days : null;
     const recentRows = muscleMetric === 'volume'
         ? lastSevenDays?.volume_by_muscle_group?.map(group => ({ name: group.name, current: group.volume, previous: null }))
         : lastSevenDays?.sets_by_muscle?.map(muscle => ({ name: muscleDisplayName(muscle.name), current: muscle.sets, previous: null }));
@@ -137,12 +148,13 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const upcoming = (calendar?.days ?? []).filter(day => day.date >= todayDate && day.status !== 'completed').slice(0, 4);
     const nextWorkout = (calendar?.days ?? []).find(day => day.date >= todayDate && day.status !== 'completed' && Boolean(day.routine_name ?? day.workout_name));
     // Start loading the heatmap as soon as the pointer or finger reaches its control, before the tap lands.
-    const prefetchHeatmap = () => { void loadBodyMap(readOnly, selectedWeek, throughToday && selectedWeek === currentWeek).catch(() => undefined); };
+    // The heatmap is told the period, so it always matches the stats and muscle rows above it.
+    const prefetchHeatmap = () => { void loadBodyMap(readOnly, selectedWeek, throughToday && selectedWeek === currentWeek, { period }).catch(() => undefined); };
     const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
     return <>
         <section className="dashboard-overview-page">
         <div className="mobile-dashboard-topbar"><JernLogo variant="mobile" /><span><small>Today</small><time>{now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></span><ProfileAvatar firstName={firstName} picture={profilePicture}/></div>
-        <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
+        <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} today={todayDate} period={period} onPeriod={value => { setPeriodChoice(value); if (value === 'last_seven_days') setSelectedWeek(currentWeek); }} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
         <section className="dashboard-metrics" aria-label="Training summary">
             {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`} tone={weightChangeTone(effectiveWeightGoal(weightGoal, targetWeight, dash?.latest_weight?.weight ?? null), weightChange)}/>}
@@ -174,7 +186,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
                         <button className={muscleMetric === 'heatmap' ? 'active' : ''} aria-pressed={muscleMetric === 'heatmap'} onPointerEnter={prefetchHeatmap} onFocus={prefetchHeatmap} onTouchStart={prefetchHeatmap} onClick={() => setMuscleMetric('heatmap')}>Heatmap</button>
                     </div>
                 </div>
-                {muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek} onPeriodChange={setHeatmapLastSevenDays}/>
+                {muscleMetric === 'heatmap' ? <BodyMap readOnly={readOnly} selectedWeek={selectedWeek} throughToday={throughToday && selectedWeek === currentWeek} period={period} onPeriodChange={setHeatmapLastSevenDays}/>
                     : muscleMetric === 'sets' && setsChart === 'radar' && rows.length >= 3 ? <SetsRadar
                         rows={rows}
                         currentLabel={recentRows ? 'Last 7 days' : selectedWeek === currentWeek ? 'This week' : 'Selected week'}
@@ -197,7 +209,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
             </article>
         </section>
         <section className="dashboard-lower"><h1 className="mobile-swipe-title">Activity</h1>
-            <article className="recent-workouts"><div className="section-heading"><h2>Workouts in selected week</h2>{completed.length ? <button type="button" onClick={openHistory}>View all →</button> : null}</div>{thisWeek.length ? thisWeek.slice(0, 3).map(workout => { const date = dateParts(workout.performed_on); return <button type="button" className="recent-row" onClick={() => openWorkout(workout)} key={workout.id ?? `${workout.performed_on}-${workout.name}`}><time><small>{date.month}</small><strong>{date.day}</strong></time><span className="recent-row-copy"><b>{workout.name}</b><small>{[...new Set(workout.exercises.map(exercise => (exercise.primary_muscle ?? exercise.muscle_group ?? '').replace(/^Primary:\s*/i, '').split(' · ')[0]).filter(Boolean))].slice(0, 3).join(' · ') || 'Workout session'}</small></span><span>{workoutSets(workout)} sets · {duration(workout.duration_seconds)} · {vol(workoutVolume(workout))} kg</span><i aria-hidden="true">›</i></button>; }) : <div className="lower-empty">{readOnly && weekData.error ? <>Could not load workouts. <button onClick={weekData.retry}>Retry workouts</button></> : 'No completed workouts in this period.'}</div>}</article>
+            {readOnly ? <article className="recent-workouts"><div className="section-heading"><h2>Workouts in selected week</h2>{completed.length ? <button type="button" onClick={openHistory}>View all →</button> : null}</div>{thisWeek.length ? thisWeek.slice(0, 3).map(workout => { const date = dateParts(workout.performed_on); return <button type="button" className="recent-row" onClick={() => openWorkout(workout)} key={workout.id ?? `${workout.performed_on}-${workout.name}`}><time><small>{date.month}</small><strong>{date.day}</strong></time><span className="recent-row-copy"><b>{workout.name}</b><small>{[...new Set(workout.exercises.map(exercise => (exercise.primary_muscle ?? exercise.muscle_group ?? '').replace(/^Primary:\s*/i, '').split(' · ')[0]).filter(Boolean))].slice(0, 3).join(' · ') || 'Workout session'}</small></span><span>{workoutSets(workout)} sets · {duration(workout.duration_seconds)} · {vol(workoutVolume(workout))} kg</span><i aria-hidden="true">›</i></button>; }) : <div className="lower-empty">{readOnly && weekData.error ? <>Could not load workouts. <button onClick={weekData.retry}>Retry workouts</button></> : 'No completed workouts in this period.'}</div>}</article> : <HealthSnapshot health={health} openHealth={openHealth}/>}
             <article className="week-overview"><div className="section-heading"><h2>{selectedWeek === currentWeek ? "This week" : "Selected week"}</h2><span>{plannedSessions ? `${completedPlanned} of ${plannedSessions} workouts completed` : `${sessionCount} sessions`}</span></div>{weekDays.map(({ date, key, plan, workout }) => <div className="week-row" key={key}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><b>{workout?.name ?? plan?.routine_name ?? plan?.workout_name ?? 'Rest'}</b>{(workout || plan?.status === 'completed') && <i aria-label="Completed">✓</i>}</div>)}</article>
             <article className="upcoming-workouts"><div className="section-heading"><h2>Upcoming</h2><button type="button" onClick={openCalendar}>View calendar →</button></div>{upcoming.length ? upcoming.map(day => <div className="upcoming-row" key={day.date}><time>{relativeDay(day.date)}</time><i className="upcoming-status" aria-hidden="true"/><b>{day.routine_name ?? day.workout_name ?? 'Rest day'}</b><i aria-hidden="true">⋮</i></div>) : <div className="lower-empty">No upcoming sessions planned.</div>}</article>
         </section>

@@ -46,6 +46,7 @@ test.beforeEach(async ({ page }) => {
     '/api/v1/workouts': [],
     '/api/v1/workouts/active': [],
     '/api/v1/ai/conversations': [],
+    '/api/v1/health/overview': { configured: true, connected: false, account_email: null, permissions: { activity: false, sleep: false, recovery: false }, step_goal: 8000, step_totals: null, fetched_at: null, data: null },
   };
   await page.route('**/api/v1/**', route => {
     const { pathname } = new URL(route.request().url());
@@ -222,6 +223,22 @@ test('advertises a full-screen Home Screen launch', async ({ page, request }) =>
     display: 'standalone',
     display_override: ['fullscreen'],
   });
+});
+
+test('fits all Settings tabs inside a narrow phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'More pages' }).tap();
+  await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: /Settings/ }).tap();
+
+  const tablist = page.getByRole('tablist', { name: 'Settings sections' });
+  const tabs = tablist.getByRole('tab');
+  await expect(tabs).toHaveCount(4);
+  await expect.poll(() => tablist.evaluate(list => list.scrollWidth - list.clientWidth)).toBe(0);
+
+  const themes = tablist.getByRole('tab', { name: 'Themes' });
+  await themes.tap();
+  await expect(themes).toHaveAttribute('aria-selected', 'true');
 });
 
 test('signs out from mobile Settings', async ({ page }) => {

@@ -22,11 +22,15 @@ const finishBackendWriteAfterPaint = (failed: boolean) => {
     else requestAnimationFrame(() => requestAnimationFrame(finish));
 };
 
-export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+/**
+ * `trackWrite: false` keeps a background refresh that uses POST (such as the dashboard's health sync)
+ * out of the Saving / Not saved indicator, which is meant for changes the user made.
+ */
+export async function api<T>(path: string, opts?: RequestInit, { trackWrite = true }: { trackWrite?: boolean } = {}): Promise<T> {
     const generation = sessionGeneration();
     if (!sessionIsCurrent(generation)) throw Error('Sign in again before continuing.');
     const signal = opts?.signal ? AbortSignal.any([opts.signal, sessionSignal()]) : sessionSignal();
-    const isWrite = Boolean(opts?.method && opts.method.toUpperCase() !== 'GET');
+    const isWrite = trackWrite && Boolean(opts?.method && opts.method.toUpperCase() !== 'GET');
     const optimisticWorkoutDelete = opts?.method?.toUpperCase() === 'DELETE' ? path.match(/^\/workouts\/(\d+)$/)?.[1] : undefined;
     if (isWrite) { if (pendingBackendWrites === 0) backendWriteFailed = false; pendingBackendWrites += 1; announceBackendWrites(); }
     if (optimisticWorkoutDelete) window.dispatchEvent(new CustomEvent('optimistic-workout-delete', { detail: { id: Number(optimisticWorkoutDelete), deleted: true } }));

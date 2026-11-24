@@ -1,11 +1,11 @@
 import { useState, useEffect, useId } from 'react';
-import { bodyMapKey, cachedBodyMap, loadBodyMap, type BodyMapResult } from './bodyMapData';
+import { bodyMapKey, cachedBodyMap, loadBodyMap, type BodyMapPeriod, type BodyMapResult } from './bodyMapData';
 import './body-map.css';
 
 /** Pass `onPeriodChange` to show the "Last 7 days" label elsewhere (the dashboard puts it in the card
  *  header) so the label does not take height from the body figures. */
-export function BodyMap({ readOnly = false, selectedWeek, throughToday = false, onPeriodChange }: { readOnly?: boolean; selectedWeek?: string; throughToday?: boolean; onPeriodChange?: (showingLastSevenDays: boolean) => void }) {
-    const key = bodyMapKey(readOnly, selectedWeek, throughToday);
+export function BodyMap({ readOnly = false, selectedWeek, throughToday = false, period, onPeriodChange }: { readOnly?: boolean; selectedWeek?: string; throughToday?: boolean; period?: BodyMapPeriod; onPeriodChange?: (showingLastSevenDays: boolean) => void }) {
+    const key = bodyMapKey(readOnly, selectedWeek, throughToday, period);
     // The map on screen and the view it belongs to. While another week loads, the previous map stays
     // (dimmed) instead of collapsing to a loading message, so the card does not jump.
     const [shown, setShown] = useState<{ key: string; result: BodyMapResult } | null>(() => { const cached = cachedBodyMap(key); return cached ? { key, result: cached } : null; });
@@ -18,11 +18,11 @@ export function BodyMap({ readOnly = false, selectedWeek, throughToday = false, 
         const cached = cachedBodyMap(key);
         if (cached) setShown({ key, result: cached });
         setUnavailable(false);
-        loadBodyMap(readOnly, selectedWeek, throughToday, { force: retry > 0 })
+        loadBodyMap(readOnly, selectedWeek, throughToday, { force: retry > 0, period })
             .then(data => { if (active) setShown({ key, result: data }); })
             .catch(() => { if (active && !cached) setUnavailable(true); });
         return () => { active = false; };
-    }, [key, readOnly, retry, selectedWeek, throughToday]);
+    }, [key, readOnly, retry, selectedWeek, throughToday, period]);
 
     const result = shown?.result ?? null;
     const updating = shown !== null && shown.key !== key;

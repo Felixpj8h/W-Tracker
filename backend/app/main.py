@@ -2154,12 +2154,16 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
 
 
 @app.get("/api/v1/dashboard/body-map")
-def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool = False, db: Session = Depends(get_db)):
-    return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today)
+def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(get_db)):
+    return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today, period=period)
 
 
-def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None):
-    """Build overlays for the selected week or the last seven days."""
+def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None, period: str = 'auto'):
+    """Build overlays for the selected week or the last seven days.
+
+    `period` applies to the current week only: 'auto' shows the last seven days when the week has no
+    completed workouts, 'week' always shows the week, and 'last_seven_days' always shows the last seven days.
+    """
     global WGER_MUSCLES
     today = date.today()
     anchor = selected_week or today
@@ -2176,7 +2180,7 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
     broad_group_volume: defaultdict[str, float] = defaultdict(float)
     completed_workouts = select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True)
     workouts = db.scalars(completed_workouts.where(Workout.performed_on >= week_start, Workout.performed_on < week_end)).all()
-    showing_last_seven_days = week_start == current_week and not workouts
+    showing_last_seven_days = week_start == current_week and (period == 'last_seven_days' or (period == 'auto' and not workouts))
     if showing_last_seven_days:
         workouts = db.scalars(completed_workouts.where(Workout.performed_on >= today - timedelta(days=6), Workout.performed_on <= today)).all()
     for workout in workouts:

@@ -6,7 +6,8 @@ export const weekLabel = (key: string, days = 7) => {
     return `${format(key)} – ${format(addDays(key, days - 1))}`;
 };
 
-export const compactWeekLabel = (key: string) => {
-    const start = new Date(`${key}T12:00:00`), end = new Date(`${addDays(key, 6)}T12:00:00`);
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(start, end);
-};
+/** A short date range, such as "Nov 18 – 24, 2026". */
+export const compactRangeLabel = (first: string, last: string) =>
+    new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(new Date(`${first}T12:00:00`), new Date(`${last}T12:00:00`));
+
+export const compactWeekLabel = (key: string) => compactRangeLabel(key, addDays(key, 6));

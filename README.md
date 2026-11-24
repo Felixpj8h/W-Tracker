@@ -11,7 +11,7 @@ For the API, database, and backend build, see the [Backend README](backend/READM
 
 | Area | What it does |
 | --- | --- |
-| **Dashboard** | Greets you with this week's training summary, current bodyweight, and last workout. A front and back body map shows each muscle's volume, set count, or an activity heatmap for any week. Lists completed and upcoming workouts for the selected week. |
+| **Dashboard** | Greets you with this week's training summary, current bodyweight, and last workout. A front and back body map shows each muscle's volume, set count, or an activity heatmap for any week or the last seven days. A Health snapshot shows seven-day averages for steps, sleep, activity, HRV, and resting heart rate when Google Health is connected. Lists the selected week's plan and upcoming workouts. |
 | **Workout tracking** | Logs one exercise at a time with weight, reps, and RPE, plus warm-up sets, supersets, exercise swaps, notes, and a rest timer. Shows last time's sets, best weight, and estimated one-rep max (1RM) for each exercise. Saves as you go, so you can pause and resume a workout. |
 | **Routines** | Reusable workout templates grouped in folders. Each exercise has a set count, rep range, optional target weight, and rest time. Share a routine or a whole folder as a link, and import one from a link. |
 | **Calendar** | Month view that combines planned and logged workouts. Set a repeating weekly plan, move or remove a single day, and label days. |

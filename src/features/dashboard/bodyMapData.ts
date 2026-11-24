@@ -3,14 +3,17 @@ import { api } from '../../shared/api/client';
 import { demoApi } from '../demo/api';
 
 export type BodyMapResult = { muscles: BodyMapMuscle[]; showing_last_seven_days?: boolean };
+/** Which period the current week's map shows. Without one, the server shows the last seven days when the week is empty. */
+export type BodyMapPeriod = 'week' | 'last_seven_days';
 
 /** A result younger than this is reused without asking the server again. */
 const FRESH_MS = 30_000;
 type Entry = { promise: Promise<BodyMapResult>; result?: BodyMapResult; at: number };
 const cache = new Map<string, Entry>();
 
-const queryFor = (selectedWeek?: string, throughToday = false) => selectedWeek ? `?selected_week=${selectedWeek}&through_today=${throughToday}` : '';
-export const bodyMapKey = (readOnly: boolean, selectedWeek?: string, throughToday = false) => `${readOnly ? 'demo' : 'account'}${queryFor(selectedWeek, throughToday)}`;
+const queryFor = (selectedWeek?: string, throughToday = false, period?: BodyMapPeriod) =>
+    selectedWeek ? `?selected_week=${selectedWeek}&through_today=${throughToday}${period ? `&period=${period}` : ''}` : '';
+export const bodyMapKey = (readOnly: boolean, selectedWeek?: string, throughToday = false, period?: BodyMapPeriod) => `${readOnly ? 'demo' : 'account'}${queryFor(selectedWeek, throughToday, period)}`;
 
 function decode(src: string): Promise<void> {
     if (typeof Image === 'undefined') return Promise.resolve();
@@ -34,13 +37,13 @@ export function cachedBodyMap(key: string) {
  * Loads the map and its images. Calls for the same view share one request, so the dashboard can start
  * loading when the Heatmap control is hovered, focused or touched and the map reuses that work.
  */
-export function loadBodyMap(readOnly: boolean, selectedWeek?: string, throughToday = false, { force = false } = {}): Promise<BodyMapResult> {
-    const key = bodyMapKey(readOnly, selectedWeek, throughToday);
+export function loadBodyMap(readOnly: boolean, selectedWeek?: string, throughToday = false, { force = false, period }: { force?: boolean; period?: BodyMapPeriod } = {}): Promise<BodyMapResult> {
+    const key = bodyMapKey(readOnly, selectedWeek, throughToday, period);
     const existing = cache.get(key);
     if (existing && !force && Date.now() - existing.at < FRESH_MS) return existing.promise;
     const load = readOnly ? demoApi : api;
     const entry: Entry = { promise: Promise.resolve() as unknown as Promise<BodyMapResult>, result: existing?.result, at: Date.now() };
-    entry.promise = load<BodyMapResult>(`/dashboard/body-map${queryFor(selectedWeek, throughToday)}`).then(async data => {
+    entry.promise = load<BodyMapResult>(`/dashboard/body-map${queryFor(selectedWeek, throughToday, period)}`).then(async data => {
         await decodeImages(data);
         entry.result = data;
         return data;

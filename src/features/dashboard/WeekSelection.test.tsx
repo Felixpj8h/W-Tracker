@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DashboardPanels } from './DashboardPanels';
-import { addDays, startOfWeek } from './week';
+import { addDays, compactRangeLabel, startOfWeek } from './week';
+import { clearBodyMapCache } from './bodyMapData';
 import { today } from '../../shared/lib/format';
 import type { Dash } from './types';
 import type { Workout } from '../workout/types';
@@ -39,7 +40,7 @@ function setup({
     });
     vi.stubGlobal('fetch', fetchMock);
     const view = render(<DashboardPanels dash={summary} history={history} historyLoaded firstName="Athlete" profilePicture={profilePicture} log={vi.fn()} openCalendar={vi.fn()} openHistory={vi.fn()} openWorkout={vi.fn()} saveWeight={async () => undefined}/>);
-    fireEvent.click(screen.getByRole('button', { name: /This week/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^(This week|Last 7 days)/ }));
     return { fetchMock, view };
 }
 
@@ -96,6 +97,12 @@ it('shows rolling totals for an empty current week and keeps the latest complete
     expect(musclePanel.getByText('Chest').closest('.muscle-row')?.textContent).toContain('5 sets');
     expect(musclePanel.queryByText('+100%')).toBeNull();
     await within(view.container.querySelector('.week-overview')!).findByText('0 of 7 workouts completed');
+    // The selector names the period on screen and hides week browsing until Week is chosen.
+    expect(screen.getByRole('button', { name: /^Last 7 days/, expanded: true })).toBeTruthy();
+    expect(screen.queryByLabelText('Select week')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Week' }));
+    expect(metrics.getByText('Weekly volume')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^This week/, expanded: true })).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Select week'), { target: { value: '2026-11-09' } });
     await metrics.findByText('250 kg');
@@ -142,4 +149,33 @@ it('sends fair-comparison, average and custom-week choices to the dashboard', as
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes(`compare_week=${addDays(current, -21)}`) && url.includes('comparison=custom'))).toBe(true));
     fireEvent.change(screen.getByLabelText('Select week'), { target: { value: addDays(current, -10) } });
     expect((screen.getByLabelText('Select week') as HTMLInputElement).value).toBe(addDays(current, -14));
+});
+
+it('switches between the week and the last seven days, and the heatmap follows', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 24, 12));
+    // Earlier tests leave heatmaps in the shared 30-second cache; start empty so each period is requested.
+    clearBodyMapCache();
+    const { fetchMock } = setup({ summary: { ...dash, last_seven_days: rollingStats } });
+    const metrics = within(screen.getByRole('region', { name: 'Training summary' }));
+    // A week with workouts shows the week by default.
+    expect(metrics.getByText('Weekly volume')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Week' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }));
+    // Choosing the last seven days returns to the current period and hides week and comparison controls.
+    expect(metrics.getByText('Volume last 7 days').closest('article')?.querySelector('strong')?.textContent).toBe('350 kg');
+    expect(screen.getByRole('button', { name: `Last 7 days${compactRangeLabel('2026-11-18', '2026-11-24')}`, expanded: true })).toBeTruthy();
+    expect(screen.queryByLabelText('Select week')).toBeNull();
+    expect(screen.queryByLabelText('Compare with')).toBeNull();
+    const musclePanel = within(screen.getByRole('heading', { name: 'Volume by muscle group' }).closest('article')!);
+    expect(musclePanel.getByText('Last 7 days')).toBeTruthy();
+    fireEvent.click(musclePanel.getByRole('button', { name: 'Heatmap' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes(`/body-map?selected_week=${current}&through_today=false&period=last_seven_days`))).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Week' }));
+    expect(metrics.getByText('Weekly volume')).toBeTruthy();
+    expect(screen.getByLabelText('Compare with')).toBeTruthy();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.includes(`/body-map?selected_week=${current}&through_today=false&period=week`))).toBe(true));
 });

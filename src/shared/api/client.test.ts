@@ -17,3 +17,15 @@ it.each([
     await expect(client.api('/workouts/42', {method:'PUT'})).rejects.toThrow(expected);
     expect(client.backendWriteFailed).toBe(true);
 });
+
+it('keeps background refreshes that use POST out of the saving indicator', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({detail:'Provider unavailable'}), {status:502})));
+    const client = await import('./client');
+    const announce = vi.fn();
+    window.addEventListener('backend-write-state', announce);
+    await expect(client.api('/health/sync', {method:'POST'}, {trackWrite:false})).rejects.toThrow('HTTP 502: Provider unavailable');
+    window.removeEventListener('backend-write-state', announce);
+    expect(announce).not.toHaveBeenCalled();
+    expect(client.pendingBackendWrites).toBe(0);
+    expect(client.backendWriteFailed).toBe(false);
+});

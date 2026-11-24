@@ -352,8 +352,8 @@ def dashboard(selected_week: date | None = None, comparison: Literal['previous',
 
 
 @router.get("/dashboard/body-map", response_model=BodyMap)
-def body_map(selected_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db)):
-    data = m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today, muscle_catalogue=BUNDLED_MUSCLES)
+def body_map(selected_week: date | None = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(demo_db)):
+    data = m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today, muscle_catalogue=BUNDLED_MUSCLES, period=period)
     return BodyMap(
         muscles=[BodyMuscle(**v) for v in data["muscles"]
             if urlsplit(v["image_url"]).scheme == "https" and urlsplit(v["image_url"]).netloc == "wger.de"],
