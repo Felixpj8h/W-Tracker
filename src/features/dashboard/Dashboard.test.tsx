@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Dashboard } from './Dashboard';
 
-vi.mock('./DashboardPanels', () => ({ DashboardPanels: () => <section>Dashboard content</section> }));
+vi.mock('./DashboardPanels', () => ({ DashboardPanels: ({ onAddWeight }: { onAddWeight?: () => void }) => <section>Dashboard content{onAddWeight && <button type="button" onClick={onAddWeight}>Current weight</button>}</section> }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function fixture() {
@@ -48,5 +48,28 @@ describe('Dashboard swipe gestures', () => {
     expect(onPageChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Go to Activity' }));
     expect(onPageChange).toHaveBeenCalledExactlyOnceWith(2);
+  });
+});
+
+describe('Current weight shortcut', () => {
+  const mobile = (matches: boolean) => vi.spyOn(window, 'matchMedia').mockReturnValue({ matches, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as MediaQueryList);
+
+  it('opens the Progress page on phones', () => {
+    window.matchMedia ??= (() => undefined) as unknown as typeof window.matchMedia;
+    mobile(true);
+    const { onPageChange } = fixture();
+    fireEvent.click(screen.getByRole('button', { name: 'Current weight' }));
+    expect(onPageChange).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it('is not offered on desktop or in the read-only demo', () => {
+    window.matchMedia ??= (() => undefined) as unknown as typeof window.matchMedia;
+    mobile(false);
+    fixture();
+    expect(screen.queryByRole('button', { name: 'Current weight' })).toBeNull();
+    cleanup();
+    mobile(true);
+    render(<Dashboard dash={null} history={[]} log={() => undefined} saveWeight={async () => undefined} readOnly/>);
+    expect(screen.queryByRole('button', { name: 'Current weight' })).toBeNull();
   });
 });

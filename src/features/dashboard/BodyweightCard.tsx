@@ -1,16 +1,24 @@
 import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
 import type { Dash } from './types';
-import { useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { BodyweightChart } from './BodyweightChart';
 import { weightGoalSummary } from './weightGoal';
 import type { WeightGoal } from '../settings/useAccountSettings';
 
-export function BodyweightCard({ dash, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: { dash: Dash | null; saveWeight: (n: number, recordedOn?: string) => Promise<void>; readOnly?: boolean; weightGoal?: WeightGoal | null; targetWeight?: number | null }) {
+export function BodyweightCard({ dash, saveWeight, readOnly = false, weightGoal = null, targetWeight = null, openAddRequest = 0 }: { openAddRequest?: number; dash: Dash | null; saveWeight: (n: number, recordedOn?: string) => Promise<void>; readOnly?: boolean; weightGoal?: WeightGoal | null; targetWeight?: number | null }) {
     const [weight, setWeight] = useState('');
     const [savingWeight, setSavingWeight] = useState(false);
     const [weightError, setWeightError] = useState('');
     const [addingWeight, setAddingWeight] = useState(false);
     const addRoot = useOutsideDismiss<HTMLDivElement>(addingWeight, () => { if (!savingWeight) setAddingWeight(false); });
+    const weightInput = useRef<HTMLInputElement>(null);
+    // Each new request from the Current weight tile opens the Add form and focuses it.
+    // Focusing in the same tap lets phones show the keyboard.
+    useLayoutEffect(() => {
+        if (!openAddRequest || readOnly) return;
+        setAddingWeight(true);
+        weightInput.current?.focus({ preventScroll: true });
+    }, [openAddRequest, readOnly]);
     const [range, setRange] = useState<'1M' | '3M' | '6M' | '1Y' | 'All'>('All');
     const entries = dash?.weight_series ?? [];
     const rangeDays = { '1M': 31, '3M': 92, '6M': 183, '1Y': 366, All: Infinity }[range];
@@ -34,5 +42,5 @@ export function BodyweightCard({ dash, saveWeight, readOnly = false, weightGoal 
         finally { setSavingWeight(false); }
     };
     const formatDate = (date?: string) => date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-    return <article className="dashboard-weight"><div className="dashboard-section-head"><div><h2>Bodyweight</h2><p className={goal ? `dashboard-weight-goal ${goal.tone}` : undefined}>{goal ? goal.text : 'Your tracked weight over time.'}</p></div><div className="dashboard-weight-actions" ref={addRoot}><div className="weight-ranges" role="group" aria-label="Bodyweight timeframe">{(['1M', '3M', '6M', '1Y', 'All'] as const).map(option => <button type="button" className={range === option ? 'active' : ''} onClick={() => setRange(option)} key={option}>{option}</button>)}</div><button className="mobile-add-weight" type="button" disabled={readOnly} onClick={() => setAddingWeight(value => !value)}>＋ Add</button><form className={addingWeight ? 'adding' : ''} onSubmit={event => void submitWeight(event)}><input disabled={readOnly} aria-label="Bodyweight in kilograms" value={weight} onChange={event => setWeight(event.target.value)} placeholder="kg" inputMode="decimal"/><button disabled={readOnly || savingWeight}>Save</button></form></div></div>{weightError && <p role="alert">{weightError}</p>}{entries.length === 1 && latest ? <div className="first-weight"><strong>{latest.weight.toFixed(1)} kg</strong><b>First tracked entry</b><span>{formatDate(latest.recorded_on)}</span></div> : <BodyweightChart readOnly={readOnly} values={visibleEntries} domainStart={domainStart} domainEnd={domainEnd} saveWeight={saveWeight} target={targetWeight}/>}</article>;
+    return <article className="dashboard-weight"><div className="dashboard-section-head"><div><h2>Bodyweight</h2><p className={goal ? `dashboard-weight-goal ${goal.tone}` : undefined}>{goal ? goal.text : 'Your tracked weight over time.'}</p></div><div className="dashboard-weight-actions" ref={addRoot}><div className="weight-ranges" role="group" aria-label="Bodyweight timeframe">{(['1M', '3M', '6M', '1Y', 'All'] as const).map(option => <button type="button" className={range === option ? 'active' : ''} onClick={() => setRange(option)} key={option}>{option}</button>)}</div><button className="mobile-add-weight" type="button" disabled={readOnly} onClick={() => setAddingWeight(value => !value)}>＋ Add</button><form className={addingWeight ? 'adding' : ''} onSubmit={event => void submitWeight(event)}><input ref={weightInput} disabled={readOnly} aria-label="Bodyweight in kilograms" value={weight} onChange={event => setWeight(event.target.value)} placeholder="kg" inputMode="decimal"/><button disabled={readOnly || savingWeight}>Save</button></form></div></div>{weightError && <p role="alert">{weightError}</p>}{entries.length === 1 && latest ? <div className="first-weight"><strong>{latest.weight.toFixed(1)} kg</strong><b>First tracked entry</b><span>{formatDate(latest.recorded_on)}</span></div> : <BodyweightChart readOnly={readOnly} values={visibleEntries} domainStart={domainStart} domainEnd={domainEnd} saveWeight={saveWeight} target={targetWeight}/>}</article>;
 }

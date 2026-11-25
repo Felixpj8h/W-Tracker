@@ -25,7 +25,7 @@ import { sampleHealthOverview } from '../demo/healthSample';
 
 const muscleDisplayName = (name: string) => /pectoralis|^chest$/i.test(name) ? 'Chest' : name;
 
-export function DashboardPanels({ activePanel, dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHealth = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
+export function DashboardPanels({ activePanel, dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHealth = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null, onAddWeight }: {
     activePanel?: number;
     dash: Dash | null;
     history: Workout[];
@@ -40,7 +40,10 @@ export function DashboardPanels({ activePanel, dash, history, historyLoaded, cal
     readOnly?: boolean;
     weightGoal?: WeightGoal | null;
     targetWeight?: number | null;
+    /** Mobile only: shows the Bodyweight page so its Add form can open there. */
+    onAddWeight?: () => void;
 }) {
+    const [addWeightRequest, setAddWeightRequest] = useState(0);
     const [muscleMetric, setMuscleMetric] = useState<'volume' | 'sets' | 'heatmap'>('volume');
     const [heatmapLastSevenDays, setHeatmapLastSevenDays] = useState(false);
     const setsChart = useSetsChartStyle();
@@ -162,7 +165,7 @@ export function DashboardPanels({ activePanel, dash, history, historyLoaded, cal
         <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} today={todayDate} period={period} onPeriod={value => { setPeriodChoice(value); if (value === 'last_seven_days') setSelectedWeek(currentWeek); }} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
         <section className="dashboard-metrics" aria-label="Training summary">
-            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`} tone={weightChangeTone(effectiveWeightGoal(weightGoal, targetWeight, dash?.latest_weight?.weight ?? null), weightChange)}/>}
+            {<Stat icon="scale" label="Current weight" value={dash?.latest_weight ? `${dash.latest_weight.weight.toFixed(1)} kg` : '—'} sub={weightChange === null ? 'Add another entry for a trend' : Math.abs(weightChange) < 0.05 ? 'No change this month' : `${weightChange > 0 ? '↑' : '↓'} ${Math.abs(weightChange).toFixed(1)} kg this month`} tone={weightChangeTone(effectiveWeightGoal(weightGoal, targetWeight, dash?.latest_weight?.weight ?? null), weightChange)} action={onAddWeight ? { label: 'Current weight: add a bodyweight entry', onClick: () => { onAddWeight(); setAddWeightRequest(value => value + 1); } } : undefined}/>}
             {lastSevenDays ? <>
                 <Stat icon="volume" label="Volume last 7 days" value={`${vol(lastSevenDays.volume)} kg`}/>
                 <Stat icon="session" label="Sessions last 7 days" value={String(lastSevenDays.sessions)}/>
@@ -178,7 +181,7 @@ export function DashboardPanels({ activePanel, dash, history, historyLoaded, cal
         </section>
         </section>
         <section className="dashboard-analytics" inert={activePanel != null && activePanel !== 1}>
-            <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/>
+            <BodyweightCard openAddRequest={addWeightRequest} dash={dash} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/>
             <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}>
                 <div className="muscle-card-head">
                     <div>

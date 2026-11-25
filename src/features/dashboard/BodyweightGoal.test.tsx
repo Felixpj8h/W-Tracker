@@ -26,3 +26,12 @@ it('leaves a distant target off the chart and shows a target set without a goal'
     card({ weightGoal: null, targetWeight: null });
     expect(screen.getByText('Your tracked weight over time.')).toBeTruthy();
 });
+
+it('opens the Add form and focuses it on each request from the Current weight tile', () => {
+    const { container, rerender } = render(<BodyweightCard dash={dash} saveWeight={async () => undefined}/>);
+    const form = () => container.querySelector('.dashboard-weight-actions form')!;
+    expect(form().classList.contains('adding')).toBe(false);
+    rerender(<BodyweightCard dash={dash} saveWeight={async () => undefined} openAddRequest={1}/>);
+    expect(form().classList.contains('adding')).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Bodyweight in kilograms' }));
+});

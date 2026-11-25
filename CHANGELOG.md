@@ -2,6 +2,7 @@
 
 ## 25 November 2026
 
+- On phones, tapping the Current weight tile on the dashboard's Overview page now slides to the Progress page and opens the Bodyweight Add form with its input focused, so a new weigh-in takes one tap instead of a swipe and a second tap. Desktop and the read-only demo are unchanged. This is local and has not been deployed.
 - Show which exercises still have unchecked sets in the Workout review, so missed check marks are caught before finishing. Each listed exercise names how many working sets are unchecked; tapping it closes the review, opens that exercise, scrolls to its first unchecked set, focuses the checkbox and briefly highlights the row. Warm-up sets and exercises with no sets are not listed. This is local and has not been deployed.
 - Keep overlapping workout starts from mixing session IDs. Preserve account-scoped unsynced drafts through sign-out, retry draft verification and autosaves after reconnecting, and keep rest timers running while a workout is paused.
 - Remove schedule references when a routine or folder is deleted and reject deletion of exercises still used in templates or planned workouts. Show every completed session on its calendar date and use the browser’s local date for training periods and new logs.
