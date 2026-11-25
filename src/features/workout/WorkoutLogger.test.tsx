@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkoutLogger } from './WorkoutLogger';
 import { api } from '../../shared/api/client';
@@ -425,6 +425,29 @@ it('reviews workout stats from checked sets only and finishes explicitly', () =>
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('button', {name:'Finish workout'}));
     expect(finish).toHaveBeenCalledExactlyOnceWith(workout);
+});
+it('lists exercises with unchecked sets in the review and jumps to the first unchecked set', async () => {
+    const workout: Workout = { ...navigationWorkout, exercises: [
+        { name: 'Squat', sets: [{ weight: 40, reps: 8, completed: false, is_warmup: true }, { weight: 60, reps: 8, completed: true }, { weight: 60, reps: 8, completed: false }] },
+        { name: 'Bench', sets: [{ weight: 20, reps: 5, completed: true }] },
+        { name: 'Row', sets: [] },
+    ] };
+    render(<WorkoutLogger {...props} workout={workout} editing={false}/>);
+    fireEvent.click(screen.getByRole('button', {name:/Exercise 3: Row/}));
+    fireEvent.click(screen.getByRole('button', {name:'Review workout'}));
+    const missing = screen.getByRole('region', {name:'Unchecked exercises'});
+    expect(missing).toHaveTextContent('1 exercise has unchecked sets');
+    expect(within(missing).queryByRole('button', {name:/Bench/})).toBeNull();
+    expect(within(missing).queryByRole('button', {name:/Row/})).toBeNull();
+    fireEvent.click(within(missing).getByRole('button', {name:'Go to Squat, 1 of 2 sets unchecked'}));
+    expect(screen.queryByRole('dialog', {name:'Workout review'})).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('checkbox', {name:'Complete Squat set 2'})));
+});
+it('hides the unchecked list when every set is checked', () => {
+    const workout: Workout = { ...navigationWorkout, exercises: [{ name: 'Squat', sets: [{ weight: 60, reps: 8, completed: true }] }] };
+    render(<WorkoutLogger {...props} workout={workout} editing={false}/>);
+    fireEvent.click(screen.getByRole('button', {name:'Review workout'}));
+    expect(screen.queryByRole('region', {name:'Unchecked exercises'})).toBeNull();
 });
 it('keeps statistics out of the exercise selector overview', () => {
     render(<NavigationHarness/>);

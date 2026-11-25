@@ -161,6 +161,20 @@
 .workout-session .session-review-stats dd{margin:8px 0 0;font-size:23px;font-weight:700;color:var(--accent-dark);overflow-wrap:anywhere}
 .workout-session .session-review-stats dd small{font-size:13px;font-weight:500}
 .workout-session .session-review-stats p{margin:10px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.workout-session .session-review-missing{margin-bottom:18px;padding:14px;border:1px solid color-mix(in srgb,var(--negative,#c77f87) 45%,var(--border));border-radius:10px;background:color-mix(in srgb,var(--negative,#c77f87) 8%,transparent)}
+.workout-session .session-review-missing h3{display:flex;align-items:center;gap:8px;margin:0;font-size:15px;color:var(--text)}
+.workout-session .session-review-missing h3 svg{flex:none;color:var(--negative,#c77f87)}
+.workout-session .session-review-missing>p{margin:6px 0 10px;color:var(--muted);font-size:12px;line-height:1.5}
+.workout-session .session-review-missing ul{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.workout-session .session-review-missing button{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);text-align:left;cursor:pointer}
+.workout-session .session-review-missing button>span:nth-child(2){display:grid;gap:3px;flex:1;min-width:0}
+.workout-session .session-review-missing button b{overflow-wrap:anywhere}
+.workout-session .session-review-missing button small{color:var(--muted);font-size:12px}
+.workout-session .session-review-missing button>span:last-child{color:var(--muted);font-size:20px}
+.workout-session .session-review-missing .session-exercise-number{width:36px;height:36px;font-size:14px}
+.workout-session .session-set-row.session-set-missing{animation:session-set-missing 1.6s ease-out}
+@keyframes session-set-missing{0%,40%{background:color-mix(in srgb,var(--negative,#c77f87) 18%,transparent)}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){.workout-session .session-set-row.session-set-missing{animation-duration:.01s}}
 .workout-session .session-review-finish{width:100%;min-height:48px;margin-top:16px;padding:12px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-weight:700}
 
 .workout-session .session-menu .session-remove-exercise{min-height:44px;border-top:1px solid var(--border);border-radius:0}

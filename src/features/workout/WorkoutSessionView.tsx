@@ -69,6 +69,20 @@ export function WorkoutSessionView(p: Props) {
   setReview(showReview);
   setOverview(true);
  };
+ const goToMissing = (index: number) => {
+  setOverview(false);
+  onOpen(index);
+  requestAnimationFrame(() => {
+   const row = heading.current?.closest('article')?.querySelector<HTMLElement>('.session-set-row:not(.warmup):not(.completed)');
+   if (!row) { heading.current?.scrollIntoView?.({block:'start'}); return; }
+   row.scrollIntoView?.({block:'center'});
+   row.querySelector<HTMLInputElement>('.session-set-check')?.focus({preventScroll:true});
+   row.classList.remove('session-set-missing');
+   void row.offsetWidth;
+   row.classList.add('session-set-missing');
+   row.addEventListener('animationend', () => row.classList.remove('session-set-missing'), {once:true});
+  });
+ };
  const navigate = (index: number) => { onOpen(index); requestAnimationFrame(() => heading.current?.scrollIntoView?.({block:'start'})); };
  const update = (index: number, patch: Partial<Workout['exercises'][number]>) => onChange({...workout, exercises: workout.exercises.map((item, i) => i === index ? {...item, ...patch} : item)});
  const item = workout.exercises[open];
@@ -81,6 +95,7 @@ export function WorkoutSessionView(p: Props) {
  const checkedSets = workout.exercises.flatMap(exercise => exercise.sets ?? []).filter(set => set.completed && !set.is_warmup);
  const totalReps = checkedSets.reduce((sum, set) => sum + set.reps, 0);
  const totalVolume = checkedSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
+ const missing = workout.exercises.map((x,i) => ({index:i, name:x.name, ...progress(x)})).filter(x => x.checked < x.total);
  const formatStat = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
  return <section className="workout-session" onFocusCapture={event => {
   const target = event.target;
@@ -130,6 +145,10 @@ export function WorkoutSessionView(p: Props) {
     <div><dt>Volume lifted</dt><dd>{formatStat(totalVolume)} <small>kg</small></dd></div>
    </dl>
    <p>Reps and volume include checked sets only.</p>
+  </section>}{review && missing.length > 0 && <section className="session-review-missing" aria-label="Unchecked exercises">
+   <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>{missing.length === 1 ? '1 exercise has' : `${missing.length} exercises have`} unchecked sets</h3>
+   <p>Tap an exercise to jump to the first set without a check mark.</p>
+   <ul>{missing.map(x => <li key={x.index}><button type="button" aria-label={`Go to ${x.name}, ${x.total - x.checked} of ${x.total} sets unchecked`} onClick={() => goToMissing(x.index)}><span className="session-exercise-number">{String(x.index+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{x.total - x.checked} of {x.total} {x.total === 1 ? 'set' : 'sets'} unchecked</small></span><span aria-hidden="true">›</span></button></li>)}</ul>
   </section>}{workout.exercises.length > 1 && <p className="session-order-hint">Use the arrows to change exercise order.</p>}<div className="session-overview-list">{workout.exercises.map((x,i) => {const state=progress(x);return <div className="session-overview-row" key={`${x.exercise_id ?? x.cached_exercise_id ?? x.name}-${workout.exercises.slice(0,i).filter(entry => (entry.exercise_id ?? entry.cached_exercise_id ?? entry.name) === (x.exercise_id ?? x.cached_exercise_id ?? x.name)).length}`}><button type="button" aria-current={open===i ? 'step' : undefined} onClick={() => {setOverview(false);navigate(i);}}><span className="session-exercise-number">{String(i+1).padStart(2,'0')}</span><span><b>{x.name}</b><small>{state.checked} of {state.total} sets checked · {state.label}</small>{open===i && <small className="session-selected-label">Selected</small>}</span>{state.label === 'Completed' && <svg className="session-overview-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>}</button>{workout.exercises.length > 1 && <ExerciseOrderControls name={x.name} index={i} count={workout.exercises.length} disabled={pausing} onMove={onMoveExercise}/>}</div>;})}</div>{review && <button type="button" className="session-review-finish" disabled={pausing} onClick={onFinish}>{editing ? 'Save changes' : 'Finish workout'}</button>}</> : <>
    <input type="search" autoComplete="off" autoCorrect="off" spellCheck={false} enterKeyHint="search" aria-label={substituteIndex===null ? 'Search exercises' : 'Search replacement exercise'} value={query} onChange={e => onQuery(e.target.value)} placeholder={supersetSearch ? 'Search an exercise to pair…' : 'Search exercises…'}/>
    <div className="session-search-results">
