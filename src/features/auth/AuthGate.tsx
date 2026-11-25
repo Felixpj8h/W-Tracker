@@ -18,7 +18,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
     const [restoreAttempt, setRestoreAttempt] = useState(0);
     const googleButton = useRef<HTMLDivElement>(null);
     const authEpoch = useRef(0);
-    const signOut = useCallback(() => {
+    const signOut = useCallback((expired = false) => {
         authEpoch.current += 1;
         invalidateAccount();
         broadcastAccountChange();
@@ -27,6 +27,8 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
         setToken('');
         setProfile(null);
         setChecking(false);
+        setAuthError(expired ? 'Your session expired. Sign in again to resume your workout.' : '');
+        setRestoring(false);
         setLogoutPending(true); setLogoutFailed(false);
         void fetch(`${API}/session/logout`, { method: 'POST', credentials: 'include' })
             .then(response => { if (!response.ok) throw Error('Sign out was rejected'); })
@@ -79,11 +81,13 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
     }, [restoreAttempt, localDevelopment, skipRestore]);
 
     useEffect(() => {
-        window.addEventListener('google-auth-expired', signOut);
-        window.addEventListener('google-sign-out', signOut);
+        const expire = () => signOut(true);
+        const logout = () => signOut();
+        window.addEventListener('google-auth-expired', expire);
+        window.addEventListener('google-sign-out', logout);
         return () => {
-            window.removeEventListener('google-auth-expired', signOut);
-            window.removeEventListener('google-sign-out', signOut);
+            window.removeEventListener('google-auth-expired', expire);
+            window.removeEventListener('google-sign-out', logout);
         };
     }, [signOut]);
 
@@ -127,15 +131,23 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
             setGoogleReady(true);
         };
         script.addEventListener('load', initialize);
-        script.addEventListener('error', () => setAuthError('Could not load Google sign-in. Check your connection.'));
+        const failed = () => {
+            script.remove();
+            setGoogleReady(false);
+            setAuthError('Could not load Google sign-in. Check your connection.');
+        };
+        script.addEventListener('error', failed);
         if (!existing) {
             script.src = 'https://accounts.google.com/gsi/client';
             script.async = true;
             script.defer = true;
             document.head.appendChild(script);
         } else initialize();
-        return () => script.removeEventListener('load', initialize);
-    }, [token, restoring, logoutPending, logoutFailed]);
+        return () => {
+            script.removeEventListener('load', initialize);
+            script.removeEventListener('error', failed);
+        };
+    }, [token, restoring, localDevelopment, logoutPending, logoutFailed]);
 
     useEffect(() => {
         if (token || restoring || !googleReady || checking || !window.google || !googleButton.current) return;
@@ -147,7 +159,7 @@ export function AuthGate({ children, onExploreDemo, skipRestore = false }: { chi
     }, [checking, googleReady, restoring, token]);
 
     const demoButton = onExploreDemo && <button type="button" className="auth-demo" onClick={onExploreDemo}>Explore demo</button>;
-    if (logoutPending || logoutFailed) return <main className="auth-shell"><section className="auth-card"><h1>Sign out</h1><p role="status">{logoutPending ? 'Signing out…' : 'Your server sign-out could not be confirmed. Retry when connected.'}</p>{logoutFailed && <button onClick={signOut}>Retry sign out</button>}</section></main>;
+    if (logoutPending || logoutFailed) return <main className="auth-shell"><section className="auth-card"><h1>Sign out</h1><p role="status">{logoutPending ? 'Signing out…' : 'Your server sign-out could not be confirmed. Retry when connected.'}</p>{logoutFailed && <button onClick={() => signOut()}>Retry sign out</button>}</section></main>;
     if (token && profile) return children(profile);
     if (localDevelopment) return <main className="auth-shell"><section className="auth-card"><JernLogo variant="auth" /><h1>Local workspace</h1><p>{restoring ? 'Connecting to the local backend…' : authError || 'The backend did not return a local user. Restart it in development mode.'}</p>{!restoring && <button type="button" className="primary" onClick={() => window.location.reload()}>Retry connection</button>}{demoButton}</section></main>;
     return (

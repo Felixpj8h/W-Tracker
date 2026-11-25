@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import { tracksCompletion, workingSets } from '../workout/loggedSets';
 
 type LoggedWorkout = {
   id?: number;
   performed_on: string;
+  tracks_set_completion?: boolean;
   exercises: {
     exercise_id?: number | null;
     cached_exercise_id?: number | null;
     name: string;
-    sets?: { weight: number; reps: number; completed?: boolean }[];
+    sets?: { weight: number; reps: number; completed?: boolean; is_warmup?: boolean }[];
   }[];
 };
 
@@ -60,14 +62,12 @@ export function HistoryAnalysis({ completed }: { completed: LoggedWorkout[] }) {
   };
   const loggedExercises = new Map<string, { name: string; points: Series['points'] }>();
   ordered.forEach((workout, index) => {
-    const hasCheckedSets = workout.exercises.some(exercise => exercise.sets?.some(set => set.completed));
+    const checkedOnly = tracksCompletion(workout);
     const volumes = new Map<string, { name: string; value: number }>();
     for (const exercise of workout.exercises) {
       // Older sessions can have logged weights but no checked sets because the
       // completion flag defaulted to false. Keep those weighted sets.
-      const sets = (exercise.sets ?? []).filter(set => set.reps > 0 && (
-        set.completed !== false || (!hasCheckedSets && set.weight > 0)
-      ));
+      const sets = workingSets(exercise.sets, checkedOnly).filter(set => set.reps > 0 && (set.completed !== false || set.weight > 0));
       if (sets.length === 0) continue;
       const key = exerciseKey(exercise);
       const value = sets.reduce((total, set) => total + set.weight * set.reps, 0);

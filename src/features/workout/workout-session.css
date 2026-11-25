@@ -19,6 +19,13 @@
 .workout-session .session-progress>span{white-space:nowrap}
 .workout-session .session-rest{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin:0 0 14px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
 .workout-session .session-rest button{padding:5px 8px;background:transparent;color:inherit}
+@media(max-width:760px){
+    .workout-session .session-rest button{min-width:44px;min-height:44px}
+}
+@media(max-width:360px){
+    .workout-session .session-header .session-title-row{flex-wrap:wrap}
+    .workout-session .session-header .session-title{flex-basis:100%;min-height:44px}
+}
 .workout-session .session-exercise{min-width:0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .workout-session .session-exercise-heading{display:flex;align-items:center;gap:8px;padding:12px 0 14px;scroll-margin-top:20px}
 .workout-session .session-exercise.expanded .session-exercise-heading{border-bottom:1px solid var(--border)}

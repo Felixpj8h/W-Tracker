@@ -12,38 +12,58 @@ export function useCoachController(onApplied: (operation: string) => void) {
   const [proposalNotice, setProposalNotice] = useState<Record<number, string>>({});
   const [streaming, setStreaming] = useState<Record<number, boolean>>({});
   const [errors, setErrors] = useState<Record<number, string>>({});
+  const [detailErrors, setDetailErrors] = useState<Record<number, string>>({});
   const [pending, setPending] = useState<Record<number, boolean>>({});
   const [outdated, setOutdated] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const controllers = useRef(new Map<number, AbortController>());
   const active = useRef(new Set<number>());
+  const detailRequests = useRef(new Map<number, number>());
+  const listRequest = useRef(0);
   const onAppliedRef = useRef(onApplied);
   useEffect(() => { onAppliedRef.current = onApplied; }, [onApplied]);
 
   const refreshList = useCallback(async () => {
+    const request = ++listRequest.current;
     const rows = await coachJson<Conversation[]>('/conversations');
-    setConversations(rows);
-    setSelectedId(current => current ?? rows[0]?.id ?? null);
+    if (request === listRequest.current) {
+      setConversations(rows);
+      setSelectedId(current => current ?? rows[0]?.id ?? null);
+    }
     return rows;
   }, []);
   const load = useCallback(async () => {
     if (loaded) return;
     setLoading(true);
-    try { await refreshList(); setLoaded(true); } catch (error) { setErrors(current => ({ ...current, 0: (error as Error).message })); }
+    try { await refreshList(); setErrors(current => ({ ...current, 0: '' })); setLoaded(true); } catch (error) { setErrors(current => ({ ...current, 0: (error as Error).message })); }
     finally { setLoading(false); }
   }, [loaded, refreshList]);
   const refresh = useCallback(async (id: number) => {
-    const detail = await coachJson<ConversationDetail>(`/conversations/${id}`);
-    setDetails(current => ({ ...current, [id]: detail }));
-    await refreshList();
-    return detail;
-  }, [refreshList]);
+    const request = (detailRequests.current.get(id) ?? 0) + 1;
+    detailRequests.current.set(id, request);
+    try {
+      const detail = await coachJson<ConversationDetail>(`/conversations/${id}`);
+      if (request === detailRequests.current.get(id)) {
+        setDetails(current => ({ ...current, [id]: detail }));
+        setDetailErrors(current => ({ ...current, [id]: '' }));
+        if (!active.current.has(id)) {
+          setOptimistic(current => ({ ...current, [id]: '' }));
+          setDrafts(current => ({ ...current, [id]: '' }));
+        }
+      }
+      return detail;
+    } catch {
+      if (request === detailRequests.current.get(id)) setDetailErrors(current => ({ ...current, [id]: 'Could not load this conversation. Try refreshing it.' }));
+      return null;
+    }
+  }, []);
   const select = useCallback(async (id: number) => {
-    setSelectedId(id); if (!details[id]) await refresh(id);
-  }, [details, refresh]);
+    setSelectedId(id);
+  }, []);
   const create = useCallback(async () => {
     const item = await coachJson<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ title: 'New conversation' }) });
+    listRequest.current += 1;
     setConversations(current => [item, ...current]); setSelectedId(item.id);
     setDetails(current => ({ ...current, [item.id]: { ...item, messages: [], proposals: [] } }));
     return item.id;
@@ -51,25 +71,11 @@ export function useCoachController(onApplied: (operation: string) => void) {
   const remove = useCallback(async (id: number) => {
     if (active.current.has(id) || !window.confirm('Delete this conversation and its messages?')) return;
     await coachJson(`/conversations/${id}`, { method: 'DELETE' });
+    detailRequests.current.set(id, (detailRequests.current.get(id) ?? 0) + 1);
     setDetails(current => { const next = { ...current }; delete next[id]; return next; });
     const rows = await refreshList(); setSelectedId(current => current === id ? rows[0]?.id ?? null : current);
   }, [refreshList]);
-  const settleTurn = useCallback(async (id: number) => {
-    const [detail, rows] = await Promise.all([
-      coachJson<ConversationDetail>(`/conversations/${id}`),
-      coachJson<Conversation[]>('/conversations'),
-    ]);
-    // Replace the draft and proposal notice in the same render as the saved turn.
-    setDetails(current => ({ ...current, [id]: detail }));
-    setConversations(rows);
-    setSelectedId(current => current ?? rows[0]?.id ?? null);
-    setStreaming(current => ({ ...current, [id]: false }));
-    setOptimistic(current => ({ ...current, [id]: '' }));
-    setDrafts(current => ({ ...current, [id]: '' }));
-    setActivity(current => ({ ...current, [id]: '' }));
-    setProposalNotice(current => ({ ...current, [id]: '' }));
-  }, []);
-  const send = useCallback(async (input: string | CoachMessageInput, id?: number | null, retryMessageId?: number) => {
+  const send = useCallback(async (input: string | CoachMessageInput, id?: number | null, retryMessageId?: number, onAccepted?: () => void) => {
     const message = typeof input === 'string' ? { content: input } : input;
     const trimmed = message.content.trim(); if (!trimmed || trimmed.length > 4000) return false;
     let target = id ?? selectedId;
@@ -82,9 +88,15 @@ export function useCoachController(onApplied: (operation: string) => void) {
     setErrors(current => ({ ...current, [key]: '' })); setDrafts(current => ({ ...current, [key]: '' }));
     setOptimistic(current => ({ ...current, [key]: retryMessageId ? '' : trimmed })); setActivity(current => ({ ...current, [key]: '' }));
     setProposalNotice(current => ({ ...current, [key]: '' }));
-    let settled = false;
+    let accepted = false;
+    const accept = () => {
+      if (accepted) return;
+      accepted = true;
+      onAccepted?.();
+    };
     try {
       await streamMessage(key, { ...message, content: trimmed }, controller.signal, event => {
+        if (event.type === 'message.started') accept();
         if (event.type === 'text.delta') { setDrafts(current => ({ ...current, [key]: (current[key] ?? '') + (event.text ?? '') })); setActivity(current => ({ ...current, [key]: 'writing_response' })); }
         if (event.type === 'tool.started') setActivity(current => ({ ...current, [key]: event.name ?? 'reviewing_results' }));
         if (event.type === 'tool.completed') setActivity(current => ({ ...current, [key]: 'reviewing_results' }));
@@ -92,27 +104,30 @@ export function useCoachController(onApplied: (operation: string) => void) {
         if (event.type === 'message.completed') setActivity(current => ({ ...current, [key]: 'saving_response' }));
         if (event.type === 'error') setErrors(current => ({ ...current, [key]: event.message ?? 'The coach could not finish this response.' }));
       }, retryMessageId);
-      await settleTurn(key); settled = true;
+      accept();
     } catch (error) {
       setErrors(current => ({ ...current, [key]: (error as Error).message }));
-      try { await settleTurn(key); settled = true; } catch { /* preserve partial draft */ }
     } finally {
+      const detail = accepted ? await refresh(key) : null;
+      void refreshList().catch(() => undefined);
       active.current.delete(key); controllers.current.delete(key);
-      if (!settled) {
-        setStreaming(current => ({ ...current, [key]: false }));
+      setStreaming(current => ({ ...current, [key]: false }));
+      if ((detail && detail.status !== 'generating') || !accepted) {
         setOptimistic(current => ({ ...current, [key]: '' }));
-        setActivity(current => ({ ...current, [key]: '' }));
-        setProposalNotice(current => ({ ...current, [key]: '' }));
+        setDrafts(current => ({ ...current, [key]: '' }));
       }
+      setActivity(current => ({ ...current, [key]: '' }));
+      setProposalNotice(current => ({ ...current, [key]: '' }));
     }
-    return true;
-  }, [create, settleTurn, selectedId]);
+    return accepted;
+  }, [create, refresh, refreshList, selectedId]);
   const cancel = useCallback(async (id: number) => {
     if (!active.current.has(id)) return;
     setActivity(current => ({ ...current, [id]: 'stopping' }));
     try {
       await coachJson(`/conversations/${id}/cancel`, { method: 'POST' });
     } catch (error) {
+      setActivity(current => current[id] === 'stopping' ? { ...current, [id]: '' } : current);
       setErrors(current => ({ ...current, [id]: (error as Error).message }));
     }
   }, []);
@@ -129,6 +144,6 @@ export function useCoachController(onApplied: (operation: string) => void) {
     } finally { setPending(current => ({ ...current, [proposal.id]: false })); }
   }, [pending, refresh]);
   useEffect(() => { const current = controllers.current; return () => { current.forEach(controller => controller.abort()); }; }, []);
-  return { conversations, selectedId, details, drafts, optimistic, activity, proposalNotice, streaming, errors, pending, outdated, loading, loaded, load, refresh, select, create, remove, send, cancel, resolve };
+  return { conversations, selectedId, details, drafts, optimistic, activity, proposalNotice, streaming, errors, detailErrors, pending, outdated, loading, loaded, load, refresh, select, create, remove, send, cancel, resolve };
 }
 export type CoachController = ReturnType<typeof useCoachController>;

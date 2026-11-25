@@ -82,10 +82,30 @@ it('still reports a background save the server rejected', async () => {
 it('does not reuse another workout\'s acknowledged revision', async () => {
     vi.useFakeTimers();
     const view = render(<WorkoutLogger {...props} workout={{ ...original, revision: 1 }} acknowledgedRevision={9}/>);
-    view.rerender(<WorkoutLogger {...props} workout={{ ...original, id: 43, revision: 2 }}/>);
+    const nextWorkout = { ...original, id: 43, revision: 2 };
+    view.rerender(<WorkoutLogger {...props} workout={nextWorkout}/>);
+    view.rerender(<WorkoutLogger {...props} workout={{ ...nextWorkout, name: 'Edited name' }}/>);
     await act(() => vi.advanceTimersByTimeAsync(400));
     const save = vi.mocked(api).mock.calls.find(([path, options]) => path === '/workouts/43' && options?.method === 'PATCH');
     expect(JSON.parse(save![1]!.body as string).revision).toBe(2);
+});
+
+it('retries a visible autosave failure on reconnect without further edits', async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    let saves = 0;
+    vi.mocked(api).mockImplementation(async (path, options) => {
+        if (path === '/workouts/42' && options?.method === 'PATCH' && ++saves === 1) throw new TypeError('Failed to fetch');
+        return {};
+    });
+    const current = { ...original, completed: false, revision: 1 };
+    render(<WorkoutLogger {...props} workout={current} editing={false}/>);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(screen.getByRole('alert')).toHaveTextContent('retry when connected');
+    await act(async () => window.dispatchEvent(new Event('online')));
+    expect(vi.mocked(api).mock.calls.filter(([path, options]) => path === '/workouts/42' && options?.method === 'PATCH')).toHaveLength(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+    visibility.mockRestore();
 });
 
 it('adds a warm-up before working sets and preserves it on remount', () => {

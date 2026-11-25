@@ -5,11 +5,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WorkoutApp } from './WorkoutApp';
 import { api } from '../shared/api/client';
 import { ACTIVE_WORKOUT_KEY } from '../features/workout/session';
+import type { Folder, Routine } from '../features/routines/types';
 
 vi.mock('../shared/api/client', () => ({ api: vi.fn(), API: '/api/v1', pendingBackendWrites: 0, backendWriteFailed: false }));
 vi.mock('../features/coach/useCoachController', () => ({ useCoachController: () => ({ streaming: {} }) }));
 vi.mock('../features/dashboard/Dashboard', () => ({ Dashboard: ({ log }: { log: () => void }) => <><p>Dashboard content</p><button onClick={log}>Dashboard log workout</button></> }));
-vi.mock('../features/routines/Routines', () => ({ Routines: () => <p>Routines content</p> }));
+vi.mock('../features/routines/Routines', () => ({ Routines: ({ folders, start }: { folders: Folder[]; start: (routine: Routine) => void }) => <>
+    <p>Routines content</p>
+    {folders.flatMap(folder => folder.routines).map(routine => <button key={routine.id} onClick={() => start(routine)}>Start {routine.name}</button>)}
+</> }));
 
 beforeEach(() => activateAccount('athlete@example.com'));
 
@@ -27,6 +31,7 @@ it('saves a paused session, allows navigation, and resumes the exact saved worko
     });
     render(<WorkoutApp user={{ name: 'Athlete', firstName: 'Athlete', email: 'athlete@example.com' }}/>);
     fireEvent.change(await screen.findByLabelText('Bench press set 1 weight in kg'), { target: { value: '25.5' } });
+    fireEvent.click(screen.getByRole('button', { name: '◷ Rest 1:30' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pause session' }));
     await screen.findByText('Dashboard content');
     const save = vi.mocked(api).mock.calls.find(([path, options]) => path === '/workouts/42' && options?.method === 'PATCH');
@@ -39,6 +44,7 @@ it('saves a paused session, allows navigation, and resumes the exact saved worko
     expect(document.querySelector('.resume-session')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
     await waitFor(() => expect((screen.getByLabelText('Bench press set 1 weight in kg') as HTMLInputElement).value).toBe('25.5'));
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Finish workout ✓' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Resume session' })).toBeNull();
@@ -74,6 +80,50 @@ it.each(['dashboard', 'mobile', 'desktop'])('opens the chooser from %s even when
 
 const cancellationWorkout = { id: 42, name: 'Fullbody', performed_on: '2026-10-20', completed: false, exercises: [{ cached_exercise_id: 7, name: 'Bench press', sets: [{ weight: 22.5, reps: 8 }] }] };
 const athlete = { name: 'Athlete', firstName: 'Athlete', email: 'athlete@example.com' };
+
+it('keeps a delayed workout start attached to its originating routine', async () => {
+    const squat = { id: 1, name: 'Leg day', exercises: [{ exercise_id: 1, name: 'Squat' }] };
+    const bench = { id: 2, name: 'Push day', exercises: [{ exercise_id: 2, name: 'Bench' }] };
+    let resolveStart!: (value: unknown) => void;
+    const pending = new Promise(resolve => { resolveStart = resolve; });
+    vi.mocked(api).mockImplementation(async (path) => {
+        if (path === '/folders') return [{ id: 1, name: 'Templates', routines: [squat, bench] }];
+        if (path === '/routines/1/start') return pending;
+        return baseResponse(path);
+    });
+    render(<WorkoutApp user={athlete}/>);
+    const routines = () => fireEvent.click(screen.getAllByRole('button', { name: 'Routines' })[0]);
+    routines();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Leg day' }));
+    routines();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start Push day' }));
+    expect(api).not.toHaveBeenCalledWith('/routines/2/start', expect.anything());
+    await act(async () => resolveStart({ id: 11, revision: 1, name: 'Leg day', exercises: squat.exercises }));
+    expect(storedDraft()).toMatchObject({ id: 11, name: 'Leg day', exercises: [{ name: 'Squat' }] });
+});
+
+it('retries draft verification in place after a launch-time network failure', async () => {
+    const draft = { ...cancellationWorkout, revision: 1, name: 'Unsynced local draft' };
+    localStorage.setItem(accountKey(ACTIVE_WORKOUT_KEY), JSON.stringify(draft));
+    let available = false;
+    vi.mocked(api).mockImplementation(async (path) => {
+        if (path === '/workouts/active') {
+            if (!available) throw new TypeError('Offline');
+            return [{ ...draft, name: 'Saved server draft' }];
+        }
+        return baseResponse(path);
+    });
+    render(<WorkoutApp user={athlete}/>);
+    const retry = await screen.findByRole('button', { name: 'Retry verification' });
+    expect(storedDraft()).toMatchObject({ name: 'Unsynced local draft' });
+    available = true;
+    fireEvent.click(retry);
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Workout name' }) as HTMLInputElement).value).toBe(draft.name));
+});
+
+function storedDraft() {
+    return JSON.parse(localStorage.getItem(accountKey(ACTIVE_WORKOUT_KEY)) ?? 'null');
+}
 
 it('retains an acknowledged revision when later edits update the cached draft', async () => {
     const draft = { ...cancellationWorkout, revision: 1 };

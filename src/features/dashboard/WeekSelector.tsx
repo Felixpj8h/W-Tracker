@@ -15,17 +15,19 @@ export function WeekSelector({ week, currentWeek, today, period, comparison, com
     const recent = period === 'last_seven_days';
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
-    useBackAction(open, () => setOpen(false));
+    const trigger = useRef<HTMLButtonElement>(null);
+    const close = () => { trigger.current?.focus(); setOpen(false); };
+    useBackAction(open, close);
     useEffect(() => {
         if (!open) return;
         const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-        const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+        const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && root.current?.contains(document.activeElement)) close(); };
         document.addEventListener('pointerdown', outside);
         document.addEventListener('keydown', escape);
         return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
     }, [open]);
     return <div className="week-selector" ref={root}>
-        <button className="today-control" type="button" aria-expanded={open} onClick={() => setOpen(!open)}><DashboardIcon name="calendar"/><span><b>{recent ? 'Last 7 days' : week === currentWeek ? 'This week' : 'Selected week'}</b><small>{recent ? compactRangeLabel(addDays(today, -6), today) : compactWeekLabel(week)}</small></span><DashboardIcon name="chevron"/></button>
+        <button ref={trigger} className="today-control" type="button" aria-expanded={open} onClick={() => setOpen(!open)}><DashboardIcon name="calendar"/><span><b>{recent ? 'Last 7 days' : week === currentWeek ? 'This week' : 'Selected week'}</b><small>{recent ? compactRangeLabel(addDays(today, -6), today) : compactWeekLabel(week)}</small></span><DashboardIcon name="chevron"/></button>
         {open && <div className="week-selector-panel" role="group" aria-label="Week selection">
             <div className="week-period" role="group" aria-label="Show">
                 <button type="button" aria-pressed={!recent} onClick={() => onPeriod('week')}>Week</button>

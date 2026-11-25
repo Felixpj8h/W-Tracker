@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Dashboard } from './Dashboard';
 
 vi.mock('./DashboardPanels', () => ({ DashboardPanels: () => <section>Dashboard content</section> }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function fixture() {
   const onPageChange = vi.fn();
@@ -15,6 +15,7 @@ const touch = (x: number, y: number) => ({ clientX: x, clientY: y });
 
 describe('Dashboard swipe gestures', () => {
   it('waits for release before advancing exactly one page', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
     const { shell, onPageChange } = fixture();
     fireEvent.touchStart(shell, { touches: [touch(250, 100)] });
     fireEvent.touchMove(shell, { touches: [touch(100, 105)] });

@@ -177,6 +177,70 @@ def test_routine_to_workout_updates_volume_and_all_groups_present():
     assert groups["Chest"] == 1440
 
 
+@pytest.mark.parametrize("delete_folder", [False, True])
+def test_deleting_scheduled_routines_keeps_calendar_and_history_readable(delete_folder):
+    reset_db()
+    folder = client.post("/api/v1/folders", json={"name": "Training"}).json()
+    routine = client.post("/api/v1/routines", json={"name": "Push", "folder_id": folder["id"], "exercises": []}).json()
+    routine_id = routine["id"]
+    date_key = "2026-11-25"
+    plan = {"name": "Week", "starts_on": "2026-11-01", "days": [{"weekday": 2, "routine_id": routine_id}]}
+    assert client.post("/api/v1/calendar/plan", json=plan).status_code == 200
+    assert client.put(f"/api/v1/calendar/{date_key}/routine/{routine_id}", json={"name": "Push override", "exercises": []}).status_code == 200
+    draft = client.post(f"/api/v1/routines/{routine_id}/start?day={date_key}").json()
+    assert client.put(f"/api/v1/workouts/{draft['id']}", json=draft).status_code == 200
+
+    path = f"/api/v1/folders/{folder['id']}" if delete_folder else f"/api/v1/routines/{routine_id}"
+    assert client.delete(path).status_code == 200
+    assert client.get("/api/v1/calendar/plan").json()["days"] == []
+    day = client.get("/api/v1/calendar?year=2026&month=11").json()["days"][24]
+    assert day["routine_id"] is None
+    assert day["workout_id"] == draft["id"]
+    assert day["workout_name"] == "Push override"
+
+
+def test_custom_exercise_cannot_be_deleted_from_a_routine_or_calendar_override():
+    reset_db()
+    exercise = client.post("/api/v1/exercises/custom", json={"name": "Custom press", "primary_muscle": "Chest"}).json()
+    exercise_id = exercise["id"]
+    folder = client.post("/api/v1/folders", json={"name": "Training"}).json()
+    payload = {"name": "Push", "folder_id": folder["id"], "exercises": [{"exercise_id": exercise_id, "planned_sets": 3}]}
+    routine = client.post("/api/v1/routines", json=payload).json()
+    routine_id = routine["id"]
+    delete_path = f"/api/v1/exercises/custom/{exercise_id}"
+    assert client.delete(delete_path).status_code == 409
+    assert client.post(f"/api/v1/routines/{routine_id}/start").status_code == 200
+
+    assert client.put(f"/api/v1/calendar/2026-11-25/routine/{routine_id}", json=payload).status_code == 200
+    assert client.put(f"/api/v1/routines/{routine_id}", json={**payload, "exercises": []}).status_code == 200
+    assert client.delete(delete_path).status_code == 409
+    assert client.get("/api/v1/folders").status_code == 200
+
+
+def test_checked_sets_and_legacy_sets_count_without_counting_unchecked_work():
+    reset_db()
+    exercise = client.get("/api/v1/exercises").json()[0]
+    date_key = "2026-11-25"
+    base = {"name": "Training", "performed_on": date_key}
+    exercise_id = exercise["id"]
+    legacy = {**base, "exercises": [{"exercise_id": exercise_id, "sets": [{"weight": 40, "reps": 5}]}]}
+    assert client.post("/api/v1/workouts", json=legacy).status_code == 200
+    for weight, checked in [(60, True), (100, False)]:
+        draft = client.post("/api/v1/workouts/draft", json=base).json()
+        body = {**draft, "tracks_set_completion": True, "exercises": [{"exercise_id": exercise_id, "sets": [
+            {"weight": weight, "reps": 8, "completed": checked},
+            {"weight": 180, "reps": 5, "completed": False},
+        ]}]}
+        assert client.put(f"/api/v1/workouts/{draft['id']}", json=body).status_code == 200
+
+    dashboard = client.get("/api/v1/dashboard", headers={"X-Jern-Today": date_key}).json()
+    assert dashboard["total_current_volume"] == 680
+    progress = client.get(f"/api/v1/exercises/{exercise_id}/progress").json()
+    assert [session["best_weight"] for session in progress["sessions"]] == [60, 40]
+    calendar = client.get("/api/v1/calendar?year=2026&month=11").json()
+    assert len(calendar["days"][24]["workouts"]) == 3
+
+
 def shared_workout_payload():
     return {"version": 1, "name": "Shared push 💪", "folder_name": "Imported workouts", "exercises": [
         {"name": "Bench press", "equipment": "Barbell", "primary_muscle": "Chest", "planned_sets": 4,

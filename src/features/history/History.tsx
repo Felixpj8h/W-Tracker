@@ -1,6 +1,8 @@
 import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
+import { loggedSets, tracksCompletion, workingSets } from '../workout/loggedSets';
 import type { Workout } from '../workout/types';
 import { useState, useRef, useEffect } from 'react';
+import { useModalFocus } from '../../shared/ui/useModalFocus';
 import { useBackAction } from '../../shared/lib/backNavigation';
 import { api } from '../../shared/api/client';
 import { PageHeader } from '../../shared/ui/PageHeader';
@@ -25,6 +27,8 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false, p
     const [noteOpen, setNoteOpen] = useState(false);
     const [noteDraft, setNoteDraft] = useState('');
     const [noteSaving, setNoteSaving] = useState(false);
+    const [noteError, setNoteError] = useState('');
+    const notePanel = useRef<HTMLFormElement>(null);
     useEffect(() => { const update = (event: Event) => { const { id, deleted } = (event as CustomEvent<{ id: number; deleted: boolean }>).detail; setOptimisticallyDeleted(current => { const next = new Set(current); if (deleted) next.add(id); else next.delete(id); return next; }); if (deleted) setSelectedId(current => { if (current === id) setDetailOpen(false); return current === id ? null : current; }); }; window.addEventListener('optimistic-workout-delete', update); return () => window.removeEventListener('optimistic-workout-delete', update); }, []);
     useEffect(() => { document.body.classList.toggle('history-session-open', detailOpen); return () => document.body.classList.remove('history-session-open'); }, [detailOpen]);
     useEffect(() => { if (selectedId === null && detailOpen && lastSelectedId.current !== null) { setDetailOpen(false); setSelectedId(lastSelectedId.current); } }, [selectedId, detailOpen]);
@@ -33,9 +37,14 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false, p
     const filtered = completed.filter(workout => (month === 'all' || workout.performed_on.startsWith(month)) && `${workout.name} ${workout.exercises.map(item => item.name).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
     const selected = filtered.find(workout => workout.id === selectedId) ?? filtered[0] ?? null;
     const groups = filtered.reduce<Record<string, Workout[]>>((all, workout) => { const key = workout.performed_on.slice(0, 7); (all[key] ??= []).push(workout); return all; }, {});
-    const exerciseVolume = (item: Workout['exercises'][number]) => (item.sets ?? []).reduce((sets, set) => sets + set.weight * set.reps, 0);
-    const volume = (workout: Workout) => workout.exercises.reduce((total, item) => total + exerciseVolume(item), 0);
-    const setCount = (workout: Workout) => workout.exercises.reduce((total, item) => total + (item.sets ?? []).length, 0);
+    const volume = (workout: Workout) => {
+        const checkedOnly = tracksCompletion(workout);
+        return workout.exercises.reduce((total, item) => total + workingSets(item.sets, checkedOnly).reduce((sum, set) => sum + set.weight * set.reps, 0), 0);
+    };
+    const setCount = (workout: Workout) => {
+        const checkedOnly = tracksCompletion(workout);
+        return workout.exercises.reduce((total, item) => total + loggedSets(item.sets, checkedOnly).length, 0);
+    };
     const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`;
     const formatMonth = (key: string) => new Date(`${key}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const select = (workout: Workout) => { lastSelectedId.current = workout.id ?? null; setSelectedId(workout.id ?? null); setDetailOpen(true); setMenuOpen(false); setShowSetDetails(false); };
@@ -53,23 +62,25 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false, p
         await refresh();
         note('Workout deleted');
     };
-    const openNote = (workout: Workout) => { setMenuOpen(false); setNoteDraft(workout.note ?? ''); setNoteOpen(true); };
+    const openNote = (workout: Workout) => { setMenuOpen(false); setNoteError(''); setNoteDraft(workout.note ?? ''); setNoteOpen(true); };
     const dismissNote = () => {
         if (!noteSaving && (noteDraft === (selected?.note ?? '') || window.confirm('Discard unsaved note changes?'))) setNoteOpen(false);
     };
     useBackAction(detailOpen, () => setDetailOpen(false));
     useBackAction(menuOpen, () => setMenuOpen(false));
     useBackAction(noteOpen, dismissNote);
+    useModalFocus(notePanel, noteOpen && Boolean(selected), dismissNote);
     const saveSelectedNote = async () => {
         if (readOnly || !selected) return;
         setNoteSaving(true);
+        setNoteError('');
         try {
             await api(`/workouts/${selected.id}`, { method: 'PATCH', body: JSON.stringify({ ...selected, intent: "edit", note: noteDraft.trim() }) });
             await refresh();
             setNoteOpen(false);
             note('Note saved');
         } catch {
-            note('Could not save note');
+            setNoteError('Could not save this note. Your changes are still here.');
         } finally { setNoteSaving(false); }
     };
     const tabs = <div className="history-tabs" role="tablist" aria-label="History view">
@@ -118,12 +129,12 @@ export function History({ data, edit, refresh, note, repeat, readOnly = false, p
                 <ol className="history-exercises">
                     {selected.exercises.map((item, i) => <li className="history-exercise" key={`${item.name}-${i}`}>
                         <span className="history-exercise-index">{i + 1}</span>
-                        <div><b>{item.name}</b>{!showSetDetails && <small>{(item.sets ?? []).map(set => `${set.weight} kg × ${set.reps}`).join(' · ') || 'No completed sets'}</small>}{showSetDetails && <div className="history-set-details">{(item.sets ?? []).map((set, index) => <span key={index}><i>Set {index + 1}</i>{set.weight} kg × {set.reps}{set.exertion ? <em>RPE {set.exertion}</em> : null}</span>)}{item.note && <p>{item.note}</p>}</div>}</div>
-                        <span className="history-exercise-total"><b>{exerciseVolume(item).toLocaleString()} kg</b><small>{plural((item.sets ?? []).length, 'set')}</small></span>
+                        <div><b>{item.name}</b>{!showSetDetails && <small>{loggedSets(item.sets, tracksCompletion(selected)).map(set => `${set.weight} kg × ${set.reps}`).join(' · ') || 'No completed sets'}</small>}{showSetDetails && <div className="history-set-details">{loggedSets(item.sets, tracksCompletion(selected)).map((set, index) => <span key={index}><i>Set {index + 1}</i>{set.weight} kg × {set.reps}{set.exertion ? <em>RPE {set.exertion}</em> : null}</span>)}{item.note && <p>{item.note}</p>}</div>}</div>
+                        <span className="history-exercise-total"><b>{workingSets(item.sets, tracksCompletion(selected)).reduce((sum, set) => sum + set.weight * set.reps, 0).toLocaleString()} kg</b><small>{plural((item.sets ?? []).length, 'set')}</small></span>
                     </li>)}
                 </ol>
             </article>}
         </section> : <div className="empty">No completed workouts yet.</div>}
-        {noteOpen && selected && <div className="back history-note-overlay" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) dismissNote(); }}><form className="history-note-panel" role="dialog" aria-modal="true" aria-label="Workout note" onSubmit={event => { event.preventDefault(); void saveSelectedNote(); }}><header><h2>Workout note</h2><button type="button" aria-label="Close note" onClick={dismissNote}>×</button></header><p>{selected.name} · {formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p><textarea autoFocus maxLength={1000} value={noteDraft} onChange={event => setNoteDraft(event.target.value)} placeholder="How did this workout go?"/><footer><button type="button" onClick={dismissNote}>Cancel</button><button className="primary" disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button></footer></form></div>}
+        {noteOpen && selected && <div className="back history-note-overlay" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) dismissNote(); }}><form ref={notePanel} tabIndex={-1} className="history-note-panel" role="dialog" aria-modal="true" aria-label="Workout note" onSubmit={event => { event.preventDefault(); void saveSelectedNote(); }}><header><h2>Workout note</h2><button type="button" aria-label="Close note" onClick={dismissNote}>×</button></header><p>{selected.name} · {formatDate(selected.performed_on, { month: 'short', day: 'numeric', year: 'numeric' })}</p><textarea data-initial-focus aria-label="Workout note" maxLength={1000} value={noteDraft} onChange={event => setNoteDraft(event.target.value)} placeholder="How did this workout go?"/>{noteError && <p role="alert">{noteError}</p>}<footer><button type="button" onClick={dismissNote}>Cancel</button><button className="primary" disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button></footer></form></div>}
     </>;
 }

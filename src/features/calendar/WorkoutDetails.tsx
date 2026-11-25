@@ -1,8 +1,12 @@
 import type { Workout } from '../workout/types';
 import { duration } from '../../shared/lib/format';
+import { useRef } from 'react';
+import { useModalFocus } from '../../shared/ui/useModalFocus';
 import { useBackAction } from '../../shared/lib/backNavigation';
 
 export function WorkoutDetails({ workout, close, edit, readOnly = false }: { workout: Workout; close: () => void; edit?: (workout: Workout) => void; readOnly?: boolean }) {
+    const panel = useRef<HTMLElement>(null);
     useBackAction(true, close);
-    return <div className="back calendar-view-overlay" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) close(); }}><article className="calendar-view-panel" role="dialog" aria-modal="true" aria-label="Workout details"><header><div><small>{workout.performed_on} · COMPLETED</small><h2>{workout.name}</h2><p>{workout.exercises.reduce((total, exercise) => total + (exercise.sets?.length ?? 0), 0)} sets · {duration(workout.duration_seconds)}</p></div><button aria-label="Close workout details" onClick={() => close()}>×</button></header>{workout.note && <p className="calendar-view-note">{workout.note}</p>}<div className="calendar-view-exercises">{workout.exercises.map((exercise, index) => <section key={`${exercise.name}-${index}`}><h3>{exercise.name}</h3><p>{(exercise.sets ?? []).map(set => `${set.weight} kg × ${set.reps}`).join(' · ') || 'No sets logged'}</p>{exercise.note && <small>{exercise.note}</small>}</section>)}</div><footer><button disabled={readOnly} onClick={() => edit?.(workout)}>Edit workout</button></footer></article></div>;
+    useModalFocus(panel, true, close);
+    return <div className="back calendar-view-overlay" onPointerDown={event => { if (event.button === 0 && event.target === event.currentTarget) close(); }}><article ref={panel} tabIndex={-1} className="calendar-view-panel" role="dialog" aria-modal="true" aria-label="Workout details"><header><div><small>{workout.performed_on} · COMPLETED</small><h2>{workout.name}</h2><p>{workout.exercises.reduce((total, exercise) => total + (exercise.sets?.length ?? 0), 0)} sets · {duration(workout.duration_seconds)}</p></div><button aria-label="Close workout details" onClick={() => close()}>×</button></header>{workout.note && <p className="calendar-view-note">{workout.note}</p>}<div className="calendar-view-exercises">{workout.exercises.map((exercise, index) => <section key={`${exercise.name}-${index}`}><h3>{exercise.name}</h3><p>{(exercise.sets ?? []).map(set => `${set.weight} kg × ${set.reps}`).join(' · ') || 'No sets logged'}</p>{exercise.note && <small>{exercise.note}</small>}</section>)}</div><footer><button disabled={readOnly} onClick={() => edit?.(workout)}>Edit workout</button></footer></article></div>;
 }

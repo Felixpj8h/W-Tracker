@@ -24,7 +24,9 @@ it('never restores another account draft and invalidates old save callbacks', ()
     expect(sessionIsCurrent(beforeLogout)).toBe(false);
     activateAccount('b@example.test');
     expect(storedWorkout()).toBeNull();
-    expect(Object.keys(localStorage).filter(key => key.startsWith('workout-'))).toEqual([]);
+    activateAccount('a@example.test');
+    expect(storedWorkout()?.name).toBe(draft.name);
+    expect(localStorage.getItem(accountKey('workout-position:71'))).toBe('{"index":1}');
 });
 
 it('a delayed logout from another tab cannot erase the new account cache', () => {

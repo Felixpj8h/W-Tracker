@@ -13,5 +13,6 @@ export type Workout = {
     completed_at?: string | null;
     duration_seconds?: number | null;
     completed?: boolean;
+    tracks_set_completion?: boolean;
     exercises: WorkoutExercise[];
 };

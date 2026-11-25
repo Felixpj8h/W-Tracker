@@ -14,11 +14,11 @@ import secrets
 import threading
 import time
 from urllib.parse import urlsplit
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import GoogleAuthError
@@ -156,6 +156,7 @@ class Workout(OwnedRecord, Base):
     name: Mapped[str] = mapped_column(String(120))
     performed_on: Mapped[date] = mapped_column(Date, default=date.today)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    tracks_set_completion: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     # The device that made the latest save. A device whose save reached the
     # server but whose response was lost may retry from its older revision.
@@ -476,12 +477,15 @@ class WorkoutIn(BaseModel):
     revision: Optional[int] = Field(default=None, ge=1)
     writer_id: Optional[str] = Field(default=None, min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     intent: Literal["draft", "edit"] = "draft"
+    tracks_set_completion: Optional[bool] = None
     name: str = Field(min_length=1, max_length=120); performed_on: date; note: Optional[str] = Field(None, max_length=1000); exercises: list[WorkoutExerciseIn] = Field(max_length=100)
 
 
 class WorkoutDraftIn(BaseModel):
     name: str = Field(default="Workout", min_length=1, max_length=120)
     performed_on: date = Field(default_factory=date.today)
+    note: Optional[str] = Field(None, max_length=1000)
+    exercises: list[WorkoutExerciseIn] = Field(default_factory=list, max_length=100)
 
 
 class WeightIn(BaseModel):
@@ -811,7 +815,7 @@ def exercise_out(exercise: Exercise) -> dict:
 
 
 def routine_out(routine: Routine) -> dict:
-    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "version": routine.version, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "rest_seconds": item.rest_seconds, "exercise": exercise_out(item.exercise)} for item in routine.exercises]}
+    return {"id": routine.id, "name": routine.name, "folder_id": routine.folder_id, "version": routine.version, "exercises": [{"id": item.id, "position": item.position, "planned_sets": item.planned_sets, "target_reps": item.target_reps, "target_reps_min": item.target_reps_min or item.target_reps, "target_reps_max": item.target_reps_max or item.target_reps, "target_weight": item.target_weight, "rest_seconds": item.rest_seconds, "exercise": exercise_out(item.exercise)} for item in routine.exercises if item.exercise is not None]}
 
 
 def store_exercise(db: Session, name: str, equipment: str = "Bodyweight", muscle: Optional[str] = None, secondary_muscles: list[str] = [], wger_id: Optional[str] = None, aliases: str = "") -> Exercise:
@@ -931,7 +935,7 @@ app.add_middleware(
     allow_origin_regex=development_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Jern-Today"],
 )
 
 
@@ -1014,6 +1018,8 @@ def startup():
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN started_at DATETIME")
         if "completed_at" not in workout_columns:
             connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN completed_at DATETIME")
+        if "tracks_set_completion" not in workout_columns:
+            connection.exec_driver_sql("ALTER TABLE workouts ADD COLUMN tracks_set_completion BOOLEAN NOT NULL DEFAULT 0")
         workout_exercise_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(workout_exercises)")}
         if "secondary_muscles" not in workout_exercise_columns:
             connection.exec_driver_sql("ALTER TABLE workout_exercises ADD COLUMN secondary_muscles VARCHAR(300) DEFAULT ''")
@@ -1358,6 +1364,7 @@ def confirm_ai_proposal(proposal_id: int, actor: ActorContext = Depends(get_acto
             routine = db.get(Routine, proposal.target_routine_id)
             if not routine: raise HTTPException(404, "Routine not found")
             if routine.version != proposal.target_version: raise HTTPException(409, "Routine changed since this proposal was created")
+            clear_routine_schedule(db, [routine.id])
             db.delete(routine)
         elif proposal.operation == "update_weekly_plan":
             _apply_weekly_plan(WeeklyPlanIn.model_validate(raw), db)
@@ -1478,6 +1485,12 @@ def delete_custom_exercise(exercise_id: int, actor: ActorContext = Depends(get_a
     exercise = db.get(Exercise, exercise_id)
     if not exercise or exercise.wger_id is not None or exercise.owner_email != actor.owner_email:
         raise HTTPException(404, "Custom exercise not found")
+    in_routine = db.scalar(select(RoutineExercise.id).where(RoutineExercise.exercise_id == exercise_id).limit(1))
+    if in_routine is not None:
+        raise HTTPException(409, "Remove this exercise from your workout days before deleting it.")
+    overrides = db.scalars(select(CalendarAssignment.workout_override).where(CalendarAssignment.workout_override.is_not(None)))
+    if any(item["exercise_id"] == exercise_id for override in overrides for item in json.loads(override).get("exercises", [])):
+        raise HTTPException(409, "Remove this exercise from your planned workouts before deleting it.")
     db.delete(exercise); db.commit()
     return {"deleted": True, "saved": True}
 
@@ -1498,6 +1511,7 @@ def rename_folder(folder_id: int, payload: FolderIn, db: Session = Depends(get_d
 def delete_folder(folder_id: int, db: Session = Depends(get_db)):
     folder = db.get(RoutineFolder, folder_id)
     if not folder: raise HTTPException(404, "Folder not found")
+    clear_routine_schedule(db, [routine.id for routine in folder.routines])
     db.delete(folder); db.commit(); return {"deleted": True, "saved": True}
 
 
@@ -1591,11 +1605,22 @@ def update_routine(routine_id: int, payload: RoutineIn, db: Session = Depends(ge
 def delete_routine(routine_id: int, db: Session = Depends(get_db)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
+    clear_routine_schedule(db, [routine.id])
     db.delete(routine); db.commit(); return {"deleted": True, "saved": True}
 
 
+def clear_routine_schedule(db: Session, routine_ids: list[int]) -> None:
+    if routine_ids:
+        db.execute(delete(CalendarAssignment).where(CalendarAssignment.routine_id.in_(routine_ids)))
+        db.execute(delete(WeeklyPlanDay).where(WeeklyPlanDay.routine_id.in_(routine_ids)))
+
+
+def request_today(local_date: Optional[date] = Header(None, alias="X-Jern-Today")) -> date:
+    return local_date or date.today()
+
+
 @app.post("/api/v1/routines/{routine_id}/start")
-def start_routine(routine_id: int, day: Optional[date] = None, db: Session = Depends(get_db)):
+def start_routine(routine_id: int, day: Optional[date] = None, db: Session = Depends(get_db), today: date = Depends(request_today)):
     routine = db.get(Routine, routine_id)
     if not routine: raise HTTPException(404, "Routine not found")
     assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day)) if day else None
@@ -1605,12 +1630,23 @@ def start_routine(routine_id: int, day: Optional[date] = None, db: Session = Dep
         populate_routine(routine, payload, db)
         for item in routine.exercises:
             item.exercise = db.get(Exercise, item.exercise_id)
-    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=day or date.today(), started_at=datetime.utcnow())
+    if any(item.exercise is None for item in routine.exercises):
+        raise HTTPException(409, "Open this workout day and save it to remove unavailable exercises before starting.")
+    workout = Workout(routine_id=routine.id, name=routine.name, performed_on=day or today, started_at=datetime.utcnow())
     for pos, item in enumerate(routine.exercises):
         workout_exercise = WorkoutExercise(cached_exercise_id=item.exercise.id, name=item.exercise.name, primary_muscle=item.exercise.primary_muscle, secondary_muscles=item.exercise.secondary_muscles, muscle_group=item.exercise.muscle_group, position=pos, rest_seconds=item.rest_seconds)
         workout_exercise.sets = [WorkoutSet(position=i, weight=item.target_weight or 0, reps=item.target_reps_min or item.target_reps or 0) for i in range(item.planned_sets)]
         workout.exercises.append(workout_exercise)
     db.add(workout); db.commit(); return saved_response(workout_out(workout))
+
+
+def tracks_completion(workout: Workout) -> bool:
+    # Older logs predate set checkboxes. Any checked set identifies a log that used them.
+    return workout.tracks_set_completion or any(entry.completed for exercise in workout.exercises for entry in exercise.sets)
+
+
+def training_sets(exercise: WorkoutExercise, checked_only: bool) -> list[WorkoutSet]:
+    return [entry for entry in exercise.sets if not entry.is_warmup and (entry.completed or not checked_only)]
 
 
 def workout_out(workout: Workout) -> dict:
@@ -1632,10 +1668,11 @@ def workout_out(workout: Workout) -> dict:
         if e.substituted_from is not None:
             payload["substituted_from"] = e.substituted_from
         return payload
-    return {"id": workout.id, "revision": workout.revision, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
+    return {"id": workout.id, "revision": workout.revision, "routine_id": workout.routine_id, "name": workout.name, "performed_on": workout.performed_on, "note": workout.note, "completed": workout.completed, "tracks_set_completion": tracks_completion(workout), "started_at": timestamp_out(workout.started_at), "completed_at": timestamp_out(workout.completed_at), "duration_seconds": duration_seconds, "exercises": [exercise_payload(e) for e in workout.exercises]}
 
 
-def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
+def populate_workout(workout: Workout, payload: WorkoutIn | WorkoutDraftIn, db: Session):
+    workout.tracks_set_completion = tracks_completion(workout) or any(entry.completed for exercise in payload.exercises for entry in exercise.sets)
     workout.name, workout.performed_on, workout.note = payload.name, payload.performed_on, payload.note; workout.exercises.clear()
     for pos, item in enumerate(payload.exercises):
         cached = db.get(Exercise, item.exercise_id) if item.exercise_id else None
@@ -1652,12 +1689,14 @@ def populate_workout(workout: Workout, payload: WorkoutIn, db: Session):
 @app.post("/api/v1/workouts")
 def create_workout(payload: WorkoutIn, db: Session = Depends(get_db)):
     now = datetime.utcnow()
-    workout = Workout(completed=True, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return saved_response(workout_out(workout))
+    checked = any("completed" in entry.model_fields_set for exercise in payload.exercises for entry in exercise.sets)
+    workout = Workout(completed=True, tracks_set_completion=checked, started_at=now, completed_at=now); populate_workout(workout, payload, db); db.add(workout); db.commit(); return saved_response(workout_out(workout))
 
 
 @app.post("/api/v1/workouts/draft")
 def create_workout_draft(payload: WorkoutDraftIn, db: Session = Depends(get_db)):
     workout = Workout(name=payload.name, performed_on=payload.performed_on, completed=False, started_at=datetime.utcnow())
+    populate_workout(workout, payload, db)
     db.add(workout); db.commit(); db.refresh(workout)
     return saved_response(workout_out(workout))
 
@@ -1694,6 +1733,8 @@ def finish_workout(workout_id: int, payload: WorkoutIn, db: Session = Depends(ge
     workout = claim_workout(workout_id, payload, db)
     if not workout.completed:
         workout.completed_at = datetime.utcnow()
+        if payload.tracks_set_completion:
+            workout.tracks_set_completion = True
     workout.completed = True
     populate_workout(workout, payload, db)
     db.commit(); return saved_response(workout_out(workout))
@@ -1735,7 +1776,7 @@ def get_workout(workout_id: int, db: Session = Depends(get_db)):
 
 
 def weekly_plan_out(plan: WeeklyPlan) -> dict:
-    return {"id": plan.id, "name": plan.name, "starts_on": plan.starts_on, "days": [{"weekday": item.weekday, "routine_id": item.routine_id, "routine_name": item.routine.name} for item in plan.days]}
+    return {"id": plan.id, "name": plan.name, "starts_on": plan.starts_on, "days": [{"weekday": item.weekday, "routine_id": item.routine_id, "routine_name": item.routine.name} for item in plan.days if item.routine is not None]}
 
 
 @app.get("/api/v1/calendar/plan")
@@ -1764,6 +1805,7 @@ def save_weekly_plan(payload: WeeklyPlanIn, db: Session = Depends(get_db)):
 class CalendarMoveIn(BaseModel):
     source: date
     target: date
+    workout_id: Optional[int] = Field(None, ge=1)
 
 
 class CalendarLabelIn(BaseModel):
@@ -1846,10 +1888,10 @@ def clear_calendar_label(day: date, db: Session = Depends(get_db)):
 
 def calendar_schedule(db, day):
     assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
-    if assignment:
+    if assignment and assignment.routine is not None:
         return None if assignment.workout_override and json.loads(assignment.workout_override).get("cancelled") else assignment
     plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
-    return next((item for item in plan.days if item.weekday == day.weekday()), None) if plan and day >= plan.starts_on else None
+    return next((item for item in plan.days if item.weekday == day.weekday() and item.routine is not None), None) if plan and day >= plan.starts_on else None
 
 
 @app.post("/api/v1/calendar/move")
@@ -1860,14 +1902,17 @@ def move_calendar_workout(payload: CalendarMoveIn, db: Session = Depends(get_db)
         raise HTTPException(422, "Choose a date between 2000 and 2100")
     completed = db.scalars(select(Workout).where(Workout.completed == True, Workout.performed_on == payload.source)).all()
     scheduled = calendar_schedule(db, payload.source)
-    if len(completed) > 1:
+    workout = next((item for item in completed if item.id == payload.workout_id), None) if payload.workout_id is not None else None
+    if payload.workout_id is not None and workout is None:
+        raise HTTPException(409, "Workout date changed. Refresh the calendar and try again.")
+    if payload.workout_id is None and len(completed) > 1:
         raise HTTPException(409, "This day has multiple logged workouts; edit their dates individually")
     if not completed and not scheduled:
         raise HTTPException(404, "Workout no longer exists on this day")
     if calendar_schedule(db, payload.target) or db.scalar(select(Workout).where(Workout.completed == True, Workout.performed_on == payload.target)):
         raise HTTPException(409, "That day already has a workout. Choose an empty day.")
     if completed:
-        workout = completed[0]
+        workout = workout or completed[0]
         moved = db.execute(update(Workout).where(Workout.id == workout.id,
             Workout.owner_email == workout.owner_email, Workout.revision == workout.revision)
             .values(performed_on=payload.target, revision=Workout.revision + 1, last_writer_id=None),
@@ -1882,7 +1927,7 @@ def move_calendar_workout(payload: CalendarMoveIn, db: Session = Depends(get_db)
             db.add(target)
         target.routine_id = scheduled.routine_id
         target.workout_override = scheduled.workout_override if isinstance(scheduled, CalendarAssignment) else None
-    if scheduled:
+    if scheduled and len(completed) <= 1:
         source = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == payload.source))
         if not source:
             source = CalendarAssignment(day=payload.source, routine_id=scheduled.routine_id)
@@ -1905,7 +1950,7 @@ def remove_calendar_workout(day: date, workout_id: Optional[int] = None, db: Ses
         raise HTTPException(409, "Select a specific completed workout to remove")
     else:
         workout = completed[0] if completed else None
-    if scheduled:
+    if scheduled and len(completed) <= 1:
         assignment = db.scalar(select(CalendarAssignment).where(CalendarAssignment.day == day))
         if not assignment:
             assignment = CalendarAssignment(day=day, routine_id=scheduled.routine_id)
@@ -1937,18 +1982,19 @@ def planned_override(assignment, db):
         return None
     payload = json.loads(assignment.workout_override)
     return {**payload, "id": assignment.routine_id, "exercises": [
-        {**item, "exercise": exercise_out(db.get(Exercise, item["exercise_id"]))}
-        for item in payload["exercises"]
+        {**item, "exercise": exercise_out(exercise)}
+        for item in payload["exercises"] if (exercise := db.get(Exercise, item["exercise_id"])) is not None
     ]}
 
 
 @app.get("/api/v1/calendar")
-def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(get_db)):
+def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(get_db), today: Annotated[date | None, Depends(request_today)] = None):
     from calendar import monthrange
+    today = today or date.today()
     plan = db.scalar(select(WeeklyPlan).order_by(WeeklyPlan.id.desc()))
     first = date(year, month, 1); last = date(year, month, monthrange(year, month)[1])
-    completed = {workout.performed_on: workout for workout in db.scalars(select(Workout).options(selectinload(Workout.exercises).selectinload(WorkoutExercise.sets)).where(Workout.completed == True, Workout.performed_on >= first, Workout.performed_on <= last)).all()}
-    planned = {item.weekday: item for item in plan.days} if plan else {}
+    completed = completed_calendar_workouts(db, first, last)
+    planned = {item.weekday: item for item in plan.days if item.routine is not None} if plan else {}
     assignments = {item.day: item for item in db.scalars(select(CalendarAssignment).where(CalendarAssignment.day >= first, CalendarAssignment.day <= last)).all() if item.routine is not None}
     labels = {item.day: item.label for item in db.scalars(select(CalendarDayLabel).where(CalendarDayLabel.day >= first, CalendarDayLabel.day <= last)).all() if item.label is not None}
     result = []
@@ -1957,9 +2003,18 @@ def calendar_month(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1,
         scheduled = assignments.get(day) or (planned.get(day.weekday()) if plan and day >= plan.starts_on else None)
         if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override and json.loads(scheduled.workout_override).get("cancelled"):
             scheduled = None
-        workout = completed.get(day)
-        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= date.today() else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None, "label": calendar_label_out(labels[day]) if day in labels else None})
+        workouts = completed.get(day, [])
+        workout = workouts[0] if workouts else None
+        result.append({"date": day, "routine_id": scheduled.routine_id if scheduled else None, "routine_name": (json.loads(scheduled.workout_override)["name"] if isinstance(scheduled, CalendarAssignment) and scheduled.workout_override else scheduled.routine.name) if scheduled else None, "routine_override": planned_override(scheduled, db), "status": "completed" if workout else ("upcoming" if scheduled and day >= today else ("missed" if scheduled else "empty")), "workout_id": workout.id if workout else None, "workout_name": workout.name if workout else None, "workouts": [{"id": entry.id, "name": entry.name} for entry in workouts], "label": calendar_label_out(labels[day]) if day in labels else None})
     return {"plan": weekly_plan_out(plan) if plan else None, "days": result}
+
+
+def completed_calendar_workouts(db: Session, first: date, last: date) -> dict[date, list[Workout]]:
+    query = select(Workout).where(Workout.completed == True, Workout.performed_on.between(first, last))
+    workouts = defaultdict(list)
+    for workout in db.scalars(query.order_by(Workout.completed_at.desc().nulls_last(), Workout.id.desc())):
+        workouts[workout.performed_on].append(workout)
+    return workouts
 
 
 def legacy_exercise_ids(db: Session, names: set[str]) -> dict[str, int]:
@@ -1983,13 +2038,16 @@ def progress_identity(item: WorkoutExercise, legacy_ids: dict[str, int], pushdow
 def exercise_progress_sessions(workouts, identities: set[int | str], legacy_ids: dict[str, int], pushdown_ids: set[int]) -> dict:
     sessions = {identity: [] for identity in identities}
     for workout in workouts:
+        checked_only = tracks_completion(workout)
         rows = []
         pushdown_sets = []
         for item in workout.exercises:
             identity = progress_identity(item, legacy_ids, pushdown_ids)
             if identity not in sessions:
                 continue
-            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in item.sets if not s.is_warmup]
+            sets = [{"weight": s.weight, "reps": s.reps, "exertion": s.exertion} for s in training_sets(item, checked_only)]
+            if not sets:
+                continue
             if identity == PUSHDOWN_NAME:
                 pushdown_sets.extend(sets)
             else:
@@ -2075,12 +2133,12 @@ def list_weights(db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/dashboard")
-def dashboard(selected_week: Optional[date] = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: Optional[date] = None, through_today: bool = False, db: Session = Depends(get_db)):
-    return training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today)
+def dashboard(selected_week: Optional[date] = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: Optional[date] = None, through_today: bool = False, db: Session = Depends(get_db), today: date = Depends(request_today)):
+    return training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today, local_today=today)
 
 
-def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: Optional[date] = None, comparison: str = 'previous', compare_week: Optional[date] = None, through_today: bool = False):
-    today = date.today()
+def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: Optional[date] = None, comparison: str = 'previous', compare_week: Optional[date] = None, through_today: bool = False, local_today: Optional[date] = None):
+    today = local_today or date.today()
     anchor = selected_week or today
     week_start = anchor - timedelta(days=anchor.weekday())
     current_week = today - timedelta(days=today.weekday())
@@ -2119,8 +2177,9 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
             (in_current, current, current_sets, current_muscle_sets, 1),
             (in_previous, previous, previous_sets, previous_muscle_sets, divisor),
         ]
+        checked_only = tracks_completion(workout)
         for exercise in workout.exercises:
-            working_sets = [s for s in exercise.sets if not s.is_warmup]
+            working_sets = training_sets(exercise, checked_only)
             volume = sum(s.weight * s.reps for s in working_sets) if exercise.muscle_group in current else None
             muscles = dashboard_muscles(exercise)
             if in_recent:
@@ -2154,18 +2213,18 @@ def training_dashboard(db: Session, *, include_bodyweight: bool, selected_week: 
 
 
 @app.get("/api/v1/dashboard/body-map")
-def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(get_db)):
-    return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today, period=period)
+def dashboard_body_map(selected_week: Optional[date] = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(get_db), today: date = Depends(request_today)):
+    return training_body_map(db, allow_remote=True, selected_week=selected_week, through_today=through_today, period=period, local_today=today)
 
 
-def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None, period: str = 'auto'):
+def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optional[date] = None, through_today: bool = False, muscle_catalogue: Optional[list[dict]] = None, period: str = 'auto', local_today: Optional[date] = None):
     """Build overlays for the selected week or the last seven days.
 
     `period` applies to the current week only: 'auto' shows the last seven days when the week has no
     completed workouts, 'week' always shows the week, and 'last_seven_days' always shows the last seven days.
     """
     global WGER_MUSCLES
-    today = date.today()
+    today = local_today or date.today()
     anchor = selected_week or today
     week_start = anchor - timedelta(days=anchor.weekday())
     current_week = today - timedelta(days=today.weekday())
@@ -2184,11 +2243,15 @@ def training_body_map(db: Session, *, allow_remote: bool, selected_week: Optiona
     if showing_last_seven_days:
         workouts = db.scalars(completed_workouts.where(Workout.performed_on >= today - timedelta(days=6), Workout.performed_on <= today)).all()
     for workout in workouts:
+        checked_only = tracks_completion(workout)
         for exercise in workout.exercises:
-            volume = sum(entry.weight * entry.reps for entry in exercise.sets if not entry.is_warmup)
+            sets = training_sets(exercise, checked_only)
+            if not sets:
+                continue
+            volume = sum(entry.weight * entry.reps for entry in sets)
             # A completed bodyweight/zero-load set still trains a muscle. Its
             # reps become the visual score when there is no load volume.
-            activation = volume or max(1, sum(entry.reps for entry in exercise.sets if not entry.is_warmup))
+            activation = volume or max(1, sum(entry.reps for entry in sets))
             cached = db.get(Exercise, exercise.cached_exercise_id) if exercise.cached_exercise_id else None
             # Historical workouts retain the muscles recorded at logging time.
             # Catalogue edits or incomplete catalogue rows must not erase them.

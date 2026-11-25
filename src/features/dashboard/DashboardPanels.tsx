@@ -1,6 +1,7 @@
 import type { Dash } from './types';
 import { ProfileAvatar } from '../../shared/ui/ProfileAvatar';
 import { JernLogo } from '../../shared/ui/JernLogo';
+import { loggedSets, tracksCompletion, workingSets } from '../workout/loggedSets';
 import type { Workout } from '../workout/types';
 import type { CalendarMonth } from '../calendar/types';
 import { useMemo, useState } from 'react';
@@ -24,7 +25,8 @@ import { sampleHealthOverview } from '../demo/healthSample';
 
 const muscleDisplayName = (name: string) => /pectoralis|^chest$/i.test(name) ? 'Chest' : name;
 
-export function DashboardPanels({ dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHealth = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
+export function DashboardPanels({ activePanel, dash, history, historyLoaded, calendar, firstName, profilePicture, log, openCalendar, openHealth = () => undefined, saveWeight, readOnly = false, weightGoal = null, targetWeight = null }: {
+    activePanel?: number;
     dash: Dash | null;
     history: Workout[];
     historyLoaded: boolean;
@@ -87,12 +89,13 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
         const totals = new Map<string, { name: string; current_week_sets: number; last_week_sets: number }>();
         history.filter(workout => workout.completed && new Date(`${workout.performed_on}T12:00:00`) >= previousStart).forEach(workout => {
             const current = new Date(`${workout.performed_on}T12:00:00`) >= currentStart;
+            const checkedOnly = tracksCompletion(workout);
             workout.exercises.forEach(exercise => {
                 const primary = (exercise.primary_muscle ?? '').replace(/^(?:Primary:\s*)+/i, '').split(' · ')[0];
                 const muscles = [primary, ...(exercise.secondary_muscles ?? [])].map(value => muscleName(value, exercise.name)).filter((value): value is string => Boolean(value));
                 [...new Set(muscles)].forEach(name => {
                     const total = totals.get(name) ?? { name, current_week_sets: 0, last_week_sets: 0 };
-                    total[current ? 'current_week_sets' : 'last_week_sets'] += exercise.sets?.length ?? 0;
+                    total[current ? 'current_week_sets' : 'last_week_sets'] += workingSets(exercise.sets, checkedOnly).length;
                     totals.set(name, total);
                 });
             });
@@ -140,7 +143,10 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const lastWorkout = completedHistory.find(workout => workout.performed_on <= localToday);
     const lastWorkoutDays = lastWorkout ? (Date.parse(localToday) - Date.parse(lastWorkout.performed_on)) / 86_400_000 : null;
     const lastWorkoutLabel = lastWorkoutDays === null ? '—' : lastWorkoutDays === 0 ? 'Today' : lastWorkoutDays === 1 ? 'Yesterday' : `${lastWorkoutDays} days ago`;
-    const workoutSets = (workout: Workout) => workout.exercises.reduce((sum, exercise) => sum + (exercise.sets?.length ?? 0), 0);
+    const workoutSets = (workout: Workout) => {
+        const checkedOnly = tracksCompletion(workout);
+        return workout.exercises.reduce((sum, exercise) => sum + loggedSets(exercise.sets, checkedOnly).length, 0);
+    };
     const weekDays = Array.from({ length: 7 }, (_, index) => { const date = new Date(weekStart); date.setDate(date.getDate() + index); const key = dateKey(date); const plan = selectedCalendar?.days.find(day => day.date === key); const workout = completed.find(entry => entry.performed_on === key); return { date, key, plan, workout }; });
     const plannedSessions = weekDays.filter(day => Boolean(day.plan?.routine_id)).length;
     const completedPlanned = weekDays.filter(day => day.plan?.routine_id && day.workout).length;
@@ -151,7 +157,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
     const prefetchHeatmap = () => { void loadBodyMap(readOnly, selectedWeek, throughToday && selectedWeek === currentWeek, { period }).catch(() => undefined); };
     const relativeDay = (date: string) => date === todayDate ? 'Today' : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
     return <>
-        <section className="dashboard-overview-page">
+        <section className="dashboard-overview-page" inert={activePanel != null && activePanel !== 0}>
         <div className="mobile-dashboard-topbar"><JernLogo variant="mobile" /><span><small>Today</small><time>{now.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></span><ProfileAvatar firstName={firstName} picture={profilePicture}/></div>
         <PageHeader action={<div className="dashboard-head-actions"><button className="primary dashboard-log" disabled={readOnly} onClick={log}>＋ Log workout</button><WeekSelector week={selectedWeek} currentWeek={currentWeek} today={todayDate} period={period} onPeriod={value => { setPeriodChoice(value); if (value === 'last_seven_days') setSelectedWeek(currentWeek); }} comparison={comparison} compareWeek={compareWeek} throughToday={throughToday} onWeek={setSelectedWeek} onComparison={setComparison} onCompareWeek={setCompareWeek} onThroughToday={setThroughToday}/></div>}><h1>Good afternoon, {firstName}</h1><DashboardGreeting dash={dash} history={history} historyLoaded={historyLoaded} calendar={calendar} firstName={firstName}/></PageHeader>
         <div className="dashboard-period-context" aria-live="polite">{weekData.error ? <>{weekData.error} <button onClick={weekData.retry}>Retry</button></> : weekData.loading ? "Loading selected week…" : null}</div>
@@ -171,7 +177,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
             <div className="mobile-week-days">{weekDays.map(({ date, key, workout }) => <span key={key} className={workout ? 'complete' : key === nextWorkout?.date ? 'next' : ''}><small>{date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3)}</small><i>{workout ? '✓' : ''}</i></span>)}</div>
         </section>
         </section>
-        <section className="dashboard-analytics">
+        <section className="dashboard-analytics" inert={activePanel != null && activePanel !== 1}>
             <BodyweightCard dash={dash} saveWeight={saveWeight} readOnly={readOnly} weightGoal={weightGoal} targetWeight={targetWeight}/>
             <article className={`dashboard-volume ${muscleMetric === 'sets' ? 'sets-mode' : muscleMetric === 'heatmap' ? 'heatmap-mode' : ''}`}>
                 <div className="muscle-card-head">
@@ -207,7 +213,7 @@ export function DashboardPanels({ dash, history, historyLoaded, calendar, firstN
                     </div>}
             </article>
         </section>
-        <section className="dashboard-lower"><h1 className="mobile-swipe-title">Activity</h1>
+        <section className="dashboard-lower" inert={activePanel != null && activePanel !== 2}><h1 className="mobile-swipe-title">Activity</h1>
             <HealthSnapshot health={health} openHealth={openHealth} sample={readOnly}/>
             <article className="week-overview"><div className="section-heading"><h2>{selectedWeek === currentWeek ? "This week" : "Selected week"}</h2><span>{plannedSessions ? `${completedPlanned} of ${plannedSessions} workouts completed` : `${sessionCount} sessions`}</span></div>{weekDays.map(({ date, key, plan, workout }) => <div className="week-row" key={key}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><b>{workout?.name ?? plan?.routine_name ?? plan?.workout_name ?? 'Rest'}</b>{(workout || plan?.status === 'completed') && <i aria-label="Completed">✓</i>}</div>)}</article>
             <article className="upcoming-workouts"><div className="section-heading"><h2>Upcoming</h2><button type="button" onClick={openCalendar}>View calendar →</button></div>{upcoming.length ? upcoming.map(day => <div className="upcoming-row" key={day.date}><time>{relativeDay(day.date)}</time><i className="upcoming-status" aria-hidden="true"/><b>{day.routine_name ?? day.workout_name ?? 'Rest day'}</b><i aria-hidden="true">⋮</i></div>) : <div className="lower-empty">No upcoming sessions planned.</div>}</article>

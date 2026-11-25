@@ -153,15 +153,17 @@ export function Health({ askCoach }: { askCoach: AskCoach }) {
   const [loading, setLoading] = useState(true);
   const [goal, setGoal] = useState(8000);
   const [notice] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const outcome = params.get('health');
-    if (outcome) {
-      params.delete('health');
-      window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.size ? '?' + params : ''}#health`);
-    }
+    const outcome = new URLSearchParams(window.location.search).get('health');
     if (outcome === 'failed') return 'Connection failed. Use your Jern Google account, check API access and try again.';
     return outcome === 'cancelled' ? 'Connection cancelled.' : '';
   });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('health') && window.location.hash !== '#health') return;
+    params.delete('health');
+    const hash = window.location.hash === '#health' ? '' : window.location.hash;
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${params.size ? '?' + params : ''}${hash}`);
+  }, []);
 
   useEffect(() => {
     let timer: number;

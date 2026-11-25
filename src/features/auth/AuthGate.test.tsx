@@ -2,8 +2,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthGate } from './AuthGate';
+import { accountKey } from './auth';
+import { ACTIVE_WORKOUT_KEY } from '../workout/session';
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('Session restoration', () => {
   it('exits a stalled request and offers a retry', async () => {
@@ -39,11 +41,34 @@ describe('Session restoration', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<AuthGate>{() => <div>Private workspace</div>}</AuthGate>);
     await screen.findByText('Private workspace');
+    const localDraft = JSON.stringify({ id: 42, name: 'Unsynced workout', exercises: [] });
+    const key = accountKey(ACTIVE_WORKOUT_KEY);
+    localStorage.setItem(key, localDraft);
     await act(async () => window.dispatchEvent(new Event('google-sign-out')));
     const retry = await screen.findByRole('button', { name: 'Retry sign out' });
     expect(screen.queryByText('Private workspace')).toBeNull();
+    expect(localStorage.getItem(key)).toBe(localDraft);
     fireEvent.click(retry);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry sign out' })).toBeNull());
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/session/logout'))).toHaveLength(2);
+    expect(localStorage.getItem(key)).toBe(localDraft);
   });
+});
+
+it('loads a fresh Google sign-in script when retrying a failed script request', async () => {
+  vi.stubEnv('DEV', false);
+  vi.stubEnv('VITE_GOOGLE_CLIENT_ID', 'test-client-id');
+  vi.resetModules();
+  const { AuthGate: GoogleAuthGate } = await import('./AuthGate');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+  const script = () => document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+  render(<GoogleAuthGate>{() => <div>Workspace</div>}</GoogleAuthGate>);
+  await waitFor(() => expect(script()).toBeTruthy());
+  const failedScript = script()!;
+  fireEvent.error(failedScript);
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Could not load Google sign-in. Check your connection.');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
+  await waitFor(() => expect(script()).toBeTruthy());
+  expect(script()).not.toBe(failedScript);
+  script()?.remove();
 });

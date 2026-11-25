@@ -1,4 +1,5 @@
-export const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+import { dateKey } from '../../shared/lib/format';
+export { dateKey };
 export const addDays = (key: string, days: number) => { const date = new Date(`${key}T12:00:00`); date.setDate(date.getDate() + days); return dateKey(date); };
 export const startOfWeek = (key: string) => { const date = new Date(`${key}T12:00:00`); return addDays(key, -((date.getDay() + 6) % 7)); };
 export const weekLabel = (key: string, days = 7) => {

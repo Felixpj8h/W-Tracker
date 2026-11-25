@@ -19,7 +19,7 @@
 .training-day:nth-child(7n){border-right:0}.training-day:nth-last-child(-n+7){border-bottom:0}
 .training-day:hover{background:var(--soft)}.training-day.completed{background:color-mix(in srgb,var(--accent) 11%,var(--surface))}.training-day.upcoming,.training-day.missed{background:var(--surface)}
 .training-day.selected{z-index:1;outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 15%,var(--surface))}
-.training-day.outside{opacity:.42}.training-date{display:grid;place-items:center;width:27px;height:27px;font-size:15px}.training-day.today .training-date{border-radius:50%;background:var(--accent);color:var(--on-accent);font-weight:800}
+.training-day.outside{opacity:1}.training-date{display:grid;place-items:center;width:27px;height:27px;font-size:15px}.training-day.today .training-date{border-radius:50%;background:var(--accent);color:var(--on-accent);font-weight:800}
 .training-event{position:relative;display:block;min-width:0;margin-top:auto;padding:7px 24px 7px 8px;border-radius:6px;background:color-mix(in srgb,var(--accent) 13%,var(--surface))}
 .training-day.upcoming .training-event,.training-day.missed .training-event{background:color-mix(in srgb,#808080 8%,var(--surface));color:var(--muted)}
 .training-event b,.training-event small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.training-event b{font-size:12px;line-height:1.35}.training-event small{margin-top:3px;color:var(--muted);font-size:11px}.training-day.completed .training-event small{color:var(--accent-dark)}
@@ -212,7 +212,7 @@ main.workspace:has(.training-calendar){height:100dvh;min-height:0;overflow:hidde
   .workspace .training-day{border-top:1px solid var(--border-subtle)!important;border-left:1px solid var(--border-subtle)!important}
   .workspace .training-day:nth-child(7n+1){border-left:0!important}
   .workspace .training-day.outside{background:color-mix(in srgb,var(--text-secondary) 4%,transparent)!important}
-  .workspace .training-day.outside .training-date{color:color-mix(in srgb,var(--text-secondary) 55%,transparent)}
+  .workspace .training-day.outside .training-date{color:var(--text-secondary,var(--text))}
   .workspace .training-day.today .training-date{color:var(--accent-bright);font-weight:750}
   .workspace .training-day.selected .training-date{background:var(--accent);color:var(--on-accent);font-weight:750}
   .workspace .training-day:focus-visible .training-date{outline:2px solid var(--accent);outline-offset:2px}

@@ -45,10 +45,9 @@ export function invalidateAccount() {
   googleIdToken = ''
   try {
     for (const key of Object.keys(localStorage)) {
-      const workoutCache = key.startsWith('workout-active-session') || key.startsWith('workout-position:')
-      const currentAccount = account && key.endsWith(':' + encodeURIComponent(account))
+      // Only older, unscoped entries are unsafe to restore after switching accounts.
       const legacy = key === 'workout-active-session' || (key.startsWith('workout-position:') && !key.includes('%40'))
-      if (workoutCache && (currentAccount || legacy)) localStorage.removeItem(key)
+      if (legacy) localStorage.removeItem(key)
     }
   } catch { /* Requests remain invalidated even when browser storage is unavailable. */ }
 }

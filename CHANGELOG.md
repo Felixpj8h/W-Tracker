@@ -1,5 +1,14 @@
 # Changelog
 
+## 25 November 2026
+
+- Keep overlapping workout starts from mixing session IDs. Preserve account-scoped unsynced drafts through sign-out, retry draft verification and autosaves after reconnecting, and keep rest timers running while a workout is paused.
+- Remove schedule references when a routine or folder is deleted and reject deletion of exercises still used in templates or planned workouts. Show every completed session on its calendar date and use the browser’s local date for training periods and new logs.
+- Exclude unchecked sets from training totals, records, and the heatmap. Migration `0013_set_completion` distinguishes new checkbox-aware workouts from older logs without checkbox data.
+- Keep short desktop dashboards scrollable and give dialogs Escape, focus trapping, and focus restoration. Improve phone workout-builder labels, touch targets, keyboard scrolling, and bodyweight chart selection.
+- Retry dashboard and Google sign-in failures in place, show current bodyweight data after refresh, and retain rejected Coach messages in the composer. Keep the composer focused across the first send and allow a failed Stop request to be retried.
+- Check both the web app and API in Docker readiness checks. These changes are local and have not been deployed to production.
+
 ## 24 November 2026
 
 - Keep all four Settings tabs within the page on narrow phones so Themes stays visible and tappable.

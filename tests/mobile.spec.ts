@@ -57,6 +57,68 @@ test.beforeEach(async ({ page }) => {
   await page.route(/^https:\/\/(accounts\.google\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)\//, route => route.abort());
 });
 
+test('keeps the short desktop dashboard scrollable', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 650 });
+  await page.goto('/');
+  const week = page.locator('.week-overview');
+  await expect(week).toBeVisible();
+  await week.locator('.week-row').last().scrollIntoViewIfNeeded();
+  const row = await week.locator('.week-row').last().boundingBox();
+  expect(row).not.toBeNull();
+  expect(row!.y + row!.height).toBeLessThanOrEqual(650);
+});
+
+test('keeps offscreen dashboard panels out of the phone tab order', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/');
+  await expect(page.locator('.dashboard-analytics')).toHaveAttribute('inert', '');
+  await expect(page.locator('.dashboard-lower')).toHaveAttribute('inert', '');
+  await page.getByRole('button', { name: 'Go to Progress' }).click();
+  await expect(page.locator('.dashboard-overview-page')).toHaveAttribute('inert', '');
+  await expect(page.locator('.dashboard-analytics')).not.toHaveAttribute('inert');
+  expect(await page.locator('.dashboard-shell').evaluate(shell => shell.scrollLeft)).toBe(0);
+});
+
+test('selects the nearest weigh-in when chart tap targets overlap', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const weights = [
+    { recorded_on: '2026-10-01', weight: 79 },
+    { recorded_on: '2026-11-23', weight: 80 },
+    { recorded_on: '2026-11-24', weight: 81 },
+  ];
+  await page.route('**/api/v1/dashboard', route => route.fulfill({ json: { ...dashboard, weight_series: weights, latest_weight: weights[2] } }));
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Go to Progress' }).click();
+  const point = page.getByRole('button', { name: /80 kilograms/ });
+  await expect(point).toBeVisible();
+  await expect.poll(async () => (await point.boundingBox())?.x ?? Infinity).toBeLessThan(320);
+  const box = (await point.boundingBox())!;
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator('.weight-point-popover')).toContainText('80.0 kg');
+});
+
+test('gives long routine exercise names space and returns focus on Escape', async ({ page }) => {
+  const name = 'Long-name dumbbell shoulder exercise';
+  const routine = { id: 3, folder_id: 2, name: 'Upper body', exercises: [{ exercise_id: 1, name, planned_sets: 3, target_reps_min: 8, target_reps_max: 12, rest_seconds: 90 }] };
+  await page.route('**/api/v1/folders', route => route.fulfill({ json: [{ id: 2, name: 'Strength', routines: [routine] }] }));
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Routines', exact: true }).click();
+  const trigger = page.locator('.routine-day-open').filter({ hasText: 'Upper body' });
+  await trigger.focus();
+  await trigger.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Routine editor' });
+  await expect(dialog.getByRole('button', { name: 'Close details' })).toBeFocused();
+  const label = dialog.locator('.mobile-builder-exercise').getByText(name);
+  expect((await label.boundingBox())?.width).toBeGreaterThan(200);
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: /Save workout day/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test('keeps substitution search and its results above the phone keyboard', async ({ page }) => {
   const replacements = Array.from({ length: 10 }, (_, index) => ({
     id: index + 2,

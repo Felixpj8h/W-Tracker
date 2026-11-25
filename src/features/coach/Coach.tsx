@@ -138,12 +138,14 @@ export function Coach({ coach, folders, plan }: Props) {
   useBackAction(drawer, () => setDrawer(false));
   const timeline = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const submitting = useRef(false);
+  const [composerError, setComposerError] = useState('');
   const id = coach.selectedId;
   const detail = id ? coach.details[id] : null;
   const messages = detail?.messages ?? [];
   const proposals = detail?.proposals ?? [];
   const hasConversation = messages.length > 0 || Boolean(coach.optimistic[id ?? -1]) || Boolean(id && (coach.drafts[id] || coach.streaming[id]));
-  const isWorking = Boolean(id && coach.streaming[id] && !coach.errors[id]);
+  const isWorking = Boolean(id && coach.streaming[id]);
   const draft = id ? coach.drafts[id] : '';
   const workingLabel = id ? progressLabel(coach.activity[id], Boolean(draft), Boolean(coach.proposalNotice[id])) : '';
   useEffect(() => { void coach.load(); }, [coach.load]);
@@ -175,26 +177,33 @@ export function Coach({ coach, folders, plan }: Props) {
     window.addEventListener('resize', resizeComposer);
     return () => window.removeEventListener('resize', resizeComposer);
   }, [input, hasConversation]);
-  const submit = async (value = input) => {
-    const text = value.trim(); if (!text || text.length > 4000 || (id && coach.streaming[id])) return;
-    setInput('');
-    try { await coach.send(text, id); composer.current?.focus({ preventScroll: true }); } catch (error) { setInput(text); window.alert((error as Error).message); }
+  const submit = async () => {
+    const text = input.trim();
+    if (!text || text.length > 4000 || submitting.current || (id && coach.streaming[id])) return;
+    submitting.current = true;
+    setComposerError('');
+    composer.current?.focus({ preventScroll: true });
+    try { await coach.send(text, id, undefined, () => setInput(current => current === input ? '' : current)); }
+    catch (error) { setComposerError((error as Error).message); }
+    finally { submitting.current = false; }
   };
   const composerForm = <form className="coach-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
     <textarea ref={composer} rows={1} aria-label="Message your coach" placeholder="Ask your training question..." maxLength={4000} value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }}/>
     {id && coach.streaming[id] ? <button type="button" className="coach-send coach-stop" aria-label={coach.activity[id] === 'stopping' ? 'Stopping response' : 'Stop response'} onClick={() => void coach.cancel(id)} disabled={coach.activity[id] === 'stopping'}><CoachIcon name={coach.activity[id] === 'stopping' ? 'ellipsis' : 'stop'}/></button> : <button type="submit" className="coach-send" aria-label="Send message" disabled={!input.trim()}><CoachIcon name="arrow"/></button>}
   </form>;
   const list = <div className="coach-list"><div className="coach-list-head"><h2>Coach</h2><button onClick={() => { void coach.create().then(() => setDrawer(false)); }}><CoachIcon name="plus"/> New chat</button></div><div className="coach-list-body"><span className="coach-recent">Recent</span>{coach.loading ? <div className="coach-skeleton">Loading conversations…</div> : coach.conversations.length ? coach.conversations.map(item => <div className={`coach-thread ${id === item.id ? 'active' : ''}`} key={item.id}><button className="coach-thread-select" onClick={() => { void coach.select(item.id); setDrawer(false); }}><CoachIcon name="chat"/><b>{item.title}</b><small>{coach.streaming[item.id] ? 'Working' : dateLabel(item.updated_at)}</small></button><button className="coach-delete" aria-label={`Delete ${item.title}`} disabled={Boolean(coach.streaming[item.id]) || item.status === 'generating'} onClick={() => void coach.remove(item.id)}>×</button></div>) : <p className="coach-list-empty">No chats yet. Start a new conversation.</p>}</div></div>;
-  return <section className="coach-page"><aside className="coach-desktop-list">{list}</aside><div className={`coach-chat ${hasConversation ? 'has-conversation' : 'is-empty'}`}><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><h1>{hasConversation ? detail?.title ?? 'Coach' : 'Coach'}</h1><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}><CoachIcon name="plus"/></button></header>
+  return <section className="coach-page"><aside className="coach-desktop-list" aria-label="Conversations">{list}</aside><div className={`coach-chat ${hasConversation ? 'has-conversation' : 'is-empty'}`}><header className="coach-header"><button className="coach-drawer-button" aria-label="Open conversations" onClick={() => setDrawer(true)}>☰</button><h1>{hasConversation ? detail?.title ?? 'Coach' : 'Coach'}</h1><button className="coach-mobile-new" aria-label="New chat" onClick={() => void coach.create()}><CoachIcon name="plus"/></button></header>
     <div className="coach-timeline" ref={timeline} onScroll={event => { const node = event.currentTarget; setNearBottom(node.scrollHeight - node.scrollTop - node.clientHeight < 110); }}>
-      {!hasConversation && <div className="coach-welcome"><h2>Training coach</h2><p>Ask anything about your training.</p>{composerForm}<div className="coach-prompts">{prompts.map(prompt => <button key={prompt.label} onClick={() => { setInput(prompt.text); composer.current?.focus(); }}><CoachIcon name={prompt.icon}/>{prompt.label}</button>)}</div></div>}
+      {!hasConversation && <div className="coach-welcome"><h1>Training coach</h1><p>Ask anything about your training.</p><div className="coach-prompts">{prompts.map(prompt => <button key={prompt.label} onClick={() => { setInput(prompt.text); composer.current?.focus(); }}><CoachIcon name={prompt.icon}/>{prompt.label}</button>)}</div></div>}
       {messages.map((message, index) => <div key={message.id} className={`coach-message ${message.role} ${message.status}`}><div className="coach-bubble">{message.role === 'assistant' ? <CoachMarkdown>{message.content}</CoachMarkdown> : message.content}</div>{message.status !== 'completed' && <small>{message.status} {message.role === 'assistant' && (message.status === 'failed' || message.status === 'interrupted') && !messages.slice(index + 1).some(item => item.role === 'assistant' || item.role === 'user') && <button className="coach-retry" onClick={() => { const previous = messages.slice(0, index).reverse().find(item => item.role === 'user'); if (previous && id && previous.id === [...messages].reverse().find(item => item.role === 'user')?.id) void coach.send(previous.content, id, previous.id); }}>Retry</button>}</small>}{message.role === 'assistant' && proposalsForMessage(proposals, messages, message.id).map(proposal => <ProposalCard key={proposal.id} proposal={proposal} coach={coach} id={id!} folders={folders} plan={plan}/>)}</div>)}
       {id && coach.optimistic[id] && <div className="coach-message user"><div className="coach-bubble">{coach.optimistic[id]}</div></div>}
       {id && (draft || isWorking) && <div className="coach-message assistant coach-streaming-message">{draft && <div className="coach-bubble"><CoachMarkdown>{draft}</CoachMarkdown></div>}{isWorking && <div className="coach-progress" role="status" aria-live="polite"><span className="coach-progress-mark" aria-hidden="true"><i/><i/><i/></span><span>{workingLabel}</span></div>}</div>}
-      {coach.errors[id ?? 0] && <div className="coach-error" role="alert">{coach.errors[id ?? 0]}{id && <button onClick={() => { const last = [...messages].reverse().find(message => message.role === 'user'); if (last) void coach.send(last.content, id, last.id); }}>Retry</button>}</div>}
+      {(composerError || coach.errors[id ?? 0]) && <div className="coach-error" role="alert">{composerError || coach.errors[id ?? 0]}</div>}
+      {coach.errors[0] && !coach.loaded && <button type="button" onClick={() => void coach.load()}>Retry loading chats</button>}
+      {id && coach.detailErrors?.[id] && <div className="coach-error" role="alert">{coach.detailErrors[id]} <button type="button" onClick={() => void coach.refresh(id)}>Refresh chat</button></div>}
     </div>
     {!nearBottom && (messages.length > 0 || Boolean(draft) || isWorking) && <button className="coach-jump" onClick={() => { if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight; setNearBottom(true); }}>Jump to latest ↓</button>}
-    {hasConversation && composerForm}</div>
+    {composerForm}</div>
     {drawer && <div className="coach-drawer-wrap"><button className="coach-drawer-backdrop" aria-label="Close conversations" onClick={() => setDrawer(false)}/><aside className="coach-drawer" aria-label="Conversations"><div className="coach-drawer-top"><strong>Chats</strong><button className="coach-drawer-close" aria-label="Close conversations" onClick={() => setDrawer(false)}>×</button></div>{list}</aside></div>}
   </section>;
 }

@@ -112,6 +112,7 @@ class Folder(PublicModel):
 
 class LoggedSet(PublicModel):
     completed: bool = False
+    is_warmup: bool = False
     weight: float
     reps: int
     exertion: float | None
@@ -132,6 +133,7 @@ class Workout(PublicModel):
     name: str
     performed_on: date
     completed: Literal[True] = True
+    tracks_set_completion: bool = False
     duration_seconds: int | None
     exercises: list[LoggedExercise]
 
@@ -154,6 +156,11 @@ class CalendarLabel(PublicModel):
     color: str
 
 
+class CalendarWorkout(PublicModel):
+    id: int
+    name: str
+
+
 class CalendarDay(PublicModel):
     date: date
     routine_id: int | None
@@ -162,6 +169,7 @@ class CalendarDay(PublicModel):
     status: Literal["completed", "upcoming", "missed", "empty"]
     workout_id: int | None
     workout_name: str | None
+    workouts: list[CalendarWorkout]
     label: CalendarLabel | None
 
 
@@ -266,12 +274,12 @@ def public_routine(item):
 
 
 def public_workout(item):
-    return Workout(id=item.id, name=item.name, performed_on=item.performed_on,
+    return Workout(id=item.id, name=item.name, performed_on=item.performed_on, tracks_set_completion=m.tracks_completion(item),
         duration_seconds=int((item.completed_at - item.started_at).total_seconds()) if item.completed_at and item.started_at else None,
         exercises=[LoggedExercise(cached_exercise_id=e.cached_exercise_id, name=m.exercise_display_name(e.name),
             primary_muscle=m.canonical_muscle(e.primary_muscle), secondary_muscles=m.stored_secondary_muscles(e.secondary_muscles),
             muscle_group=e.muscle_group, rest_seconds=e.rest_seconds,
-            sets=[LoggedSet(weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed) for s in e.sets]) for e in item.exercises])
+            sets=[LoggedSet(weight=s.weight, reps=s.reps, exertion=s.exertion, completed=s.completed, is_warmup=s.is_warmup) for s in e.sets]) for e in item.exercises])
 
 
 @router.get("/folders", response_model=list[Folder])
@@ -340,8 +348,8 @@ def workout(workout_id: int, db: Session = Depends(demo_db)):
 
 
 @router.get("/dashboard", response_model=Dashboard)
-def dashboard(selected_week: date | None = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db)):
-    data = m.training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today)
+def dashboard(selected_week: date | None = None, comparison: Literal['previous', 'average', 'custom'] = 'previous', compare_week: date | None = None, through_today: bool = False, db: Session = Depends(demo_db), today: date = Depends(m.request_today)):
+    data = m.training_dashboard(db, include_bodyweight=True, selected_week=selected_week, comparison=comparison, compare_week=compare_week, through_today=through_today, local_today=today)
     return Dashboard(current_sessions=data["current_sessions"], previous_sessions=data["previous_sessions"], latest_weight=Bodyweight(**data["latest_weight"]) if data["latest_weight"] else None,
         weight_series=[Bodyweight(**entry) for entry in data["weight_series"]],
         current_week_start=data["current_week_start"], previous_week_start=data["previous_week_start"],
@@ -352,8 +360,8 @@ def dashboard(selected_week: date | None = None, comparison: Literal['previous',
 
 
 @router.get("/dashboard/body-map", response_model=BodyMap)
-def body_map(selected_week: date | None = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(demo_db)):
-    data = m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today, muscle_catalogue=BUNDLED_MUSCLES, period=period)
+def body_map(selected_week: date | None = None, through_today: bool = False, period: Literal['auto', 'week', 'last_seven_days'] = 'auto', db: Session = Depends(demo_db), today: date = Depends(m.request_today)):
+    data = m.training_body_map(db, allow_remote=False, selected_week=selected_week, through_today=through_today, muscle_catalogue=BUNDLED_MUSCLES, period=period, local_today=today)
     return BodyMap(
         muscles=[BodyMuscle(**v) for v in data["muscles"]
             if urlsplit(v["image_url"]).scheme == "https" and urlsplit(v["image_url"]).netloc == "wger.de"],
@@ -376,7 +384,7 @@ def public_override(assignment, data, db):
     for e in data["exercises"]:
         exercise = db.get(m.Exercise, e["exercise_id"])
         if exercise is None:
-            raise ValueError("Invalid planned exercise")
+            continue
         exercises.append(RoutineExercise(exercise=public_exercise(exercise), planned_sets=e["planned_sets"],
             target_reps=e.get("target_reps"), target_reps_min=e.get("target_reps_min"),
             target_reps_max=e.get("target_reps_max"), target_weight=e.get("target_weight"), rest_seconds=e.get("rest_seconds", 90)))
@@ -384,11 +392,11 @@ def public_override(assignment, data, db):
 
 
 @router.get("/calendar", response_model=CalendarMonth)
-def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(demo_db)):
+def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12), db: Session = Depends(demo_db), today: date = Depends(m.request_today)):
     item = db.scalar(select(m.WeeklyPlan).order_by(m.WeeklyPlan.id.desc()))
     first = date(year, month, 1)
     last = date(year, month, monthrange(year, month)[1])
-    completed = {w.performed_on: w for w in db.scalars(select(m.Workout).where(m.Workout.performed_on >= first, m.Workout.performed_on <= last))}
+    completed = m.completed_calendar_workouts(db, first, last)
     weekly = {d.weekday: d for d in item.days if d.routine is not None} if item else {}
     assignments = {a.day: a for a in db.scalars(select(m.CalendarAssignment).where(m.CalendarAssignment.day >= first, m.CalendarAssignment.day <= last)) if a.routine is not None}
     labels = {entry.day: entry.label for entry in db.scalars(select(m.CalendarDayLabel).where(m.CalendarDayLabel.day >= first, m.CalendarDayLabel.day <= last)) if entry.label is not None}
@@ -396,7 +404,8 @@ def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12
     for offset in range(last.day):
         day = first + timedelta(days=offset)
         scheduled = assignments.get(day) or (weekly.get(day.weekday()) if item and day >= item.starts_on else None)
-        done = completed.get(day)
+        workouts = completed.get(day, [])
+        done = workouts[0] if workouts else None
         override = None
         if isinstance(scheduled, m.CalendarAssignment) and scheduled.workout_override:
             data = json.loads(scheduled.workout_override)
@@ -408,8 +417,9 @@ def calendar(year: int = Query(ge=2000, le=2100), month: int = Query(ge=1, le=12
                 override = public_override(scheduled, data, db)
         days.append(CalendarDay(date=day, routine_id=scheduled.routine_id if scheduled else None,
             routine_name=override.name if override else scheduled.routine.name if scheduled else None,
-            routine_override=override, status="completed" if done else ("upcoming" if day >= date.today() else "missed") if scheduled else "empty",
+            routine_override=override, status="completed" if done else ("upcoming" if day >= today else "missed") if scheduled else "empty",
             workout_id=done.id if done else None, workout_name=done.name if done else None,
+            workouts=[CalendarWorkout(id=workout.id, name=workout.name) for workout in workouts],
             label=CalendarLabel(id=labels[day].id, name=labels[day].name, color=labels[day].color) if day in labels else None))
     return CalendarMonth(plan=public_plan(item), days=days)
 

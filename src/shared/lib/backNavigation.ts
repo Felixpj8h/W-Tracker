@@ -82,6 +82,17 @@ function start() {
   queueSync();
 }
 
+export function replacePageAfterBackGuard(path: string) {
+  const replace = () => window.history.replaceState(null, '', path);
+  if (!onGuard()) { replace(); return; }
+  guardId = 0;
+  removingGuard = true;
+  // The guard duplicates the current URL. Replace its underlying entry so
+  // the browser cannot return to that page when the user presses Back.
+  window.addEventListener('popstate', replace, { capture: true, once: true });
+  window.history.back();
+}
+
 /**
  * While `active`, the system Back gesture (or browser Back button) calls `onBack`
  * instead of leaving the app. Overlays are handled before page navigation, and

@@ -1,4 +1,5 @@
 import { authHeaders, sessionGeneration, sessionIsCurrent, sessionSignal } from '../../features/auth/auth';
+import { today } from '../lib/format';
 
 export const API = import.meta.env.VITE_API_URL ?? '/api/v1';
 
@@ -36,7 +37,7 @@ export async function api<T>(path: string, opts?: RequestInit, { trackWrite = tr
     if (optimisticWorkoutDelete) window.dispatchEvent(new CustomEvent('optimistic-workout-delete', { detail: { id: Number(optimisticWorkoutDelete), deleted: true } }));
     let failed = false;
     try {
-        const response = await fetch(API + path, { ...opts, signal, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', ...Object.fromEntries(new Headers(opts?.headers)) }) });
+        const response = await fetch(API + path, { ...opts, signal, credentials: 'include', cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json', 'X-Jern-Today': today(), ...Object.fromEntries(new Headers(opts?.headers)) }) });
         if (!sessionIsCurrent(generation)) throw Error('Your account changed. Sign in again.');
         if (response.status === 401) window.dispatchEvent(new Event('google-auth-expired'));
         if (!response.ok) {

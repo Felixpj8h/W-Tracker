@@ -2,7 +2,7 @@ import type { Routine } from '../routines/types';
 
 export type CalendarLabel = { id: number; name: string; color: 'rose' | 'amber' | 'sky' | 'violet' | 'mint' | 'slate' };
 
-export type CalendarDay = { workout_id?: number | null; routine_override?: Routine | null; date: string; routine_id: number | null; routine_name: string | null; status: 'completed' | 'upcoming' | 'missed' | 'empty'; workout_name: string | null; label?: CalendarLabel | null };
+export type CalendarDay = { workouts?: { id: number; name: string }[]; workout_id?: number | null; routine_override?: Routine | null; date: string; routine_id: number | null; routine_name: string | null; status: 'completed' | 'upcoming' | 'missed' | 'empty'; workout_name: string | null; label?: CalendarLabel | null };
 
 export type WeeklyPlan = { name: string; starts_on: string; days: { weekday: number; routine_id: number; routine_name: string }[] };
 
