@@ -2,6 +2,14 @@
 
 ## 28 November 2026
 
+- Add Settings → Workout, saved on each device. **Fill in set weights** has three options. Off keeps the routine's targets. First set copies the first set's weight to later sets you haven't changed or checked. Last session, the default, fills empty sets with last session's weights. Prefilled sets that you haven't changed don't count as logged when you revert a substitute.
+- **Add set** copies the weight and reps of the set above it instead of starting at 0 kg × 0.
+- Checking a working set starts the exercise's rest timer. In a superset, rest starts when both exercises have finished the round. When rest ends, the phone beeps and vibrates while Jern is open (iPhones don't vibrate, and silent mode mutes the beep). Both can be turned off. The countdown no longer starts one second too high.
+- Rename the AI preferences settings tab to Coach so all five tabs fit on narrow phones.
+- Open the keyboard when the dashboard's Current weight tile opens the Bodyweight Add form on phones. The input was focused while the form was still hidden, so the focus was ignored.
+
+These changes are local and have not been deployed.
+
 - Bring newly added exercises into view in the active workout header on mobile and desktop. Keep the selection when the server confirms the workout start, and show it as selected in the exercise overview.
 - Extend the bodyweight line to the start of the selected range when an earlier weigh-in is available. Use that weigh-in to interpolate the line, while keeping only actual in-range entries selectable.
 - Group dashboard components, styles, and tests into bodyweight, health, muscles, overview, and week folders, and document the new layout.

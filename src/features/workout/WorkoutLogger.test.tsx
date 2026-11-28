@@ -7,6 +7,7 @@ import { api } from '../../shared/api/client';
 import type { Workout } from './types';
 import { workoutWriterId } from './session';
 import { useState } from 'react';
+import { setWorkoutPreferences } from './workoutPreferences';
 
 vi.mock('../../shared/api/client', () => ({ api: vi.fn().mockResolvedValue({}), API: '/api/v1' }));
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
@@ -231,6 +232,8 @@ it('replaces an exercise, restores its original data, and offers the last substi
     expect(saved.exercises[0].cached_exercise_id).toBeUndefined();
     expect(saved.exercises[0].sets?.[0].exertion).toBeUndefined();
     expect(await screen.findByText('35 kg × 8')).toBeTruthy();
+    // The substitute's empty sets take its last weights, and reverting needs no confirmation.
+    await waitFor(() => expect(changed.mock.lastCall![0].exercises[0].sets).toEqual([{ weight: 35, reps: 8 }, { weight: 35, reps: 10 }]));
     expect(screen.queryByRole('button', { name: 'Substitute' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Revert to Bench press' }));
     expect(changed.mock.lastCall![0].exercises).toEqual([{ ...bench, primary_muscle: 'Pectoralis major', superset_id: undefined }]);
@@ -605,4 +608,98 @@ it('retains the exact selected entry when a session contains duplicate exercises
     fireEvent.keyDown(document, {key: 'Escape'});
     expect(screen.getByText('Exercise 1 of 2')).toBeTruthy();
     expect(screen.getByLabelText('Bench set 1 weight in kg')).toHaveValue('50');
+});
+
+function LiveHarness({ initial, onSave = () => undefined }: { initial: Workout; onSave?: (workout: Workout) => void }) {
+    const [workout, update] = useState(initial);
+    return <WorkoutLogger {...props} workout={workout} setWorkout={next => { onSave(next); update(next); }} editing={false}/>;
+}
+const liveSquat: Workout = { ...original, completed: false, exercises: [{ cached_exercise_id: 7, name: 'Squat', rest_seconds: 60, sets: [
+    { weight: 0, reps: 0, is_warmup: true }, { weight: 0, reps: 8 }, { weight: 0, reps: 8 }, { weight: 50, reps: 8 },
+] }] };
+const squatHistory = { 7: { sessions: [{ performed_on: '2026-10-12', sets: [{ weight: 60, reps: 8 }, { weight: 62.5, reps: 6 }] }], personal_best_weight: 62.5, personal_best_1rm: 75 } };
+
+it('fills empty working sets with last session weights once, keeping target weights', async () => {
+    vi.mocked(api).mockImplementation(async path => path === '/workouts/42/exercise-progress' ? squatHistory : {});
+    let saved = liveSquat;
+    render(<LiveHarness initial={liveSquat} onSave={next => { saved = next; }}/>);
+    await waitFor(() => expect(saved.exercises[0].sets).toEqual([
+        { weight: 0, reps: 0, is_warmup: true }, { weight: 60, reps: 8 }, { weight: 62.5, reps: 8 }, { weight: 50, reps: 8 },
+    ]));
+    fireEvent.change(screen.getByLabelText('Squat set 1 weight in kg'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add exercise/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close add exercise panel' }));
+    await act(async () => undefined);
+    expect(saved.exercises[0].sets?.[1].weight).toBe(0);
+});
+
+it('leaves sets alone when filling set weights is off', async () => {
+    setWorkoutPreferences({ setPrefill: 'off' });
+    vi.mocked(api).mockImplementation(async path => path === '/workouts/42/exercise-progress' ? squatHistory : {});
+    const onSave = vi.fn();
+    render(<LiveHarness initial={liveSquat} onSave={onSave}/>);
+    expect(await screen.findByText(/60 kg × 8/)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+});
+
+it('copies the first set weight to the sets below it when matching the first set', () => {
+    setWorkoutPreferences({ setPrefill: 'first' });
+    let saved = liveSquat;
+    render(<LiveHarness initial={liveSquat} onSave={next => { saved = next; }}/>);
+    fireEvent.change(screen.getByLabelText('Squat set 1 weight in kg'), { target: { value: '70' } });
+    expect(saved.exercises[0].sets?.map(set => set.weight)).toEqual([0, 70, 70, 50]);
+    fireEvent.change(screen.getByLabelText('Squat set 2 weight in kg'), { target: { value: '72.5' } });
+    expect(saved.exercises[0].sets?.map(set => set.weight)).toEqual([0, 70, 72.5, 50]);
+});
+
+it('adds a set with the weight and reps of the set above it', () => {
+    setWorkoutPreferences({ setPrefill: 'off' });
+    let saved = liveSquat;
+    render(<LiveHarness initial={liveSquat} onSave={next => { saved = next; }}/>);
+    fireEvent.click(screen.getByRole('button', { name: /Add set/ }));
+    expect(saved.exercises[0].sets?.at(-1)).toEqual({ weight: 50, reps: 8, completed: false });
+    expect(screen.getByLabelText('Squat set 4 weight in kg')).toHaveValue('50');
+});
+
+it('starts the rest timer when a working set is checked, not for warm-ups or when turned off', () => {
+    render(<LiveHarness initial={liveSquat}/>);
+    fireEvent.click(screen.getByLabelText('Complete Squat warm-up 1'));
+    expect(screen.queryByRole('timer')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Complete Squat set 1'));
+    expect(screen.getByRole('timer')).toHaveTextContent('1:00');
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    act(() => setWorkoutPreferences({ autoRest: false }));
+    fireEvent.click(screen.getByLabelText('Complete Squat set 2'));
+    expect(screen.queryByRole('timer')).toBeNull();
+});
+
+it('starts a superset rest only after both exercises finish the round', () => {
+    const pair: Workout = { ...original, completed: false, exercises: [
+        { name: 'Curl', superset_id: 'pair', rest_seconds: 75, sets: [{ weight: 10, reps: 10 }, { weight: 10, reps: 10 }] },
+        { name: 'Pushdown', superset_id: 'pair', rest_seconds: 75, sets: [{ weight: 20, reps: 10 }, { weight: 20, reps: 10 }] },
+    ] };
+    render(<LiveHarness initial={pair}/>);
+    fireEvent.click(screen.getByLabelText('Complete Curl set 1'));
+    expect(screen.queryByRole('timer')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Switch exercise' }));
+    fireEvent.click(screen.getByLabelText('Complete Pushdown set 1'));
+    expect(screen.getByRole('timer')).toHaveTextContent('1:15');
+});
+
+it('vibrates when the rest ends, but not when it is skipped or alerts are off', async () => {
+    vi.useFakeTimers();
+    const vibrate = vi.fn();
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+    render(<LiveHarness initial={liveSquat}/>);
+    fireEvent.click(screen.getByRole('button', { name: /Rest 1:00/ }));
+    await act(() => vi.advanceTimersByTimeAsync(61_000));
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Rest 1:00/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    act(() => setWorkoutPreferences({ restAlert: false }));
+    fireEvent.click(screen.getByRole('button', { name: /Rest 1:00/ }));
+    await act(() => vi.advanceTimersByTimeAsync(61_000));
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    Reflect.deleteProperty(navigator, 'vibrate');
 });

@@ -12,14 +12,14 @@ For the API, database, and backend build, see the [Backend README](backend/READM
 | Area | What it does |
 | --- | --- |
 | **Dashboard** | Greets you with this week's training summary, current bodyweight, and last workout. A front and back body map shows each muscle's volume, set count, or an activity heatmap for any week or the last seven days. A Health snapshot shows seven-day averages for steps, sleep, activity, HRV, and resting heart rate when Google Health is connected. Lists the selected week's plan and upcoming workouts. |
-| **Workout tracking** | Logs one exercise at a time with weight, reps, and RPE, plus warm-up sets, supersets, exercise swaps, notes, and a rest timer. Shows last time's sets, best weight, and estimated one-rep max (1RM) for each exercise. Saves as you go, so you can pause and resume a workout. |
+| **Workout tracking** | Logs one exercise at a time with weight, reps, and RPE, plus warm-up sets, supersets, exercise swaps, notes, and a rest timer that can start when a set is checked and beep and vibrate when it ends. Empty sets can take last session's weights or copy the first set's weight. Shows last time's sets, best weight, and estimated one-rep max (1RM) for each exercise. Saves as you go, so you can pause and resume a workout. |
 | **Routines** | Reusable workout templates grouped in folders. Each exercise has a set count, rep range, optional target weight, and rest time. Share a routine or a whole folder as a link, and import one from a link. |
 | **Calendar** | Month view that combines planned and logged workouts. Set a repeating weekly plan, move or remove a single day, and label days. |
 | **History** | Every completed session, plus per-exercise volume charts over 1 month, 3 months, 6 months, 1 year, or all time. |
 | **Bodyweight** | Log weigh-ins and follow the trend on a chart from the dashboard. |
 | **Coach** | Chat with an AI coach that reads your training data. It answers training, recovery, and nutrition questions. You approve any change it suggests to routines or the weekly plan before it is applied. See [The coach's AI pipeline](#the-coachs-ai-pipeline). |
 | **Health** | Optional read-only Google Health connection for steps, active minutes, sleep stages, heart rate variability (HRV), and resting heart rate. Includes 7-day trends and an editable step goal. [Google Health setup](docs/google-health.md) |
-| **Settings** | Colour theme, coach response length, weight goal, Sets by muscle chart style (radar or bars), and sign out. |
+| **Settings** | Colour theme, coach response length, weight goal, set weight filling and rest timer behaviour, Sets by muscle chart style (radar or bars), and sign out. |
 | **Demo** | Optional public, read-only view of one account's training. Disabled by default. Health data is never published: the demo's Health snapshot shows labelled sample readings. |
 
 Exercise search uses the open [Wger](https://wger.de/) catalogue, which is cached

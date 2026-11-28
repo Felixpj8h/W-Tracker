@@ -5,10 +5,11 @@ import { requestSignOut } from '../auth/auth';
 import { AI_OUTPUT_LENGTHS, type AccountSettingsController } from './useAccountSettings';
 import { WeightGoalSettings } from './WeightGoalSettings';
 import { SETS_CHART_STYLES, setSetsChartStyle, useSetsChartStyle } from '../dashboard/muscles/setsChartPreference';
+import { WorkoutSettings } from './WorkoutSettings';
 import './settings.css';
 
-type Tab = 'ai' | 'goals' | 'dashboard' | 'themes';
-const TABS: { id: Tab; label: string }[] = [{ id: 'ai', label: 'AI preferences' }, { id: 'goals', label: 'Goals' }, { id: 'dashboard', label: 'Dashboard' }, { id: 'themes', label: 'Themes' }];
+type Tab = 'ai' | 'goals' | 'workout' | 'dashboard' | 'themes';
+const TABS: { id: Tab; label: string }[] = [{ id: 'ai', label: 'Coach' }, { id: 'goals', label: 'Goals' }, { id: 'workout', label: 'Workout' }, { id: 'dashboard', label: 'Dashboard' }, { id: 'themes', label: 'Themes' }];
 
 function SunIcon() {
     return <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>;
@@ -55,6 +56,9 @@ export function Settings({ settings, theme }: { settings: AccountSettingsControl
         {tab === 'goals' && <div className="settings-panel" role="tabpanel" id="settings-panel-goals" aria-labelledby="settings-tab-goals">
             <WeightGoalSettings settings={settings}/>
             {status('goals')}
+        </div>}
+        {tab === 'workout' && <div className="settings-panel settings-workout" role="tabpanel" id="settings-panel-workout" aria-labelledby="settings-tab-workout">
+            <WorkoutSettings/>
         </div>}
         {tab === 'dashboard' && <div className="settings-panel" role="tabpanel" id="settings-panel-dashboard" aria-labelledby="settings-tab-dashboard">
             <div className="settings-row">

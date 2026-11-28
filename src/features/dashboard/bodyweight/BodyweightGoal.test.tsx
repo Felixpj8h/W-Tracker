@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { BodyweightCard } from './BodyweightCard';
 import type { Dash } from '../types';
 
@@ -34,4 +34,16 @@ it('opens the Add form and focuses it on each request from the Current weight ti
     rerender(<BodyweightCard dash={dash} saveWeight={async () => undefined} openAddRequest={1}/>);
     expect(form().classList.contains('adding')).toBe(true);
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Bodyweight in kilograms' }));
+});
+
+it('shows the Add form before focusing it, so phones open the keyboard', () => {
+    const { container, rerender } = render(<BodyweightCard dash={dash} saveWeight={async () => undefined}/>);
+    const formOpen: boolean[] = [];
+    const focus = vi.spyOn(HTMLInputElement.prototype, 'focus').mockImplementation(function (this: HTMLInputElement) {
+        formOpen.push(Boolean(this.closest('form')?.classList.contains('adding')));
+    });
+    rerender(<BodyweightCard dash={dash} saveWeight={async () => undefined} openAddRequest={1}/>);
+    expect(formOpen).toEqual([true]);
+    expect(container.querySelector('.dashboard-weight-actions form')!.classList.contains('adding')).toBe(true);
+    focus.mockRestore();
 });

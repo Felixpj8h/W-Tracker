@@ -57,3 +57,12 @@
 @media(max-width:760px){
     .settings-target-field input{flex:1;width:auto}
 }
+.settings-workout .settings-row + .settings-row{margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}
+.settings-workout .settings-row p{max-width:420px}
+.settings-workout .settings-segmented{flex:none}
+@media(max-width:760px){
+    .settings-tabs{gap:0}
+    .settings-tabs button{padding-inline:4px}
+    .settings-workout .settings-segmented{flex:initial}
+}
+@media(max-width:350px){.settings-tabs button{padding-inline:2px;font-size:12px}}

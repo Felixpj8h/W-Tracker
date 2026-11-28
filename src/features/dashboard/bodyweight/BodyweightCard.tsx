@@ -13,10 +13,16 @@ export function BodyweightCard({ dash, saveWeight, readOnly = false, weightGoal 
     const addRoot = useOutsideDismiss<HTMLDivElement>(addingWeight, () => { if (!savingWeight) setAddingWeight(false); });
     const weightInput = useRef<HTMLInputElement>(null);
     // Each new request from the Current weight tile opens the Add form and focuses it.
-    // Focusing in the same tap lets phones show the keyboard.
+    // The form opens during this render, so it is visible when the layout effect
+    // focuses it in the same tap; phones only show the keyboard for a visible input
+    // focused while handling the tap.
+    const [handledAddRequest, setHandledAddRequest] = useState(0);
+    if (openAddRequest !== handledAddRequest) {
+        setHandledAddRequest(openAddRequest);
+        if (openAddRequest && !readOnly) setAddingWeight(true);
+    }
     useLayoutEffect(() => {
         if (!openAddRequest || readOnly) return;
-        setAddingWeight(true);
         weightInput.current?.focus({ preventScroll: true });
     }, [openAddRequest, readOnly]);
     const [range, setRange] = useState<'1M' | '3M' | '6M' | '1Y' | 'All'>('All');

@@ -9,6 +9,12 @@ import { authHeaders, accountKey, sessionGeneration, sessionIsCurrent } from '..
 import { routineMuscles } from '../routines/routineMuscles';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { moveItem } from '../../shared/lib/moveItem';
+import { useWorkoutPreferences } from './workoutPreferences';
+import { lastSessionSets, prefillFromLastSession } from './setPrefill';
+import { playRestAlert, primeRestAlert } from './restAlert';
+
+// A rest that ended while the app was in the background is not announced late.
+const LATE_REST_ALERT_MS = 5000;
 
 // fetch rejects with a TypeError only when the request never got a response.
 const isNetworkError = (error: unknown) => error instanceof TypeError;
@@ -54,7 +60,18 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     const latestWorkout = useRef(workout);
     const initialEdit = useRef(editing ? workout : null);
     const editId = useRef(workout?.id);
+    const preferences = useWorkoutPreferences();
+    const preferencesRef = useRef(preferences);
+    const setWorkoutRef = useRef(setWorkout);
+    const editingRef = useRef(editing);
+    useEffect(() => { preferencesRef.current = preferences; setWorkoutRef.current = setWorkout; editingRef.current = editing; });
+    // Exercises already given last session's weights, by workout and exercise ID.
+    const prefilledExercises = useRef(new Set<string>());
+    // The sets each prefill produced. While an exercise still has them unchanged, nothing was logged.
+    const prefilledSets = useRef(new Map<string, Workout['exercises'][number]['sets']>());
     const setRestUntil = (end: number | null) => {
+        // Count down from now, not from the last tick of an earlier timer.
+        if (end) setNow(Date.now());
         updateRestUntil(end);
         storeRestDeadline(restKey, end);
     };
@@ -94,11 +111,17 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
             const currentTime = Date.now();
             setNow(currentTime);
             if (currentTime >= restUntil) {
+                clearInterval(timer);
                 updateRestUntil(null);
                 storeRestDeadline(restKey, null);
+                if (preferencesRef.current.restAlert && currentTime - restUntil < LATE_REST_ALERT_MS) playRestAlert();
             }
         }, 250);
-        return () => clearInterval(timer);
+        // A timer restored after a reload has no audio yet. Any tap before it ends enables the beep.
+        const prime = () => { if (preferencesRef.current.restAlert) primeRestAlert(); };
+        document.addEventListener('pointerup', prime, { passive: true });
+        document.addEventListener('keydown', prime);
+        return () => { clearInterval(timer); document.removeEventListener('pointerup', prime); document.removeEventListener('keydown', prime); };
     }, [restKey, restUntil]);
     useEffect(() => {
         const controller = new AbortController();
@@ -161,6 +184,26 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
     }, [workout, selectedIndex, positionKey, open]);
     const openItem = workout?.exercises[selectedIndex];
     const progressExerciseIds = workout?.exercises.map(item => item.exercise_id ?? item.cached_exercise_id).filter((id): id is number => Boolean(id)).join(',') ?? '';
+    // Gives each exercise's empty sets last session's weights once, when its history first arrives.
+    const fillFromLastSession = (workoutId: number, exerciseIds: number[], progress: Record<number, ExerciseProgress>) => {
+        const current = latestWorkout.current;
+        if (editingRef.current || preferencesRef.current.setPrefill !== 'last' || current?.id !== workoutId || current.completed) return;
+        const handled: string[] = [];
+        let changed = false;
+        const exercises = current.exercises.map(item => {
+            const id = item.exercise_id ?? item.cached_exercise_id;
+            const key = `${workoutId}:${id}`;
+            if (!id || !exerciseIds.includes(id) || prefilledExercises.current.has(key)) return item;
+            handled.push(key);
+            const sets = prefillFromLastSession(item.sets ?? [], lastSessionSets(progress[id]));
+            if (!sets) return item;
+            changed = true;
+            prefilledSets.current.set(key, sets);
+            return { ...item, sets };
+        });
+        handled.forEach(key => prefilledExercises.current.add(key));
+        if (changed) setWorkoutRef.current({ ...current, exercises });
+    };
     useEffect(() => {
         if (!workout?.id) { setProgressByExercise({}); return; }
         const controller = new AbortController();
@@ -175,7 +218,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
                     if (Array.isArray(history.sessions)) progress[id] = history;
                 } catch { /* History is optional; keep the workout editable. */ }
             }));
-            if (!controller.signal.aborted) setProgressByExercise(progress);
+            if (controller.signal.aborted) return;
+            setProgressByExercise(progress);
+            fillFromLastSession(workoutId, exerciseIds, progress);
         })();
         return () => controller.abort();
     }, [workout?.id, progressExerciseIds]);
@@ -301,7 +346,9 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         const item = workout.exercises[selectedIndex];
         const original = item?.substituted_from;
         if (!original) return;
-        const hasLoggedData = item.note || item.sets?.some((set, index) =>
+        const id = item.exercise_id ?? item.cached_exercise_id;
+        const untouchedPrefill = Boolean(item.sets) && prefilledSets.current.get(`${workout.id}:${id}`) === item.sets;
+        const hasLoggedData = item.note || !untouchedPrefill && item.sets?.some((set, index) =>
             set.completed || set.weight > 0 || (set.exertion ?? 0) > 0 || set.reps !== (original.sets?.[index]?.reps ?? 0));
         if (hasLoggedData && !window.confirm(`Revert to ${original.name} and discard the sets and notes entered for ${item.name}?`)) return;
         const exercises = workout.exercises.map((exercise, index) => index === selectedIndex ? { ...original, superset_id: item.superset_id } : exercise);
@@ -395,7 +442,7 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         onPair={(index) => { const id = crypto.randomUUID(); setWorkout({...workout, exercises: workout.exercises.map((item, i) => i === selectedIndex || i === index ? {...item, superset_id:id} : item)}); }}
         onFinish={() => void finishSession()} onPause={!editing && pause ? () => void pauseSession() : undefined}
         onCancel={!editing && cancel ? () => void cancelSession() : undefined} pausing={pausing} reloading={reloading} onReloadSaved={() => void reloadSavedWorkout()} error={pauseError || saveError}
-        restRemaining={remaining} onRest={seconds => setRestUntil(Date.now() + seconds * 1000)} onSkipRest={() => setRestUntil(null)}
+        restRemaining={remaining} onRest={seconds => { if (preferences.restAlert) primeRestAlert(); setRestUntil(Date.now() + seconds * 1000); }} onSkipRest={() => setRestUntil(null)}
         searchOpen={extraExerciseOpen} substituteIndex={substituteIndex} recentSubstitute={replaced ? recentSubstitute : null} onRevert={revertExercise} supersetSearch={supersetSource !== null} onOpenSearch={(index, forSuperset = false) => {
             setSubstituteIndex(index);
             setRecentSubstitute(index === null ? null : lastSubstituteFor(workout.exercises[index]));
