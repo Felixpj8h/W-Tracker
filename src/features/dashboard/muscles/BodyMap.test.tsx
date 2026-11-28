@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BodyMap } from './BodyMap';
-import { DashboardPanels } from './DashboardPanels';
+import { DashboardPanels } from '../DashboardPanels';
 import { clearBodyMapCache } from './bodyMapData';
 
 const muscles = [

@@ -1,4 +1,4 @@
-import type { WeightGoal } from '../settings/useAccountSettings';
+import type { WeightGoal } from '../../settings/useAccountSettings';
 
 export type GoalTone = 'positive' | 'negative' | '';
 

@@ -4,7 +4,7 @@ import { THEMES, type ApplicationTheme } from '../../shared/lib/theme';
 import { requestSignOut } from '../auth/auth';
 import { AI_OUTPUT_LENGTHS, type AccountSettingsController } from './useAccountSettings';
 import { WeightGoalSettings } from './WeightGoalSettings';
-import { SETS_CHART_STYLES, setSetsChartStyle, useSetsChartStyle } from '../dashboard/setsChartPreference';
+import { SETS_CHART_STYLES, setSetsChartStyle, useSetsChartStyle } from '../dashboard/muscles/setsChartPreference';
 import './settings.css';
 
 type Tab = 'ai' | 'goals' | 'dashboard' | 'themes';

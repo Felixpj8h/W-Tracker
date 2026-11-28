@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { HealthIcon } from '../health/HealthWidgets';
-import type { HealthDay, HealthOverview } from '../health/types';
+import { HealthIcon } from '../../health/HealthWidgets';
+import type { HealthDay, HealthOverview } from '../../health/types';
 import type { HealthSnapshotState } from './useHealthSnapshot';
 import './health-snapshot.css';
 

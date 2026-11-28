@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../../shared/api/client';
-import { healthToday } from '../health/Health';
-import type { HealthOverview } from '../health/types';
+import { api } from '../../../shared/api/client';
+import { healthToday } from '../../health/Health';
+import type { HealthOverview } from '../../health/types';
 
 /** Same freshness rule as the Health page: resync after five minutes, or when the last sync was on another day. */
 const STALE_MS = 5 * 60_000;

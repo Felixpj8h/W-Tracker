@@ -1,6 +1,6 @@
-import type { Dash } from './types';
-import type { Workout } from '../workout/types';
-import type { CalendarMonth } from '../calendar/types';
+import type { Dash } from '../types';
+import type { Workout } from '../../workout/types';
+import type { CalendarMonth } from '../../calendar/types';
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 export function DashboardGreeting({ dash, history, historyLoaded, calendar, firstName }: { dash: Dash | null; history: Workout[]; historyLoaded: boolean; calendar?: CalendarMonth; firstName: string }) {

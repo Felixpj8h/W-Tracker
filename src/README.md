@@ -8,7 +8,12 @@ src/
     auth/              Sign-in gate, authentication headers, profile, and styles
     calendar/          Training calendar, weekly planning, and workout dialogs
     coach/             Coach UI, controller, API, types, and tests
-    dashboard/         Overview, bodyweight charts, muscle map, styles, and tests
+    dashboard/         Dashboard page, panel layout, and shared dashboard types
+      bodyweight/      Weight card, chart, goal helpers, and weight updates
+      health/          Health snapshot and its data hook
+      muscles/         Muscle heatmap, sets radar, and chart preference
+      overview/        Greeting and summary tiles
+      week/            Period selector, date helpers, and week data
     exercises/         Exercise types and muscle-label helpers
     history/           Session history and analysis, styles, and tests
     routines/          Routine folders, workout day editor, rest fields, and styles

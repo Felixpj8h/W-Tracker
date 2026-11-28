@@ -1,10 +1,10 @@
-import type { Workout } from '../workout/types';
+import type { Workout } from '../../workout/types';
 import { useEffect, useState } from 'react';
-import { api } from '../../shared/api/client';
-import { demoApi } from '../demo/api';
-import type { Dash } from './types';
-import type { CalendarMonth } from '../calendar/types';
-import { addDays } from './week';
+import { api } from '../../../shared/api/client';
+import { demoApi } from '../../demo/api';
+import type { Dash } from '../types';
+import type { CalendarMonth } from '../../calendar/types';
+import { addDays } from './weekDates';
 
 export function useWeekData(dash: Dash | null, calendar: CalendarMonth | undefined, week: string, currentWeek: string, comparison: string, compareWeek: string, throughToday: boolean, readOnly: boolean) {
     const query = new URLSearchParams({ selected_week: week, comparison, compare_week: compareWeek, through_today: String(throughToday && week === currentWeek) }).toString();

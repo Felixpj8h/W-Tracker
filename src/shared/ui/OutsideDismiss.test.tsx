@@ -5,7 +5,7 @@ import { OptionsMenu } from './OptionsMenu';
 import { DismissibleDetails } from './DismissibleDetails';
 import { RoutineEditor } from '../../features/routines/RoutineEditor';
 import { WorkoutTransfer } from '../../features/routines/WorkoutTransfer';
-import { BodyweightChart } from '../../features/dashboard/BodyweightChart';
+import { BodyweightChart } from '../../features/dashboard/bodyweight/BodyweightChart';
 
 vi.mock('../api/client', () => ({ api: vi.fn() }));
 beforeAll(() => { if (!window.PointerEvent) window.PointerEvent = MouseEvent as typeof PointerEvent; });

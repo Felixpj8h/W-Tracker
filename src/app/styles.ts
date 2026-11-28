@@ -8,7 +8,7 @@ import '../styles/typography.css';
 import '../features/routines/routine-manager.css';
 import '../features/workout/workout-chooser.css';
 import '../features/dashboard/mobile-dashboard.css';
-import '../features/dashboard/bodyweight-chart-add.css';
+import '../features/dashboard/bodyweight/bodyweight-chart-add.css';
 import '../features/calendar/calendar.css';
 import '../features/history/history-page.css';
 import '../features/history/history-analysis.css';

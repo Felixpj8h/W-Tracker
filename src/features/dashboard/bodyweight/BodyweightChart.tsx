@@ -1,4 +1,4 @@
-import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
+import { useOutsideDismiss } from '../../../shared/ui/useOutsideDismiss';
 import { useState, useRef, useEffect } from 'react';
 
 export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, readOnly = false, target = null }: {

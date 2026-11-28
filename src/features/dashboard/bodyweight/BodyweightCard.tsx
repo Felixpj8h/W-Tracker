@@ -1,9 +1,9 @@
-import { useOutsideDismiss } from '../../shared/ui/useOutsideDismiss';
-import type { Dash } from './types';
+import { useOutsideDismiss } from '../../../shared/ui/useOutsideDismiss';
+import type { Dash } from '../types';
 import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { BodyweightChart } from './BodyweightChart';
 import { weightGoalSummary } from './weightGoal';
-import type { WeightGoal } from '../settings/useAccountSettings';
+import type { WeightGoal } from '../../settings/useAccountSettings';
 
 export function BodyweightCard({ dash, saveWeight, readOnly = false, weightGoal = null, targetWeight = null, openAddRequest = 0 }: { openAddRequest?: number; dash: Dash | null; saveWeight: (n: number, recordedOn?: string) => Promise<void>; readOnly?: boolean; weightGoal?: WeightGoal | null; targetWeight?: number | null }) {
     const [weight, setWeight] = useState('');

@@ -1,5 +1,5 @@
 import { DashboardIcon } from './DashboardIcon';
-import { AnimatedValue } from '../../shared/ui/AnimatedValue';
+import { AnimatedValue } from '../../../shared/ui/AnimatedValue';
 
 export function Stat({ icon, label, value, sub, tone: toneOverride, action }: {
     icon?: 'scale' | 'volume' | 'session' | 'clock';

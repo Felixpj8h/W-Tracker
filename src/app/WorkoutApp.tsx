@@ -9,7 +9,7 @@ import type { Page } from './types';
 import type { Dash, SavedWeight } from '../features/dashboard/types';
 import type { Folder, Routine } from '../features/routines/types';
 import type { CalendarMonth } from '../features/calendar/types';
-import { withOptimisticWeights, withSavedWeight } from '../features/dashboard/weights';
+import { withOptimisticWeights, withSavedWeight } from '../features/dashboard/bodyweight/weights';
 import { api } from '../shared/api/client';
 import { useCoachController } from '../features/coach/useCoachController';
 import { today } from '../shared/lib/format';

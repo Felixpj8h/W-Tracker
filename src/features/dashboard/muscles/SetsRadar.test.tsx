@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SetsRadar } from './SetsRadar';
-import { DashboardPanels } from './DashboardPanels';
+import { DashboardPanels } from '../DashboardPanels';
 import { setSetsChartStyle } from './setsChartPreference';
 
 const rows = [

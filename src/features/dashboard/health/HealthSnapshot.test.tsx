@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from '../../shared/api/client';
-import { healthToday } from '../health/Health';
-import type { HealthDay, HealthOverview } from '../health/types';
+import { api } from '../../../shared/api/client';
+import { healthToday } from '../../health/Health';
+import type { HealthDay, HealthOverview } from '../../health/types';
 import { HealthSnapshot } from './HealthSnapshot';
 import { useHealthSnapshot } from './useHealthSnapshot';
-import { DashboardPanels } from './DashboardPanels';
+import { DashboardPanels } from '../DashboardPanels';
 
-vi.mock('../../shared/api/client', () => ({ api: vi.fn() }));
+vi.mock('../../../shared/api/client', () => ({ api: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const dayKey = (offset: number) => { const date = new Date(); date.setDate(date.getDate() + offset); return healthToday(date); };

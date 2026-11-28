@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DashboardPanels } from './DashboardPanels';
-import { addDays, compactRangeLabel, startOfWeek } from './week';
-import { clearBodyMapCache } from './bodyMapData';
-import { today } from '../../shared/lib/format';
-import type { Dash } from './types';
-import type { Workout } from '../workout/types';
+import { DashboardPanels } from '../DashboardPanels';
+import { addDays, compactRangeLabel, startOfWeek } from './weekDates';
+import { clearBodyMapCache } from '../muscles/bodyMapData';
+import { today } from '../../../shared/lib/format';
+import type { Dash } from '../types';
+import type { Workout } from '../../workout/types';
 
-vi.mock('../../shared/ui/AnimatedValue', () => ({ AnimatedValue: ({ value }: { value: string }) => <span>{value}</span> }));
+vi.mock('../../../shared/ui/AnimatedValue', () => ({ AnimatedValue: ({ value }: { value: string }) => <span>{value}</span> }));
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const current = startOfWeek(today());

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { BodyweightCard } from './BodyweightCard';
-import type { Dash } from './types';
+import type { Dash } from '../types';
 
 afterEach(cleanup);
 const weights = [{ recorded_on: '2026-10-01', weight: 84 }, { recorded_on: '2026-10-20', weight: 82.4 }];

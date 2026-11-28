@@ -1,5 +1,5 @@
 import type { HealthOverview } from '../health/types';
-import { addDays } from '../dashboard/week';
+import { addDays } from '../dashboard/week/weekDates';
 
 /**
  * Fixed sample readings for the public demo's Health snapshot.

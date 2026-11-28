@@ -8,7 +8,7 @@ import { api } from '../../shared/api/client';
 import { PageHeader } from '../../shared/ui/PageHeader';
 import { HistoryAnalysis } from './HistoryAnalysis';
 import { duration } from '../../shared/lib/format';
-import { DashboardIcon } from '../dashboard/DashboardIcon';
+import { DashboardIcon } from '../dashboard/overview/DashboardIcon';
 
 export function History({ data, edit, refresh, note, repeat, readOnly = false, pagination }: { pagination?: { q: string; month: string; months: string[]; total: number; volume: number; busy: boolean; more: boolean; filter: (query: string, month: string) => void; loadMore: () => void }; data: Workout[]; edit: (x: Workout) => void; refresh: () => Promise<void>; note: (s: string) => void; repeat?: (x: Workout) => Promise<void>; readOnly?: boolean }) {
     const [selectedId, setSelectedId] = useState<number | null>(null), [detailOpen, setDetailOpen] = useState(false), [query, setQuery] = useState(pagination?.q ?? ''), [month, setMonth] = useState(pagination?.month ?? 'all'), [view, setView] = useState<'sessions' | 'analysis'>('sessions'), [optimisticallyDeleted, setOptimisticallyDeleted] = useState<Set<number>>(() => new Set());

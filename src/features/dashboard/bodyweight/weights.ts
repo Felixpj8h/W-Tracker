@@ -1,4 +1,4 @@
-import type { Dash, WeightEntry } from './types';
+import type { Dash, WeightEntry } from '../types';
 
 export const withSavedWeight = (current: Dash | null, entry: WeightEntry): Dash | null => {
     if (!current) return current;

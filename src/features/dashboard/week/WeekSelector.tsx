@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { addDays, startOfWeek, compactRangeLabel, compactWeekLabel } from './week';
-import { DashboardIcon } from './DashboardIcon';
-import { useBackAction } from '../../shared/lib/backNavigation';
+import { addDays, startOfWeek, compactRangeLabel, compactWeekLabel } from './weekDates';
+import { DashboardIcon } from '../overview/DashboardIcon';
+import { useBackAction } from '../../../shared/lib/backNavigation';
 import './week-selector.css';
 
 export type DashboardPeriod = 'week' | 'last_seven_days';

@@ -1,6 +1,6 @@
-import type { BodyMapMuscle } from './types';
-import { api } from '../../shared/api/client';
-import { demoApi } from '../demo/api';
+import type { BodyMapMuscle } from '../types';
+import { api } from '../../../shared/api/client';
+import { demoApi } from '../../demo/api';
 
 export type BodyMapResult = { muscles: BodyMapMuscle[]; showing_last_seven_days?: boolean };
 /** Which period the current week's map shows. Without one, the server shows the last seven days when the week is empty. */

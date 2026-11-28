@@ -8,9 +8,10 @@ export type RadarRow = { name: string; current: number; previous: number | null 
 const AXIS_ORDER = ['Chest', 'Front delts', 'Side delts', 'Triceps', 'Rear delts', 'Lats', 'Rhomboids', 'Traps', 'Biceps', 'Forearms',
     'Spinal erectors', 'Glutes', 'Hamstrings', 'Quads', 'Adductors', 'Calves', 'Abs', 'Obliques'];
 const FALLBACK_SIZE = { width: 440, height: 260 };
-const LINE_HEIGHT = 12;
-const CHAR_WIDTH = 6.1;
-const LABEL_GAP = 7;
+// Spoke labels are larger on roomy cards; the width and line height estimates follow the font size.
+const labelFont = (width: number) => width >= 420 ? 12.5 : 11;
+const LABEL_GAP = 6;
+const LEGEND_CHAR_WIDTH = 5.8;
 const LEGEND_ROW = 26;
 
 
@@ -49,6 +50,7 @@ function useSize() {
 export function SetsRadar({ rows, currentLabel, comparisonLabel }: { rows: RadarRow[]; currentLabel: string; comparisonLabel: string | null }) {
     const [boxRef, { width, height }] = useSize();
     const [active, setActive] = useState<number | null>(null);
+    const fontSize = labelFont(width), CHAR_WIDTH = fontSize * 0.58, LINE_HEIGHT = Math.round(fontSize * 1.15);
     const axes = [...rows].sort((a, b) => orderIndex(a.name) - orderIndex(b.name) || a.name.localeCompare(b.name));
     const hasComparison = comparisonLabel !== null && axes.some(axis => axis.previous !== null);
     const count = axes.length;
@@ -89,7 +91,7 @@ export function SetsRadar({ rows, currentLabel, comparisonLabel }: { rows: Radar
     };
     // The legend (and the hover readout that replaces it) stacks in the top-left corner when that corner is
     // clear of the chart and its labels; the chart then gets the full height.
-    const legendWidth = (hasComparison ? Math.max(currentLabel.length, (comparisonLabel ?? '').length) + 9 : 16) * CHAR_WIDTH + 26;
+    const legendWidth = (hasComparison ? Math.max(currentLabel.length, (comparisonLabel ?? '').length) + 9 : 16) * LEGEND_CHAR_WIDTH + 26;
     const legendHeight = hasComparison ? 4 * 18 : 2 * 18;
     const fullHeight = fit(height);
     const sideLegend = (() => {
@@ -163,12 +165,12 @@ export function SetsRadar({ rows, currentLabel, comparisonLabel }: { rows: Radar
                 <g className="sets-radar-series" style={{ transformOrigin: `${cx}px ${cy}px` }}>
                     {hasComparison && <>
                         <polygon className="previous-area" points={polygon(previousPoints)}/>
-                        {previousPoints.map(([x, y], index) => <circle key={axes[index].name} className="previous-dot" cx={x} cy={y} r={index === active ? 4.5 : 3}/>)}
+                        {previousPoints.map(([x, y], index) => <circle key={axes[index].name} className="previous-dot" cx={x} cy={y} r={index === active ? 5 : 3.5}/>)}
                     </>}
                     <polygon className="current-area" points={polygon(currentPoints)}/>
-                    {currentPoints.map(([x, y], index) => <circle key={axes[index].name} className="current-dot" cx={x} cy={y} r={index === active ? 6 : 4.5}/>)}
+                    {currentPoints.map(([x, y], index) => <circle key={axes[index].name} className="current-dot" cx={x} cy={y} r={index === active ? 7 : 5}/>)}
                 </g>
-                <g className="sets-radar-labels">
+                <g className="sets-radar-labels" style={{ fontSize }}>
                     {axes.map((axis, index) => {
                         const a = angle(index), cos = Math.cos(a), sin = Math.sin(a);
                         const [x, y] = point(index, radius + LABEL_GAP);
