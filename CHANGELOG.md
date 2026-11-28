@@ -2,7 +2,11 @@
 
 ## 28 November 2026
 
-- Group dashboard files by bodyweight, health, muscles, overview, and week selection so related components, styles, and tests are easier to find.
+- Bring newly added exercises into view in the active workout header on mobile and desktop. Keep the selection when the server confirms the workout start, and show it as selected in the exercise overview.
+- Extend the bodyweight line to the start of the selected range when an earlier weigh-in is available. Use that weigh-in to interpolate the line, while keeping only actual in-range entries selectable.
+- Group dashboard components, styles, and tests into bodyweight, health, muscles, overview, and week folders, and document the new layout.
+
+The workout and bodyweight fixes are local.
 
 ## 25 November 2026
 

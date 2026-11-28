@@ -125,7 +125,7 @@
 }
 @media(prefers-reduced-motion:reduce){.workout-session *{transition:none!important}}
 .workout-session .session-navigation{margin-bottom:14px}
-.workout-session .session-selector{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);text-align:left}
+.workout-session .session-selector{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);text-align:left;scroll-margin-top:calc(var(--safe-area-top, 0px) + 12px)}
 .workout-session .session-selector>span:first-child{flex:none;padding-right:12px;border-right:1px solid var(--border);font-size:12px;font-weight:650}
 .workout-session .session-selector>b{min-width:0;flex:1;text-align:left;font-size:13px;overflow-wrap:anywhere}
 .workout-session .session-segments{display:flex;flex-wrap:wrap;gap:6px;margin:0}

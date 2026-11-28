@@ -1,8 +1,10 @@
 import { useOutsideDismiss } from '../../../shared/ui/useOutsideDismiss';
 import { useState, useRef, useEffect } from 'react';
 
-export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, readOnly = false, target = null }: {
+export function BodyweightChart({ values, leadIn, domainStart, domainEnd, saveWeight, readOnly = false, target = null }: {
     readOnly?: boolean;
+    /** Last entry before domainStart; the line is interpolated from it so it reaches the left edge. */
+    leadIn?: { weight: number; recorded_on: string };
     /** Target weight drawn as a dashed line when it is close enough to the data to fit. */
     target?: number | null;
     values: {
@@ -53,7 +55,13 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
         });
         return nearest;
     };
-    const dataLow = Math.min(...displayValues.map(x => x.weight)), dataHigh = Math.max(...displayValues.map(x => x.weight));
+    const timeOf = (date?: string) => date ? new Date(`${date}T12:00:00`).getTime() : NaN;
+    const firstShown = displayValues[0];
+    const edgeWeight = leadIn && firstShown?.recorded_on && timeOf(firstShown.recorded_on) > domainStart
+        ? leadIn.weight + (firstShown.weight - leadIn.weight) * (domainStart - timeOf(leadIn.recorded_on)) / (timeOf(firstShown.recorded_on) - timeOf(leadIn.recorded_on))
+        : null;
+    const scaleWeights = [...displayValues.map(x => x.weight), ...(edgeWeight === null ? [] : [edgeWeight])];
+    const dataLow = Math.min(...scaleWeights), dataHigh = Math.max(...scaleWeights);
     // Stretch the scale to show the target only when that keeps the trend readable.
     const showTarget = target !== null && displayValues.length > 0 && target >= dataLow - Math.max(5, dataHigh - dataLow) && target <= dataHigh + Math.max(5, dataHigh - dataLow);
     const rawLow = showTarget ? Math.min(dataLow, target) : dataLow, rawHigh = showTarget ? Math.max(dataHigh, target) : dataHigh, rawSpread = rawHigh - rawLow;
@@ -61,7 +69,7 @@ export function BodyweightChart({ values, domainStart, domainEnd, saveWeight, re
     const formatDate = (value?: string) => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
     const firstTime = domainStart, lastTime = domainEnd;
     const point = (index: number) => { const timestamp = displayValues[index].recorded_on ? new Date(`${displayValues[index].recorded_on}T12:00:00`).getTime() : index; return { x: firstTime === lastTime ? 50 : 2 + (timestamp - firstTime) / (lastTime - firstTime) * 96, y: 88 - ((displayValues[index].weight - low) / spread) * 72 }; };
-    const positions = displayValues.map((_, index) => point(index));
+    const positions = [...(edgeWeight === null ? [] : [{ x: 2, y: 88 - ((edgeWeight - low) / spread) * 72 }]), ...displayValues.map((_, index) => point(index))];
     const curve = positions.length ? positions.slice(1).reduce((path, current, index) => { const previous = positions[index], distance = (current.x - previous.x) / 3; return `${path} C ${previous.x + distance},${previous.y} ${current.x - distance},${current.y} ${current.x},${current.y}`; }, `M ${positions[0].x},${positions[0].y}`) : '';
     const area = curve ? `${curve} L ${positions.at(-1)!.x},100 L ${positions[0].x},100 Z` : '';
     const candidate = editing >= 0 ? editing : selected ?? hovered;

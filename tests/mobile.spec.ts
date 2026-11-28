@@ -177,6 +177,56 @@ test('keeps substitution search and its results above the phone keyboard', async
   await expect(substitute).toBeFocused();
 });
 
+for (const layout of ['phone', 'desktop'] as const) {
+  test(`keeps an added exercise selected when the workout start is confirmed on ${layout}`, async ({ page }) => {
+    const routine = {
+      id: 3,
+      folder_id: 2,
+      name: 'Leg day',
+      exercises: [{ exercise_id: 1, name: 'Squat', planned_sets: 12, target_reps_min: 8 }],
+    };
+    const added = { id: 2, name: 'Leg Press', equipment: 'Machine' };
+    let confirmStart!: () => void;
+    const start = new Promise<void>(resolve => { confirmStart = resolve; });
+    await page.route('**/api/v1/folders', route => route.fulfill({ json: [{ id: 2, name: 'Strength', routines: [routine] }] }));
+    await page.route('**/api/v1/routines/3/start', async route => {
+      await start;
+      await route.fulfill({ json: { ...workout, started_at: '2026-11-22T12:37:00Z' } });
+    });
+    await page.route('**/api/v1/exercises?*', route => route.fulfill({ json: [added] }));
+    await page.route('**/api/v1/workouts/42', route => route.fulfill({ json: { revision: 2 } }));
+    if (layout === 'desktop') await page.setViewportSize({ width: 1280, height: 650 });
+    await page.goto('/');
+    const navigation = page.locator(layout === 'phone' ? '.mobile' : '.sidebar');
+    await navigation.getByRole('button', { name: 'Log workout', exact: true }).click();
+    await page.getByRole('button', { name: /Leg day.*Start/ }).click();
+    await page.getByRole('button', { name: /Add exercise/ }).click();
+    const search = page.getByRole('dialog', { name: 'Add exercise' });
+    await search.getByRole('searchbox').fill('leg press');
+    const result = search.getByRole('button', { name: /Leg Press/ });
+    if (layout === 'phone') await result.tap();
+    else await result.click();
+    const selector = page.getByRole('button', { name: /Exercise 2 of 2.*Leg Press/ });
+    await expect(selector).toBeVisible();
+
+    const autosave = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/workouts/42' && response.request().method() === 'PATCH');
+    confirmStart();
+    const saved = await autosave;
+    expect(saved.ok()).toBe(true);
+    expect(saved.request().postDataJSON().exercises).toEqual([
+      expect.objectContaining({ name: 'Squat' }),
+      expect.objectContaining({ exercise_id: added.id, name: added.name }),
+    ]);
+    await expect(selector).toBeInViewport();
+    await expect(selector).toBeFocused();
+    if (layout === 'phone') await selector.tap();
+    else await selector.click();
+    await expect(selector).toHaveAttribute('aria-expanded', 'true');
+    const overview = page.getByRole('dialog', { name: 'Exercise overview' });
+    await expect(overview.getByRole('button', { name: /Leg Press.*Selected/ })).toHaveAttribute('aria-current', 'step');
+  });
+}
+
 test('keeps the workout note and Save reachable with the keyboard open', async ({ page }) => {
   await page.route('**/api/v1/workouts', route => route.fulfill({ json: [{ ...workout, completed: true }] }));
   await page.route('**/api/v1/workouts/42', route => route.fulfill({ json: { ...workout, completed: true } }));

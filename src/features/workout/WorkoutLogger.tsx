@@ -113,24 +113,33 @@ export function WorkoutLogger({ workout, folders, active, start, startAdHoc, set
         return () => { clearTimeout(timer); controller.abort(); };
     }, [q]);
     const positionKey = workout ? accountKey(`workout-position:${workout.id ?? workout.started_at ?? workout.performed_on + workout.name}`) : null;
+    const wasProvisional = useRef(false);
     const restoringPosition = useRef(false);
     const positionRef = useRef({ index: 0, scroll: 0, identity: '' });
     const exerciseIdentity = (item: Workout['exercises'][number] | undefined) => item ? `${item.exercise_id ?? item.cached_exercise_id ?? ''}:${item.name}` : '';
     useEffect(() => {
+        const confirmedStart = wasProvisional.current && Boolean(workout?.id);
+        wasProvisional.current = Boolean(workout && !workout.id);
         if (!positionKey) return;
         let saved = { index: 0, scroll: 0, identity: '' };
-        try { const data = JSON.parse(localStorage.getItem(positionKey) ?? 'null'); if (data && Number.isFinite(data.index) && Number.isFinite(data.scroll)) saved = data; } catch { /* Storage is optional. */ }
-        const matching = workout?.exercises.findIndex(item => exerciseIdentity(item) === saved.identity) ?? -1;
-        saved.index = matching >= 0 ? matching : Math.max(0, Math.min(saved.index, (workout?.exercises.length ?? 1) - 1));
+        if (confirmedStart) {
+            // The same draft now has a server ID. Carry its current position to the new storage key.
+            saved = { ...positionRef.current };
+        } else {
+            try { const data = JSON.parse(localStorage.getItem(positionKey) ?? 'null'); if (data && Number.isFinite(data.index) && Number.isFinite(data.scroll)) saved = data; } catch { /* Storage is optional. */ }
+            const matching = workout?.exercises.findIndex(item => exerciseIdentity(item) === saved.identity) ?? -1;
+            saved.index = matching >= 0 ? matching : Math.max(0, Math.min(saved.index, (workout?.exercises.length ?? 1) - 1));
+        }
         restoringPosition.current = true;
         positionRef.current = saved;
         setOpen(saved.index);
-        const frame = requestAnimationFrame(() => window.scrollTo?.({ top: saved.scroll, behavior: 'instant' }));
+        const frame = confirmedStart ? null : requestAnimationFrame(() => window.scrollTo?.({ top: saved.scroll, behavior: 'instant' }));
         const persist = () => { if (!sessionIsCurrent(generation.current)) return; try { localStorage.setItem(positionKey, JSON.stringify(positionRef.current)); } catch { /* Keep logging if storage is unavailable. */ } };
         const scroll = () => { positionRef.current.scroll = window.scrollY; persist(); };
+        if (confirmedStart) persist();
         window.addEventListener('scroll', scroll, { passive: true });
         window.addEventListener('pagehide', persist);
-        return () => { cancelAnimationFrame(frame); persist(); window.removeEventListener('scroll', scroll); window.removeEventListener('pagehide', persist); };
+        return () => { if (frame !== null) cancelAnimationFrame(frame); persist(); window.removeEventListener('scroll', scroll); window.removeEventListener('pagehide', persist); };
     // Restore only when changing workouts; ordinary edits must retain the viewport.
     }, [positionKey]);
     const boundedIndex = workout?.exercises.length ? Math.max(0, Math.min(open, workout.exercises.length - 1)) : 0;
